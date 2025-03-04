@@ -6,39 +6,58 @@
     <title>Document</title>
 </head>
 <body>
-   <input type="password" id="api" placeholder="OpenAI API Key" />
+   <input type="password" id="OPENAI_API_KEY" placeholder="OPENAI_API_KEY" />
    <input type="password" id="SPOTIFY_CLIENT_ID" placeholder="SPOTIFY_CLIENT_ID" />
    <input type="password" id="SPOTIFY_CLIENT_SECRET" placeholder="SPOTIFY_CLIENT_SECRET" />
-   <input type="file" id="track" />
    <button id="init">Init</button>
-   <button id="import">Load</button>
-   <button id="sync">Sync</button>
-   <button id="export">Export</button>
+   <input type="file" id="track" disabled="true" />
+   <button id="import" disabled="true">Load</button>
+   <button id="sync" disabled="true">Sync</button>
+   <button id="export" disabled="true">Export</button>
+   <p>inspect logs in dev console</p>
     <script type="module">
         import { FFmpeg } from "/assets/ffmpeg/package/dist/esm/index.js"
         import { fetchFile } from "/assets/util/package/dist/esm/index.js"
 
+        const OPENAI_API_KEY = localStorage.getItem('OPENAI_API_KEY')
+        const SPOTIFY_CLIENT_ID = localStorage.getItem('SPOTIFY_CLIENT_ID')
+        const SPOTIFY_CLIENT_SECRET = localStorage.getItem('SPOTIFY_CLIENT_SECRET')
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('OPENAI_API_KEY').value = OPENAI_API_KEY
+            document.getElementById('SPOTIFY_CLIENT_ID').value = SPOTIFY_CLIENT_ID
+            document.getElementById('SPOTIFY_CLIENT_SECRET').value = SPOTIFY_CLIENT_SECRET
+        })
+
         const advice = async (track1, track2) => {
-            const res = await fetch('https://api.openai.com/v1/completitions', {
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                    'Authorization': `Bearer ${OPENAI_API_KEY}`
                 },
                 body: JSON.stringify({
-                    model: 'text-davinci-003',
-                    prompt: 'test'
+                    model: 'gpt-4o-mini',
+                    messages: [{
+                        "role": "user", 
+        "content": `Compare the following tracks and determine if they are the same. Consider track name and track duration, be permissive, allow partial match, provide short reason. Respond with an object in the format: {"decision": boolean, "reason": "string"} only:
+      Original Track:
+      ${JSON.stringify(track1, null, 2)}
+      
+      Spotify Track:
+      ${JSON.stringify(track2, null, 2)}`
+                    }]
                 })
             })
             const payload = await res.json()
-            return payload.choices[0].text
+            return JSON.parse(payload.choices[0].message.content)
         }
 
         const spotify_access_token = async () => {
-            const SPOTIFY_CLIENT_ID = document.getElementById('SPOTIFY_CLIENT_ID').value
-            const SPOTIFY_CLIENT_SECRET = document.getElementById('SPOTIFY_CLIENT_SECRET').value
+            const _SPOTIFY_CLIENT_ID = localStorage.getItem('SPOTIFY_CLIENT_ID')
+            const _SPOTIFY_CLIENT_SECRET = localStorage.getItem('SPOTIFY_CLIENT_SECRET')
             const encoder = new TextEncoder()
-            const data = encoder.encode(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)
+            const data = encoder.encode(`${_SPOTIFY_CLIENT_ID}:${_SPOTIFY_CLIENT_SECRET}`)
             const auth = btoa(String.fromCharCode(...new Uint8Array(data)))
             
             const res = await fetch('https://accounts.spotify.com/api/token', {
@@ -52,14 +71,18 @@
 
             const payload = await res.json()
 
-            return payload.access_token
+            return payload
         }
 
-        const search = async (track) => {
-            const access_token = await spotify_access_token()
-            const title = ""
+        const search = async (title) => {
+            const access_token = localStorage.getItem('SPOTIFY_ACCESS_TOKEN')
 
-            const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(title)}&type=track&limit=3`)
+            const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(title)}&type=track&limit=3`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${access_token}`,
+                }
+            })
             const payload = await res.json()
 
             return payload.tracks
@@ -76,18 +99,51 @@
         })
 
         document.getElementById('init').addEventListener('click', async () => {
-            const token = await spotify_access_token()
+            if (localStorage.getItem('SPOTIFY_ACCESS_TOKEN') && localStorage.getItem('SPOTIFY_ACCESS_TOKEN_EXPIRES') > Date.now()) {
+                document.getElementById('track').disabled = false
+                return localStorage.getItem('SPOTIFY_ACCESS_TOKEN')
+            } else {
+                localStorage.removeItem('SPOTIFY_ACCESS_TOKEN')
+                localStorage.removeItem('SPOTIFY_ACCESS_TOKEN_EXPIRES')
+            }
+
+            const payload = await spotify_access_token()
+
+            localStorage.setItem('SPOTIFY_ACCESS_TOKEN', payload.access_token)
+            localStorage.setItem('SPOTIFY_ACCESS_TOKEN_EXPIRES', Date.now() + payload.expires_in * 1000)
+            
+            document.getElementById('track').disabled = false
         })
         document.getElementById('track').addEventListener('change', async (e) => {
             const track = e.target.files[0]
+            const title = track.name
             await ffmpeg.writeFile('track', await fetchFile(track))
             await ffmpeg.ffprobe(['-hide_banner', '-print_format', 'json', '-show_format', 'track', '-o', 'output'])
-            const output = await ffmpeg.readFile('output')
-            // console.log(JSON.parse(new TextDecoder().decode(output)))
-            // const track1 = await fetchFile(track)
-            // const track2 = await fetchFile(track)
-            // const res = await advice(track1, track2)
-            // console.log(res)
+            const res = await ffmpeg.readFile('output')
+            const payload = JSON.parse(new TextDecoder().decode(res))
+            payload.format.filename = title
+            console.log('ffprobe response', payload.format)
+
+            const tracks = await search(title)
+            console.log('spotify response', tracks)
+
+            for (const _track of tracks.items) {
+                const comparison = await advice(payload.format, _track)
+                console.log(`${comparison.decision ? '✔' : '❌'} ${comparison.reason}`)
+                if (comparison.decision) {
+                    console.log('matched', _track)
+                }
+            }
+        })
+
+        document.getElementById('SPOTIFY_CLIENT_ID').addEventListener('change', (e) => {
+            localStorage.setItem('SPOTIFY_CLIENT_ID', e.target.value)
+        })
+        document.getElementById('SPOTIFY_CLIENT_SECRET').addEventListener('change', (e) => {
+            localStorage.setItem('SPOTIFY_CLIENT_SECRET', e.target.value)
+        })
+        document.getElementById('OPENAI_API_KEY').addEventListener('change', (e) => {
+            localStorage.setItem('OPENAI_API_KEY', e.target.value)
         })
     </script>
 </body>
