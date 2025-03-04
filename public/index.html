@@ -40,7 +40,6 @@
             const encoder = new TextEncoder()
             const data = encoder.encode(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)
             const auth = btoa(String.fromCharCode(...new Uint8Array(data)))
-            // const auth = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64')
             
             const res = await fetch('https://accounts.spotify.com/api/token', {
                 method: 'POST',
@@ -76,11 +75,20 @@
             coreURL: "/assets/core/package/dist/esm/ffmpeg-core.js"
         })
 
-        document.getElementById('init').addEventListener('click', () => {
-            spotify_access_token()
+        document.getElementById('init').addEventListener('click', async () => {
+            const token = await spotify_access_token()
         })
-
-        console.log(ffmpeg)
+        document.getElementById('track').addEventListener('change', async (e) => {
+            const track = e.target.files[0]
+            await ffmpeg.writeFile('track', await fetchFile(track))
+            await ffmpeg.ffprobe(['-hide_banner', '-print_format', 'json', '-show_format', 'track', '-o', 'output'])
+            const output = await ffmpeg.readFile('output')
+            // console.log(JSON.parse(new TextDecoder().decode(output)))
+            // const track1 = await fetchFile(track)
+            // const track2 = await fetchFile(track)
+            // const res = await advice(track1, track2)
+            // console.log(res)
+        })
     </script>
 </body>
 </html>
