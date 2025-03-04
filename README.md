@@ -1,6 +1,6 @@
 # Clownz Army
 
-![Clownz Army](https://assets.grok.com/users/75414673-ca00-4cca-9e8e-7e36b4284552/6Zp8bGhNq9zuzGGG-generated_image.jpg)
+![Clownz Army](https://github.com/user-attachments/assets/ffa5c50f-7d9b-4efc-ad65-a45b3a62ce8e)
 
     A beat that slaps harder than a clown shoe.
 
