@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+   <input type="password" id="api" placeholder="OpenAI API Key" />
+   <input type="password" id="SPOTIFY_CLIENT_ID" placeholder="SPOTIFY_CLIENT_ID" />
+   <input type="password" id="SPOTIFY_CLIENT_SECRET" placeholder="SPOTIFY_CLIENT_SECRET" />
+   <input type="file" id="track" />
+   <button id="init">Init</button>
+   <button id="import">Load</button>
+   <button id="sync">Sync</button>
+   <button id="export">Export</button>
+    <script type="module">
+        import { FFmpeg } from "/assets/ffmpeg/package/dist/esm/index.js"
+        import { fetchFile } from "/assets/util/package/dist/esm/index.js"
+
+        const advice = async (track1, track2) => {
+            const res = await fetch('https://api.openai.com/v1/completitions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                },
+                body: JSON.stringify({
+                    model: 'text-davinci-003',
+                    prompt: 'test'
+                })
+            })
+            const payload = await res.json()
+            return payload.choices[0].text
+        }
+
+        const spotify_access_token = async () => {
+            const SPOTIFY_CLIENT_ID = document.getElementById('SPOTIFY_CLIENT_ID').value
+            const SPOTIFY_CLIENT_SECRET = document.getElementById('SPOTIFY_CLIENT_SECRET').value
+            const encoder = new TextEncoder()
+            const data = encoder.encode(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)
+            const auth = btoa(String.fromCharCode(...new Uint8Array(data)))
+            // const auth = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64')
+            
+            const res = await fetch('https://accounts.spotify.com/api/token', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Basic ${auth}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'grant_type=client_credentials'
+            })
+
+            const payload = await res.json()
+
+            return payload.access_token
+        }
+
+        const search = async (track) => {
+            const access_token = await spotify_access_token()
+            const title = ""
+
+            const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(title)}&type=track&limit=3`)
+            const payload = await res.json()
+
+            return payload.tracks
+        }
+
+        const ffmpeg = new FFmpeg()
+
+        ffmpeg.on("log", ({ message }) => {
+            console.log(message)
+        })
+
+        await ffmpeg.load({
+            coreURL: "/assets/core/package/dist/esm/ffmpeg-core.js"
+        })
+
+        document.getElementById('init').addEventListener('click', () => {
+            spotify_access_token()
+        })
+
+        console.log(ffmpeg)
+    </script>
+</body>
+</html>
