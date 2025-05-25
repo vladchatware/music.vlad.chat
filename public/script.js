@@ -29,7 +29,7 @@ const bootstrap = async () => {
   const send_button = document.getElementById('send_button')
   const prompt_input = document.getElementById('prompt_input')
 
-  const instructions = `Imagine you are a cool friendly DJ who knows everything there is to know about music working for Spotify or YouTube music. Your task is to generate a JSON object in the following format:
+  const instructions = `Imagine you are a party clown DJ who knows everything there is to know about music working for Spotify or YouTube music and throwing a Star Wars themed synth party. Your task is to generate a JSON object in the following format:
 
 \`\`\`json
 {
@@ -64,10 +64,15 @@ By reading the user's conversation text, fill out the JSON object and respond wi
   const msg = extractJSON(res)
   console.log(msg)
 
+  playlistIndex = 0
+  spotController.pause()
+
   await speak_text(msg.introduction)
   await speak_text(msg.artists[0].justification)
-
+  
   play_artist(msg.artists[0].artist)
+
+  generatedList = msg
 
   send_button.addEventListener('click', async (e) => {
     e.preventDefault()
@@ -80,29 +85,6 @@ By reading the user's conversation text, fill out the JSON object and respond wi
 
 }
 
-function spotifyCallback(EmbedController) {
-  spotController = EmbedController;
-  spotController.addListener('playback_update', e => {
-    lastPlaybackUpdate = 0;
-    setTimeout(function() {
-      if (lastPlaybackUpdate > 4 && notJustLoaded && !speaking && !agentPause) {
-        // Song ended or was paused by spotify auto play next.
-        if (playlistIndex < generatedList.artists.length) {
-          notJustLoaded = false;
-          spotController.pause();
-          // Announce the next song.
-          speak_text(generatedList.artists[playlistIndex].justification, function() {
-            // Play the next song.
-            play_artist(generatedList.artists[playlistIndex].artist);
-          });
-          
-          // Debounce Spotify issue that generates multiple callbacks in succession in short time.
-          setTimeout(function(){notJustLoaded = true;}, backoff);
-        }
-      }
-    }, 1500);
-  });
-}
 
 window.onSpotifyIframeApiReady = (IFrameAPI) => {
   const element = document.getElementById('embed-iframe');
@@ -118,6 +100,7 @@ const speak_text = (text) =>
   playMultiSentence(text, AUDIO_GENERATOR, "bm_george");
 
 const play_artist = (artist) => {
+  playlistIndex++
   spotify.call('GET', 'https://api.spotify.com/v1/search?q='+ artist + '&type=artist', null, function(data) {
     if ( this.status == 200 ) {
       var data = JSON.parse(this.responseText);
@@ -140,7 +123,6 @@ const play_artist = (artist) => {
   })
 }
 
-
 let spotController;
 let generatedList = undefined;
 let playlistIndex = 0;
@@ -148,6 +130,29 @@ let backoff = 2000;
 let notJustLoaded = true;
 let lastPlaybackUpdate = 0;
 let agentPause = false;
+
+function spotifyCallback(EmbedController) {
+  spotController = EmbedController;
+  spotController.addListener('playback_update', e => {
+    lastPlaybackUpdate = 0;
+    setTimeout(async function() {
+      if (lastPlaybackUpdate > 4 && notJustLoaded && !speaking && !agentPause) {
+        // Song ended or was paused by spotify auto play next.
+        if (playlistIndex < generatedList.artists.length) {
+          notJustLoaded = false;
+          spotController.pause();
+          // Announce the next song.
+          await speak_text(generatedList.artists[playlistIndex].justification)
+            // Play the next song.
+          play_artist(generatedList.artists[playlistIndex].artist);
+          
+          // Debounce Spotify issue that generates multiple callbacks in succession in short time.
+          setTimeout(function(){notJustLoaded = true;}, backoff);
+        }
+      }
+    }, 1500);
+  });
+}
 
 auth_button.addEventListener('click', () => {
   spotify.requestAuth(document.getElementById('clientId').value, document.getElementById('clientSecret').value)
