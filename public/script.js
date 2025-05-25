@@ -1,15 +1,21 @@
 import {KokoroTTS} from "https://cdn.jsdelivr.net/npm/kokoro-js@1.1.1/dist/kokoro.web.js";
 import {FilesetResolver, LlmInference} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai';
 import FileProxyCache from 'https://cdn.jsdelivr.net/gh/jasonmayes/web-ai-model-proxy-cache@main/FileProxyCache.min.js';
+import spotify from '/spotify.js'
 
 const modelFileNameRemote = 'https://storage.googleapis.com/jmstore/WebAIDemos/models/Gemma2/gemma2-2b-it-gpu-int8.bin';
 const modelFileName = 'https://localhost:3000/gemma2-2b-it-gpu-int8.bin';
 
-const main = async () => {
+const extractJSON = (str) => JSON.parse(str.split('```json')[1].split('```')[0])
+const auth_button = document.getElementById('auth_button')
+let llm;
+
+const bootstrap = async () => {
+  console.log('Loading model')
   const genaiFileset = await FilesetResolver.forGenAiTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai/wasm');
 
-  const llm = await LlmInference.createFromOptions(genaiFileset, {
+  llm = await LlmInference.createFromOptions(genaiFileset, {
     baseOptions: {
       modelAssetPath: 'gemma2-2b-it-gpu-int8.bin'
     },
@@ -18,9 +24,202 @@ const main = async () => {
     temperature: 0.01, // More deterministic and focused.
     randomSeed: 64
   });
+  console.log('Model loaded')
 
-  const res = await llm.generateResponse('Hello, how are you?')
-  console.log(res)
+  const send_button = document.getElementById('send_button')
+  const prompt_input = document.getElementById('prompt_input')
+
+  const instructions = `Imagine you are a cool friendly DJ who knows everything there is to know about music working for Spotify or YouTube music. Your task is to generate a JSON object in the following format:
+
+\`\`\`json
+{
+"introduction": "Your initial response to the user - be friendly but keep it short no more than 120 characters - dont use the words \"up next\" in this intro and dont mention any artist names",
+"artists": [
+  {
+    "artist": "artist name 1 - do NOT mention any songs in the artist name",
+    "justification": "Up next is \"arist name 1\" because... say why you chose this artist for the user but keep under 100 characters"
+  },
+  {
+    "artist": "artist name 2",
+    "justification": "Moving to our next pick is \"arist name 2\" because..."
+  },
+  {
+    "artist": "artist name 3",
+    "justification": "Finally our last pick is \"arist name 3\" because...r"
+  }
+]
+}
+\`\`\`
+Using this JSON format recommend what new music artists they should listen to next based on the user's conversation text. Be sure to use a lead in for the justification such as "up next" or "moving on". Use lead ins like "To kick this off" or "First up" only for the first artist only. Use "Finally" as the lead in for the last artist only.
+
+By reading the user's conversation text, fill out the JSON object and respond with it. Please ensure that the JSON object adheres to this structure and includes the specified fields. Do not include any other fields or data. Produce at least 5 artists in your response.
+`
+
+  const history = [`<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n`]
+
+  console.log('Asking first message')
+  const res = await llm.generateResponse(history.join(''))
+  history[0] += `${res}<end_of_turn>\n`
+
+  const msg = extractJSON(res)
+  console.log(msg)
+
+  await speak_text(msg.introduction)
+  await speak_text(msg.artists[0].justification)
+
+  play_artist(msg.artists[0].artist)
+
+  send_button.addEventListener('click', async (e) => {
+    e.preventDefault()
+    console.log('Asking')
+    history.push(`<start_of_turn>user\n ${prompt_input.value}<end_of_turn>\n<start_of_turn>model\n`)
+    const res = await llm.generateResponse(history.join(''))
+    console.time(res)
+    history.push(`${res}<end_of_turn>\n`)
+  })
+
+}
+
+function spotifyCallback(EmbedController) {
+  spotController = EmbedController;
+  spotController.addListener('playback_update', e => {
+    lastPlaybackUpdate = 0;
+    setTimeout(function() {
+      if (lastPlaybackUpdate > 4 && notJustLoaded && !speaking && !agentPause) {
+        // Song ended or was paused by spotify auto play next.
+        if (playlistIndex < generatedList.artists.length) {
+          notJustLoaded = false;
+          spotController.pause();
+          // Announce the next song.
+          speak_text(generatedList.artists[playlistIndex].justification, function() {
+            // Play the next song.
+            play_artist(generatedList.artists[playlistIndex].artist);
+          });
+          
+          // Debounce Spotify issue that generates multiple callbacks in succession in short time.
+          setTimeout(function(){notJustLoaded = true;}, backoff);
+        }
+      }
+    }, 1500);
+  });
+}
+
+window.onSpotifyIframeApiReady = (IFrameAPI) => {
+  const element = document.getElementById('embed-iframe');
+  // Set a default playlist to render before user interaction.
+  const options = {
+      uri: 'spotify:playlist:4j4GF3Ka6QsGqnjL17ju3k'
+    };
+
+  IFrameAPI.createController(element, options, spotifyCallback);
+};
+
+const speak_text = (text) => 
+  playMultiSentence(text, AUDIO_GENERATOR, "bm_george");
+
+const play_artist = (artist) => {
+  spotify.call('GET', 'https://api.spotify.com/v1/search?q='+ artist + '&type=artist', null, function(data) {
+    if ( this.status == 200 ) {
+      var data = JSON.parse(this.responseText);
+      console.log(data);
+      spotify.call('GET', 'https://api.spotify.com/v1/artists/' + data.artists.items[0].id + '/top-tracks', null, function(data) {
+        if ( this.status == 200 ) {
+          var data = JSON.parse(this.responseText);
+          console.log(data);
+          spotController.loadUri(data.tracks[0].uri);
+          spotController.play();
+        }
+      });
+    }
+    else if ( this.status == 401 ){
+      spotify.refreshAuth();
+    }
+    else {
+      console.log(this.responseText);
+    }   
+  })
+}
+
+
+let spotController;
+let generatedList = undefined;
+let playlistIndex = 0;
+let backoff = 2000;
+let notJustLoaded = true;
+let lastPlaybackUpdate = 0;
+let agentPause = false;
+
+auth_button.addEventListener('click', () => {
+  spotify.requestAuth(document.getElementById('clientId').value, document.getElementById('clientSecret').value)
+})
+
+const AUDIO_GENERATOR = document.getElementById('player');
+AUDIO_GENERATOR.volume = 1;
+const AUDIO_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX"
+let tts = undefined;
+let speaking = false;
+
+async function loadKokoro() {
+  tts = await KokoroTTS.from_pretrained(AUDIO_MODEL_ID, {
+    device: 'webgpu',
+    dtype: "fp32", // Options: needs "fp32" for WebGPU.
+  });
+}
+
+async function speakSentence(text, audioTarget, voiceName) {
+  return new Promise(async function (resolve) {
+    const AUDIO = await tts.generate(text, {
+      // Use `tts.list_voices()` to list all available voices
+      voice: voiceName,
+    });
+    audioTarget.src = await URL.createObjectURL(AUDIO.toBlob());
+    audioTarget.load();
+    console.log('Speaking sub part: ' + text);
+    audioTarget.addEventListener('ended', function audioEndListener() {
+      audioTarget.removeEventListener('ended', audioEndListener);
+      resolve();
+    });
+  });
+}
+
+
+async function playMultiSentence(text, audioTarget, voiceName) {
+  if (!speaking) {
+    speaking = true;
+    return new Promise(async function (resolve) {
+      // Temporary marker for abbreviations.
+      const TEMP_MARKER = '__TEMP_JM_ABBR__';
+      // Step 1: Replace periods in abbreviations with a unique marker.
+      let tempText = text.replace(/\b[A-Za-z]{1,3}\.(?=\s)/g, match => match + TEMP_MARKER);
+      // Step 2: Split based on periods followed by space (end of sentence)
+      let sentenceArray = tempText.split('. ');
+      for (let n = 0; n < sentenceArray.length; n++) {
+        let trimmedSentence = sentenceArray[n].trim();
+        if (trimmedSentence !== '') {
+          let noMarkerSentence = trimmedSentence.replace(TEMP_MARKER, '');
+          await speakSentence(noMarkerSentence, audioTarget, voiceName);
+        }
+      }
+      speaking = false;
+      resolve();
+    });
+  }
+  return Promise.resolve()
+}
+
+const main = async () => {
+  spotify.init('devices')
+  await loadKokoro()
+  console.log('kokoro loaded')
+  await speech_sequence()
+  console.log('speach sequence finished')
+  await bootstrap()
+  console.log('model bootstrap finished')
+}
+
+const speech_sequence = async () => {
+  await speak_text('Hello...')
+  await speak_text('This is my new voice.')
 }
 
 main()
