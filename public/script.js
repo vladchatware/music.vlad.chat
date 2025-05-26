@@ -1,5 +1,5 @@
-import {KokoroTTS} from "https://cdn.jsdelivr.net/npm/kokoro-js@1.1.1/dist/kokoro.web.js";
-import {FilesetResolver, LlmInference} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai';
+import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.1.1/dist/kokoro.web.js";
+import { FilesetResolver, LlmInference } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai';
 import FileProxyCache from 'https://cdn.jsdelivr.net/gh/jasonmayes/web-ai-model-proxy-cache@main/FileProxyCache.min.js';
 import spotify from '/spotify.js'
 
@@ -13,7 +13,7 @@ let llm;
 const bootstrap = async () => {
   console.log('Loading model')
   const genaiFileset = await FilesetResolver.forGenAiTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai/wasm');
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai/wasm');
 
   llm = await LlmInference.createFromOptions(genaiFileset, {
     baseOptions: {
@@ -90,13 +90,13 @@ window.onSpotifyIframeApiReady = (IFrameAPI) => {
   const element = document.getElementById('embed-iframe');
   // Set a default playlist to render before user interaction.
   const options = {
-      uri: 'spotify:playlist:4j4GF3Ka6QsGqnjL17ju3k'
-    };
+    uri: 'spotify:playlist:4j4GF3Ka6QsGqnjL17ju3k'
+  };
 
   IFrameAPI.createController(element, options, spotifyCallback);
 };
 
-const speak_text = (text) => 
+const speak_text = (text) =>
   playMultiSentence(text, AUDIO_GENERATOR, "bm_george");
 
 const play_artist = (artist) => {
@@ -106,7 +106,7 @@ const play_artist = (artist) => {
       var data = JSON.parse(this.responseText);
       console.log(data);
       spotify.call('GET', 'https://api.spotify.com/v1/artists/' + data.artists.items[0].id + '/top-tracks', null, function(data) {
-        if ( this.status == 200 ) {
+        if (this.status == 200) {
           var data = JSON.parse(this.responseText);
           console.log(data);
           spotController.loadUri(data.tracks[0].uri);
@@ -114,12 +114,12 @@ const play_artist = (artist) => {
         }
       });
     }
-    else if ( this.status == 401 ){
+    else if (this.status == 401) {
       spotify.refreshAuth();
     }
     else {
       console.log(this.responseText);
-    }   
+    }
   })
 }
 
@@ -172,7 +172,7 @@ async function loadKokoro() {
 }
 
 async function speakSentence(text, audioTarget, voiceName) {
-  return new Promise(async function (resolve) {
+  return new Promise(async function(resolve) {
     const AUDIO = await tts.generate(text, {
       // Use `tts.list_voices()` to list all available voices
       voice: voiceName,
@@ -191,7 +191,7 @@ async function speakSentence(text, audioTarget, voiceName) {
 async function playMultiSentence(text, audioTarget, voiceName) {
   if (!speaking) {
     speaking = true;
-    return new Promise(async function (resolve) {
+    return new Promise(async function(resolve) {
       // Temporary marker for abbreviations.
       const TEMP_MARKER = '__TEMP_JM_ABBR__';
       // Step 1: Replace periods in abbreviations with a unique marker.
@@ -215,16 +215,27 @@ async function playMultiSentence(text, audioTarget, voiceName) {
 const main = async () => {
   spotify.init('devices')
   await loadKokoro()
-  console.log('kokoro loaded')
-  await speech_sequence()
-  console.log('speach sequence finished')
-  await bootstrap()
-  console.log('model bootstrap finished')
-}
-
-const speech_sequence = async () => {
-  await speak_text('Hello...')
-  await speak_text('This is my new voice.')
+  generatedList = {
+    "introduction": "Your initial response to the user - be friendly but keep it short no more than 120 characters - dont use the words \"up next\" in this intro and dont mention any artist names",
+    "artists": [
+      {
+        "artist": "Londrelle",
+        "justification": "Up next is \"arist name 1\" because... say why you chose this artist for the user but keep under 100 characters"
+      },
+      {
+        "artist": "Londrelle",
+        "justification": "Moving to our next pick is \"arist name 2\" because..."
+      },
+      {
+        "artist": "Londrelle",
+        "justification": "Finally our last pick is \"arist name 3\" because...r"
+      }
+    ]
+  }
+  
+  speak_text(generatedList.introduction)
+  speak_text(generatedList.artists[0].justification)
+  play_artist(generatedList.artists[0].artist)
 }
 
 main()
