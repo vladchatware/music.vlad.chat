@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🤡</title>
+  <style>
+    .wrapper {
+      width: 100%;
+      height: 100vh;
+      background-image: url('./background.png');
+      background-size: cover;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex: 1;
+    }
+
+    @keyframes jump {
+
+      0%,
+      20%,
+      50%,
+      80%,
+      100% {
+        transform: translateY(0);
+      }
+
+      40% {
+        transform: translateY(-30px);
+      }
+
+      60% {
+        transform: translateY(-15px);
+      }
+    }
+
+    #icon {
+      height: 120px;
+      padding-top: 45%;
+    }
+
+    #speaker {
+      height: 75px;
+    }
+
+    .main {
+      flex: 1;
+    justify-content:center;
+    display: flex;
+    flex-direction:column;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: center;
+      padding-block: 10%;
+    }
+
+    .background-icon {
+      position: absolute;
+    }
+
+    .animated-icon {
+      animation: jump 2s infinite;
+    }
+
+    .animated-icon-18 {
+      animation: jump 1.8s infinite;
+    }
+
+    .animated-icon-12 {
+      animation: jump 1.2s infinite;
+    }
+
+    .animated-icon-16 {
+      animation: jump 1.6s infinite;
+    }
+
+    .animated-icon-10 {
+      animation: jump 1s infinite;
+    }
+
+    .icon1 {
+      top: 33%;
+      left: 26%;
+    }
+
+    .icon2 {
+      top: 26%;
+      left: 70%;
+    }
+
+    .icon3 {
+      top: 77%;
+      left: 26%;
+    }
+
+    .icon4 {
+      top: 86%;
+      left: 87%;
+    }
+
+    .icon5 {
+      top: 19%;
+      left: 19%;
+    }
+  </style>
+</head>
+
+<body>
+  <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
+  <div class="wrapper">
+    <div class="header">
+      <img id="icon" class="animated-icon" src="./icon.png"></img>
+    </div>
+    <div class="main">
+      <h1>🎪Creating magical party moments! ✨</h1>
+      <h2>🎈Ballon drops and bass drops🎵</h2>
+    <input id="auth_button" type="button" value="Sign in with Spotify">
+        <div width="300px" height="300px">
+      <div id="embed-iframe"></div>
+        </div>
+      <div class="background-icon animated-icon-12 icon1">🎉</div>
+      <div class="background-icon animated-icon-12 icon2">🎊</div>
+      <div class="background-icon animated-icon-16 icon3">🎈</div>
+      <div class="background-icon animated-icon-10 icon4">🎁</div>
+    </div>
+    <div class="footer">
+      <audio id="player" controls autoplay>
+        <source src="data:audio/mpeg;base64,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AA/wAAABAAAB/gAAACAAAD/AAAAEqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqr/+xBk3Y/wAAB/gAAACAAAD/AAAAEAAAH+AAAAIAAAP8AAAASqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv/7EGTdj/AAAH+AAAAIAAAP8AAAAQAAAf4AAAAgAAA/wAAABKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//sQZN2P8AAAf4AAAAgAAA/wAAABAAAB/gAAACAAAD/AAAAEqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqr/+xBk3Y/wAAB/gAAACAAAD/AAAAEAAAGkAAAAIAAANIAAAASqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg==" type="audio/mpeg">
+        Your browser does not support the audio element.
+      </audio>
+      <img id="speaker" src="./speaker.png"></img>
+    </div>
+  </div>
+    <script src="/script.js" type="module"></script>
+</body>
+
+</html>
