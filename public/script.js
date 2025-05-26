@@ -25,10 +25,11 @@ const bootstrap = async () => {
     randomSeed: 64
   });
   console.log('Model loaded')
+}
 
   const send_button = document.getElementById('send_button')
   const prompt_input = document.getElementById('prompt_input')
-
+  
   const instructions = `Imagine you are a party clown DJ who knows everything there is to know about music working for Spotify or YouTube music and throwing a Star Wars themed synth party. Your task is to generate a JSON object in the following format:
 
 \`\`\`json
@@ -57,7 +58,7 @@ By reading the user's conversation text, fill out the JSON object and respond wi
 
   const history = [`<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n`]
 
-  console.log('Asking first message')
+const request_song = async () => {
   const res = await llm.generateResponse(history.join(''))
   history[0] += `${res}<end_of_turn>\n`
 
@@ -73,16 +74,6 @@ By reading the user's conversation text, fill out the JSON object and respond wi
   play_artist(msg.artists[0].artist)
 
   generatedList = msg
-
-  send_button.addEventListener('click', async (e) => {
-    e.preventDefault()
-    console.log('Asking')
-    history.push(`<start_of_turn>user\n ${prompt_input.value}<end_of_turn>\n<start_of_turn>model\n`)
-    const res = await llm.generateResponse(history.join(''))
-    console.time(res)
-    history.push(`${res}<end_of_turn>\n`)
-  })
-
 }
 
 
@@ -111,6 +102,7 @@ const play_artist = (artist) => {
           console.log(data);
           spotController.loadUri(data.tracks[0].uri);
           spotController.play();
+          playing = true
         }
       });
     }
@@ -126,6 +118,7 @@ const play_artist = (artist) => {
 let spotController;
 let generatedList = undefined;
 let playlistIndex = 0;
+let playing = false;
 let backoff = 2000;
 let notJustLoaded = true;
 let lastPlaybackUpdate = 0;
@@ -133,24 +126,31 @@ let agentPause = false;
 
 function spotifyCallback(EmbedController) {
   spotController = EmbedController;
-  spotController.addListener('playback_update', e => {
-    lastPlaybackUpdate = 0;
-    setTimeout(async function() {
-      if (lastPlaybackUpdate > 4 && notJustLoaded && !speaking && !agentPause) {
+  let timeout = 0;
+  spotController.addListener('playback_update', async e => {
+    clearTimeout(timeout);
+    timeout = setTimeout(async function() {
+      // lastPlaybackUpdate++
+      // console.log('playback_update', lastPlaybackUpdate)
+      // console.log('notJustLoaded', notJustLoaded)
+      // console.log('speaking', speaking)
+      // console.log('agentPause', agentPause)
+      // if (lastPlaybackUpdate >= 2 && notJustLoaded && !speaking && !agentPause) {
+        // lastPlaybackUpdate = 0
         // Song ended or was paused by spotify auto play next.
         if (playlistIndex < generatedList.artists.length) {
-          notJustLoaded = false;
+          // notJustLoaded = false;
           spotController.pause();
           // Announce the next song.
           await speak_text(generatedList.artists[playlistIndex].justification)
             // Play the next song.
           play_artist(generatedList.artists[playlistIndex].artist);
-          
-          // Debounce Spotify issue that generates multiple callbacks in succession in short time.
-          setTimeout(function(){notJustLoaded = true;}, backoff);
+        } else {
+          playing = false
+          await request_song()
         }
-      }
-    }, 1500);
+      // }
+    }, 6000);
   });
 }
 
@@ -216,15 +216,38 @@ const main = async () => {
   spotify.init('devices')
   await loadKokoro()
   console.log('kokoro loaded')
-  await speech_sequence()
-  console.log('speach sequence finished')
+  generatedList = {
+    "introduction": "Hello, I'm your new DJ. I'm going to be recommending some new music for you to listen to. Let's get started!",
+    "artists": [
+      {
+        "artist": "Londrelle",
+        "justification": "Lets manifest some moneeeeey"
+      },
+      {
+        "artist": "Kendrick Lamar",
+        "justification": "I'm feeling a little gangsta today"
+      },
+      {
+        "artist": "Drake",
+        "justification": "I'm feeling a little Drake today"
+      }
+    ]
+  }
+  await speak_text(generatedList.introduction)
+  await speak_text(generatedList.artists[0].justification)
+  play_artist(generatedList.artists[0].artist)
   await bootstrap()
-  console.log('model bootstrap finished')
-}
-
-const speech_sequence = async () => {
-  await speak_text('Hello...')
-  await speak_text('This is my new voice.')
+  await request_song()
+  
+  // send_button.addEventListener('click', async (e) => {
+  //   // request a song
+  //   e.preventDefault()
+  //   console.log('Asking')
+  //   history.push(`<start_of_turn>user\n ${prompt_input.value}<end_of_turn>\n<start_of_turn>model\n`)
+  //   const res = await llm.generateResponse(history.join(''))
+  //   console.time(res)
+  //   history.push(`${res}<end_of_turn>\n`)
+  // })
 }
 
 main()
