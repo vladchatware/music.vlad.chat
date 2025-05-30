@@ -1,8 +1,7 @@
 import LLM from './llm.js'
 import api from '/api.js'
-import {play_artist} from "./player.js"
+import { play_artist } from "./player.js"
 import Kokoro from './speech.js'
-import {ask} from './steve.js'
 
 const auth_button = document.getElementById('auth_button')
 const send_button = document.getElementById('send_button')
@@ -32,7 +31,7 @@ const revibe = async (_state, controller) => {
   play_artist(_state.artists[_state.activeArtist].artist, controller)
 }
 
-const more = async(_state, controller) => {
+const more = async (_state, controller) => {
   api.refreshAuth()
   const payload = await LLM.shared().ask()
   console.log(payload)
@@ -41,7 +40,7 @@ const more = async(_state, controller) => {
   state.artists = payload.artists
   state.activeArtist = 0
 
-  // await Kokoro.shared().speak_text(state.introduction)
+  await Kokoro.shared().speak_text(state.introduction)
   return revibe(state, controller)
 }
 
@@ -72,8 +71,10 @@ const main = (controller) => {
             await revibe(state, controller)
           } else {
             state.activeArtist = 0
-            // await Kokoro.shared().speak_text("Hold on, lemme vibe it out!")
-            await more(state, controller)
+            await Promise.all([
+              Kokoro.shared().speak_text("Hold on, lemme vibe it out!"),
+              more(state, controller)
+            ])
           }
         }
       }
@@ -97,7 +98,7 @@ api.init('devices')
 
 auth_button.addEventListener('click', () => {
   api.requestAuth(
-    document.getElementById('clientId').value, 
+    document.getElementById('clientId').value,
     document.getElementById('clientSecret').value
   )
 })
