@@ -1,6 +1,6 @@
 import { FilesetResolver, LlmInference } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai';
 import FileProxyCache from 'https://cdn.jsdelivr.net/gh/jasonmayes/web-ai-model-proxy-cache@main/FileProxyCache.min.js';
-import {ask as _ask} from './steve.js'
+import { ask as _ask } from './steve.js'
 
 const modelFileNameRemote = 'https://storage.googleapis.com/jmstore/WebAIDemos/models/Gemma2/gemma2-2b-it-gpu-int8.bin';
 const modelFileName = 'https://localhost:3000/gemma2-2b-it-gpu-int8.bin';
@@ -24,7 +24,7 @@ atmospheric vibe, with tempo around 130 bpm. Consider artists like Nuvrf, Bossa,
 BACKGROUND and prioritize songs with immersive soundscapes and avant-garde production, similar to
 those found in VAPORCHROME's Cybertrax - EP.
 
- Your task is to generate a JSON object in the following format:
+ Your task is to generate a valid JSON object in the following format:
 
 \`\`\`json
 {
@@ -90,14 +90,41 @@ export default class LLM {
   async ask() {
     let entry = ''
     if (!this.history.length) {
-      entry = `<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n` 
+      entry = `<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n`
     } else {
       entry = `<start_of_turn>user\n one more round<end_of_turn\n<start_of_turn>model\n`
     }
-    const res = await _ask([...this.history, entry].join(''), {model: 'gemma3', stream: false})
+    const res = await _ask([...this.history, entry].join(''), {
+      model: 'llama3', stream: false, format: {
+        "type": "object",
+        "properties": {
+          "introduction": {
+            "type": "string"
+          },
+          "artists": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "artist": {
+                  "type": "string"
+                },
+                "justification": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "introduction",
+          "artists"
+        ]
+      }
+    })
     // const res = await LLM.shared().llm.generateResponse(this.history.join(''))
     this.history[this.history.length] += `${res}<end_of_turn>\n`
 
-    return extractJSON(res)
+    return JSON.parse(res)
   }
 }

@@ -19,12 +19,11 @@ const state = {
 
 const start_sequence = async (_state, controller) => {
   const res = await LLM.shared().ask()
-  console.log(res)
   state.introduction = res.introduction
   state.artists = res.artists
-  play_artist(_state.artists[_state.activeArtist].artist, controller)
-  // await Kokoro.shared().init()
-  // await Kokoro.shared().speak_text(_state.introduction)
+  await Kokoro.shared().init()
+  await Kokoro.shared().speak_text(state.introduction)
+  play_artist(state.artists[state.activeArtist].artist, controller)
 }
 
 const revibe = async (_state, controller) => {
@@ -87,7 +86,8 @@ window.onSpotifyIframeApiReady = (IFrameAPI) => {
   // Set a default playlist to render before user interaction.
   const options = {
     uri: 'spotify:playlist:4j4GF3Ka6QsGqnjL17ju3k',
-    width: 400
+    width: 400,
+    height: 400
   };
 
   IFrameAPI.createController(element, options, main);
