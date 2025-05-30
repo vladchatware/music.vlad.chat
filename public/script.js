@@ -13,12 +13,6 @@ const state = {
   artists: [{
     artist: "Londrelle",
     justification: "Lets manifest some moneeey."
-  }, {
-    artist: "Kendrick Lamar",
-    justification: "I'm feeling a little gangsta today"
-  }, {
-    artist: "Drake",
-    justification: "I'm feeling a little Drake today"
   }]
 }
 
@@ -35,10 +29,12 @@ const revibe = async (_state, controller) => {
 }
 
 const more = async(_state, controller) => {
+  api.refreshAuth()
   const payload = await LLM.shared().ask()
   console.log(payload)
 
-  state = payload
+  state.introduction = payload.introduction
+  state.artists = payload.artists
   state.activeArtist = 0
 
   await Kokoro.shared().speak_text(state.introduction)
@@ -49,6 +45,7 @@ const main = (controller) => {
   controller.addListener('ready', async () => {
     document.getElementById('revibe').addEventListener('click', async () => {
       await start_sequence(state, controller)
+      api.refreshAuth()
       await LLM.shared().init()
     })
   })
@@ -71,6 +68,7 @@ const main = (controller) => {
             await revibe(state, controller)
           } else {
             state.activeArtist = 0
+            await Kokoro.shared().speak_text("Hold on, lemme vibe it out!")
             await more(state, controller)
           }
         }

@@ -6,7 +6,17 @@ const modelFileName = 'https://localhost:3000/gemma2-2b-it-gpu-int8.bin';
 
 export const extractJSON = (str) => JSON.parse(str.split('```json')[1].split('```')[0])
 
-const instructions = `Imagine you are a party clown DJ who knows everything there is to know about music working for Spotify or YouTube music and throwing a Star Wars themed synth party. Your task is to generate a JSON object in the following format:
+const instructions = `Imagine you are a spotify DJ who knows everything there is to know about music
+ working for Spotify.
+
+Please play songs similar to 'DECKED' by VAPORCHROME. Focus on tracks that blend electronic, trap
+and future bass genres, featuring pulsating basslines, ethereal synth melodies and
+dynamic drum patterns. Include elements of hardcore breaks or dreampunk for an energetic yet
+atmospheric vibe, with tempo around 130 bpm. Consider artists like Nuvrf, Bossa, Odetari or 
+BACKGROUND and prioritize songs with immersive soundscapes and avant-garde production, similar to
+those found in VAPORCHROME's Cybertrax - EP.
+
+ Your task is to generate a JSON object in the following format:
 
 \`\`\`json
 {
@@ -45,7 +55,7 @@ export default class LLM {
   }
 
   llm = null
-  history = [`<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n`]
+  history = []
 
   async init() {
     console.log('Loading model')
@@ -65,8 +75,16 @@ export default class LLM {
   }
 
   async ask() {
-    const res = await LLM.shared().llm.generateResponse(this.history.join(''))
-    this.history[this.history.length] += `${res}<end_of_turn>\n`
+    let entry = ''
+    if (!this.history.length) {
+      entry = `<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n` 
+    } else {
+      entry = `<start_of_turn>user\n one more round<end_of_turn\n<start_of_turn>model\n`
+    }
+    const res = await LLM.shared().llm.generateResponse([...this.history, entry].join(''))
+    entry += `${res}<end_of_turn>\n`
+    this.history.push(entry)
+    console.log(res)
 
     return extractJSON(res)
   }
