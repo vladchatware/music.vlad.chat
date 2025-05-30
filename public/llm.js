@@ -1,10 +1,18 @@
 import { FilesetResolver, LlmInference } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai';
 import FileProxyCache from 'https://cdn.jsdelivr.net/gh/jasonmayes/web-ai-model-proxy-cache@main/FileProxyCache.min.js';
+import {ask as _ask} from './steve.js'
 
 const modelFileNameRemote = 'https://storage.googleapis.com/jmstore/WebAIDemos/models/Gemma2/gemma2-2b-it-gpu-int8.bin';
 const modelFileName = 'https://localhost:3000/gemma2-2b-it-gpu-int8.bin';
 
-export const extractJSON = (str) => JSON.parse(str.split('```json')[1].split('```')[0])
+export const extractJSON = (str) => {
+  try {
+    return JSON.parse(str.split('```json')[1].split('```')[0])
+  } catch (e) {
+    console.log('could not parse json', str)
+    return null
+  }
+}
 
 const instructions = `Imagine you are a spotify DJ who knows everything there is to know about music
  working for Spotify.
@@ -54,10 +62,15 @@ export default class LLM {
     return LLM.instance
   }
 
+  local = false
   llm = null
   history = []
 
   async init() {
+    if (!this.local) {
+      console.log('Skip loading')
+      return Promise.resolve()
+    }
     console.log('Loading model')
     const genaiFileset = await FilesetResolver.forGenAiTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai/wasm');
@@ -81,10 +94,9 @@ export default class LLM {
     } else {
       entry = `<start_of_turn>user\n one more round<end_of_turn\n<start_of_turn>model\n`
     }
-    const res = await LLM.shared().llm.generateResponse([...this.history, entry].join(''))
-    entry += `${res}<end_of_turn>\n`
-    this.history.push(entry)
-    console.log(res)
+    const res = await _ask([...this.history, entry].join(''), {model: 'gemma3', stream: false})
+    // const res = await LLM.shared().llm.generateResponse(this.history.join(''))
+    this.history[this.history.length] += `${res}<end_of_turn>\n`
 
     return extractJSON(res)
   }

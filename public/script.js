@@ -2,6 +2,7 @@ import LLM from './llm.js'
 import api from '/api.js'
 import {play_artist} from "./player.js"
 import Kokoro from './speech.js'
+import {ask} from './steve.js'
 
 const auth_button = document.getElementById('auth_button')
 const send_button = document.getElementById('send_button')
@@ -17,9 +18,13 @@ const state = {
 }
 
 const start_sequence = async (_state, controller) => {
+  const res = await LLM.shared().ask()
+  console.log(res)
+  state.introduction = res.introduction
+  state.artists = res.artists
   play_artist(_state.artists[_state.activeArtist].artist, controller)
-  await Kokoro.shared().init()
-  await Kokoro.shared().speak_text(_state.introduction)
+  // await Kokoro.shared().init()
+  // await Kokoro.shared().speak_text(_state.introduction)
 }
 
 const revibe = async (_state, controller) => {
@@ -37,16 +42,16 @@ const more = async(_state, controller) => {
   state.artists = payload.artists
   state.activeArtist = 0
 
-  await Kokoro.shared().speak_text(state.introduction)
+  // await Kokoro.shared().speak_text(state.introduction)
   return revibe(state, controller)
 }
 
 const main = (controller) => {
   controller.addListener('ready', async () => {
     document.getElementById('revibe').addEventListener('click', async () => {
+      await LLM.shared().init()
       await start_sequence(state, controller)
       api.refreshAuth()
-      await LLM.shared().init()
     })
   })
   let timeout = 0;
@@ -68,7 +73,7 @@ const main = (controller) => {
             await revibe(state, controller)
           } else {
             state.activeArtist = 0
-            await Kokoro.shared().speak_text("Hold on, lemme vibe it out!")
+            // await Kokoro.shared().speak_text("Hold on, lemme vibe it out!")
             await more(state, controller)
           }
         }
