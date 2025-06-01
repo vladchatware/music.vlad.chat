@@ -19,15 +19,15 @@ export default class Kokoro {
   speaking = false
 
   async init() {
-    // this.tts = await KokoroTTS.from_pretrained(AUDIO_MODEL_ID, {
-    //   device: 'webgpu',
-    //   dtype: "fp32", // Options: needs "fp32" for WebGPU.
-    // });
+    this.tts = await KokoroTTS.from_pretrained(AUDIO_MODEL_ID, {
+      device: 'webgpu',
+      dtype: "fp32", // Options: needs "fp32" for WebGPU.
+    });
     console.log('Kokoro loaded')
   }
 
   speak_text(text) {
-    // this.playMultiSentence(text, AUDIO_GENERATOR, "bm_george");
+    this.playMultiSentence(text, AUDIO_GENERATOR, "bm_george");
     console.log('speaking', text)
   }
 

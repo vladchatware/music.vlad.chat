@@ -5,7 +5,7 @@
  ******************************************************************/
 
 let SpotifyAPIHelper = function() {
-  const REDIRECT_URI = "https://localhost:3000";
+  const REDIRECT_URI = "http://localhost:3000";
 
   const AUTHORIZE = "https://accounts.spotify.com/authorize"
   const TOKEN = "https://accounts.spotify.com/api/token";

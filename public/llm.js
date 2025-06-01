@@ -15,14 +15,7 @@ export const extractJSON = (str) => {
 }
 
 const instructions = `Imagine you are a spotify DJ who knows everything there is to know about music
- working for Spotify.
-
-Please play songs similar to 'DECKED' by VAPORCHROME. Focus on tracks that blend electronic, trap
-and future bass genres, featuring pulsating basslines, ethereal synth melodies and
-dynamic drum patterns. Include elements of hardcore breaks or dreampunk for an energetic yet
-atmospheric vibe, with tempo around 130 bpm. Consider artists like Nuvrf, Bossa, Odetari or 
-BACKGROUND and prioritize songs with immersive soundscapes and avant-garde production, similar to
-those found in VAPORCHROME's Cybertrax - EP.
+ working for Spotify. Play Frutiger Aero, songs like Mirros Edge OST or "U weren't Here I Really Miss You.
 
  Your task is to generate a valid JSON object in the following format:
 
@@ -92,7 +85,7 @@ export default class LLM {
     if (!this.history.length) {
       entry = `<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n`
     } else {
-      entry = `<start_of_turn>user\n one more round<end_of_turn\n<start_of_turn>model\n`
+      entry = `<start_of_turn>user\n play some more<end_of_turn\n<start_of_turn>model\n`
     }
     const res = await _ask([...this.history, entry].join(''), {
       model: 'llama3', stream: false, format: {
