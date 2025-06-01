@@ -2,6 +2,7 @@ import LLM from './llm.js'
 import api from '/api.js'
 import { play_artist } from "./player.js"
 import Kokoro from './speech.js'
+import {ask, messages} from './open_ai.js'
 
 const auth_button = document.getElementById('auth_button')
 const send_button = document.getElementById('send_button')
@@ -17,7 +18,7 @@ const state = {
 }
 
 const start_sequence = async (_state, controller) => {
-  const res = await LLM.shared().ask()
+  const res = await ask(messages)
   state.introduction = res.introduction
   state.artists = res.artists
   await Kokoro.shared().init()
@@ -33,7 +34,7 @@ const revibe = async (_state, controller) => {
 
 const more = async (_state, controller) => {
   api.refreshAuth()
-  const payload = await LLM.shared().ask()
+  const payload = await ask(messages)
   console.log(payload)
 
   state.introduction = payload.introduction
