@@ -56,11 +56,11 @@ const messages = [systemMessage]
 
 messages.push({
   role: "user",
-  content: "Play Frutiger Aero songs, like 'U werent Here I really missed you' by cult member or Mirros Edge OST."
+  content: "Play Frutiger Aero songs, like 'U werent Here I really missed you' by cult member, Mirros Edge OST, Stray.wav, Hide by Dorian Concept."
 })
 
-const instructions = `Imagine you are a spotify DJ who knows everything there is to know about music
- working for Spotify. Play Frutiger Aero, songs like Mirros Edge OST or "U weren't Here I Really Miss You.
+const instructions = `
+You are a Soundcloud DJ, you are setting the vibes.
 
  Your task is to generate a valid JSON object in the following format:
 
@@ -69,23 +69,29 @@ const instructions = `Imagine you are a spotify DJ who knows everything there is
 "introduction": "Your initial response to the user - be friendly but keep it short no more than 120 characters - dont use the words \"up next\" in this intro and dont mention any artist names",
 "artists": [
   {
-    "artist": "artist name 1 - do NOT mention any songs in the artist name",
+    "track": "https://api.soundcloud.com/tracks/13692671",
     "justification": "Up next is \"arist name 1\" because... say why you chose this artist for the user but keep under 100 characters"
   },
   {
-    "artist": "artist name 2",
+    "track": "https://api.soundcloud.com/tracks/13692671",
     "justification": "Moving to our next pick is \"arist name 2\" because..."
   },
   {
-    "artist": "artist name 3",
+    "track": "https://api.soundcloud.com/tracks/13692671",
     "justification": "Finally our last pick is \"arist name 3\" because...r"
   }
 ]
 }
 \`\`\`
-Using this JSON format recommend what new music artists they should listen to next based on the user's conversation text. Be sure to use a lead in for the justification such as "up next" or "moving on". Use lead ins like "To kick this off" or "First up" only for the first artist only. Use "Finally" as the lead in for the last artist only.
+Using this JSON format recommend what new music artists they should listen to next based on the user's conversation text.
+Be sure to use a lead in for the justification such as "up next" or "moving on".
+Use lead ins like "To kick this off" or "First up" only for the first artist only.
+Use "Finally" as the lead in for the last artist only.
 
-By reading the user's conversation text, fill out the JSON object and respond with it. Please ensure that the JSON object adheres to this structure and includes the specified fields. Do not include any other fields or data. Produce at least 5 artists in your response.
+By reading the user's conversation text, fill out the JSON object and respond with it.
+Please ensure that the JSON object adheres to this structure and includes the specified fields.
+Do not include any other fields or data.
+Produce at least 5 artists in your response.
 `
 
 
@@ -126,6 +132,31 @@ export default class LLM {
   }
 
   async ask() {
+    return {
+  "introduction": "Let's dive into some ambient vibes and captivating sounds!",
+  "artists": [
+    {
+      "track": "https://api.soundcloud.com/tracks/12345678",
+      "justification": "To kick this off, this artist provides atmospheric beats perfect for immersion."
+    },
+    {
+      "track": "https://api.soundcloud.com/tracks/23456789",
+      "justification": "Next, this track has a dreamy quality that complements your taste in soundtracks."
+    },
+    {
+      "track": "https://api.soundcloud.com/tracks/34567890",
+      "justification": "Moving on, this piece offers a unique blend of electronic and emotional elements."
+    },
+    {
+      "track": "https://api.soundcloud.com/tracks/45678901",
+      "justification": "Next up, you'll love the intricate layers in this ambient composition."
+    },
+    {
+      "track": "https://api.soundcloud.com/tracks/56789012",
+      "justification": "Finally, this artist wraps up our list with chilling vibes that resonate deeply."
+    }
+  ]
+}
     let entry = ''
     if (!this.history.length) {
       entry = `<start_of_turn>user\n ${instructions}<end_of_turn>\n<start_of_turn>model\n`
@@ -144,7 +175,7 @@ export default class LLM {
             "items": {
               "type": "object",
               "properties": {
-                "artist": {
+                "track": {
                   "type": "string"
                 },
                 "justification": {

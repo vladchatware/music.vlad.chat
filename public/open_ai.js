@@ -1,8 +1,7 @@
 const systemMessage = {
   role: "system",
   content: `
-You are an AI agent acting as a DJ. Your task is to find music from Spotify
-according to user specified preferences.
+You are a Soundcloud DJ, you are setting the vibes.
 Your task is to generate a valid JSON object in the following format:
 
 \`\`\`json
@@ -10,15 +9,15 @@ Your task is to generate a valid JSON object in the following format:
 "introduction": "Your initial response to the user - be friendly but keep it short no more than 120 characters - dont use the words \"up next\" in this intro and dont mention any artist names",
 "artists": [
   {
-    "artist": "artist name 1 - do NOT mention any songs in the artist name",
+    "track": "https://api.soundcloud.com/tracks/13692671",
     "justification": "Up next is \"arist name 1\" because... say why you chose this artist for the user but keep under 100 characters"
   },
   {
-    "artist": "artist name 2",
+    "track": "https://api.soundcloud.com/tracks/13692671",
     "justification": "Moving to our next pick is \"arist name 2\" because..."
   },
   {
-    "artist": "artist name 3",
+    "track": "https://api.soundcloud.com/tracks/13692671",
     "justification": "Finally our last pick is \"arist name 3\" because...r"
   }
 ]
@@ -43,11 +42,32 @@ messages.push({
   content: "Play Frutiger Aero songs, like 'U werent Here I really missed you' by cult member or Mirros Edge OST."
 })
 
-// const assistantResponse = await chat(messageHistory)
+export const ask = async (input) => {
+  const res = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      input,
+      tools: [{
+        type: 'mcp',
+        server_label: 'soundcloud',
+        server_url: 'https://49e4-2001-fb1-40-b338-488f-5bc4-abae-6f4d.ngrok-free.app/mcp',
+        require_approval: 'never',
+        allowed_tools: ['tracks']
+      }],
+      text: {
+        format: {type: 'json_object'}
+      }
+    })
+  })
+  return res.json()
+}
 
-export const ask = async (messages) => {
-  const OPENAI_API_KEY = document.getElementById("open_ai").value
-  if (!OPENAI_API_KEY) return alert('Configure OPENAI_API_KEY or use Web AI or Ollama')
+export const chat = async (messages) => {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -72,7 +92,7 @@ export const ask = async (messages) => {
                 "items": {
                   "type": "object",
                   "properties": {
-                    "artist": {
+                    "track": {
                       "type": "string"
                     },
                     "justification": {
