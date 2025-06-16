@@ -7,5 +7,7 @@
   status = 200
   to = "/.netlify/functions/api/:splat"
 [[redirects]]
-  from = "/mcp/*"
-  to = "/.netlify/functions/mcp/:splat"
+  force = true
+  status = 301
+  from = "/mcp"
+  to = "/.netlify/functions/mcp"
