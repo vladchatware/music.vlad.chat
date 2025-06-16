@@ -3,3 +3,6 @@ node_modules
 public/gemma2-2b-it-gpu-int8.bin
 soundcloud.json
 
+
+# Local Netlify folder
+.netlify
