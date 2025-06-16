@@ -33,16 +33,43 @@ const play_artist = async (url) => {
   await new Promise((callback) => {
     widget.load(url, { callback })
   })
+
   return widget.play()
 }
 
+let history = []
+let queue = []
+
 const revibe = async () => {
+  if (queue.length) {
+    const track = queue.shift()
+    history.push(track.track)
+    remix_indicator.innerText = track.justification
+    await speech(remix_indicator.innerText)
+    return play_artist(track.track)
+  }
+
   remix_indicator.style.visibility = 'visible'
-  remix_indicator.innerText = 'Remixing...'
+  remix_indicator.innerText = 'Hold on, lemme vibe it out!'
   await speech(remix_indicator.innerText)
-  const res = await ask('Find some songs from soundcloud for Frutiger Aero aethtetics. Respond with json object: {"justification": "Why this track", "track": "https://api.soundcloud.com/tracks/13692671"} and nothing else.')
+  const res = await ask(`
+Find some songs from soundcloud for Frutiger Aero aethtetics.
+Previous tracks: ${history.join(', ')}
+Example justifications:
+- Up next is "Artist Name" because...
+- Moving to our next pick is "Artist Name" because...
+- Finally our last pick is "Artist Name" because...
+Respond with json object:
+{
+  "tracks": [{
+      "justification": "Why this track", 
+      "track": "https://api.soundcloud.com/tracks/13692671"
+  }]
+}
+and nothing else.`)
   const payload = JSON.parse(res.output[2].content[0].text)
-  remix_indicator.innerText = payload.justification
-  await speech(remix_indicator.innerText)
-  return play_artist(payload.track)
+  console.log(payload)
+  queue = payload.tracks
+
+  return revibe()
 }

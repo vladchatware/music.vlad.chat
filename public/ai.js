@@ -62,7 +62,7 @@ export const speech = async (text) => {
     const audio = document.createElement('audio')
     audio.src = await URL.createObjectURL(await payload.blob())
     audio.controls = true
-    audio.style.visibility = 'hidden'
+    audio.style.display = 'none'
     document.body.appendChild(audio)
     audio.play()
     audio.addEventListener('ended', () => {
