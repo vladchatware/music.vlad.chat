@@ -1,9 +1,8 @@
-import fs from 'fs'
-import path from 'path'
+import { getStore } from "@netlify/blobs"
 
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
-const store = getStore('store', { siteID: 'a661b62a-25fd-4a41-8c29-dfa241206789' })
+const store = getStore('store')
 
 const readAccessToken = async () => {
   try {
