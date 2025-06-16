@@ -1,3 +1,5 @@
 node_modules
 .env
 public/gemma2-2b-it-gpu-int8.bin
+soundcloud.json
+

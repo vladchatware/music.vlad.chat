@@ -1,3 +1,5 @@
+const fetchKey = () => document.getElementById('openai-api-key').value
+
 const systemMessage = {
   role: "system",
   content: `
@@ -43,6 +45,7 @@ messages.push({
 })
 
 export const ask = async (input) => {
+  const OPENAI_API_KEY = fetchKey()
   const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -55,7 +58,7 @@ export const ask = async (input) => {
       tools: [{
         type: 'mcp',
         server_label: 'soundcloud',
-        server_url: 'https://49e4-2001-fb1-40-b338-488f-5bc4-abae-6f4d.ngrok-free.app/mcp',
+        server_url: 'https://clownz-army.netlify.app/mcp',
         require_approval: 'never',
         allowed_tools: ['tracks']
       }],
@@ -68,6 +71,7 @@ export const ask = async (input) => {
 }
 
 export const chat = async (messages) => {
+  const OPENAI_API_KEY = fetchKey()
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {

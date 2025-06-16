@@ -13,7 +13,7 @@ app.use(express.json())
 app.post('/mcp', async (req, res) => {
   try {
     const server = new McpServer({
-      name: 'spotify',
+      name: 'Soundcloud',
       version: '0.0.1'
     }, {
       capabilities: {
