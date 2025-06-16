@@ -44,6 +44,22 @@ messages.push({
   content: "Play Frutiger Aero songs, like 'U werent Here I really missed you' by cult member or Mirros Edge OST."
 })
 
+export const speech = async (text) => {
+  const OPENAI_API_KEY = fetchKey()
+  const res = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini-tts',
+      input: text,
+      voice: 'alloy'
+    })
+  })
+}
+
 export const ask = async (input) => {
   const OPENAI_API_KEY = fetchKey()
   const res = await fetch('https://api.openai.com/v1/responses', {
