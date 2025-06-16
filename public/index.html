@@ -1,155 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🤡</title>
 </head>
-<body>
-   <input type="password" id="OPENAI_API_KEY" placeholder="OPENAI_API_KEY" />
-   <input type="password" id="SPOTIFY_CLIENT_ID" placeholder="SPOTIFY_CLIENT_ID" />
-   <input type="password" id="SPOTIFY_CLIENT_SECRET" placeholder="SPOTIFY_CLIENT_SECRET" />
-   <button id="init">Init</button>
-   <input type="file" id="track" disabled="true" />
-   <button id="import" disabled="true">Load</button>
-   <button id="sync" disabled="true">Sync</button>
-   <button id="export" disabled="true">Export</button>
-    <p>
-        <a href="https://github.com/jellyninjadev/clownz-army">Check out the repo 📂</a>.
-    </p>
-    <p>
-        inspect logs in dev console
-    </p>
-    <script type="module">
-        import { FFmpeg } from "/assets/ffmpeg/package/dist/esm/index.js"
-        import { fetchFile } from "/assets/util/package/dist/esm/index.js"
 
-        const OPENAI_API_KEY = localStorage.getItem('OPENAI_API_KEY')
-        const SPOTIFY_CLIENT_ID = localStorage.getItem('SPOTIFY_CLIENT_ID')
-        const SPOTIFY_CLIENT_SECRET = localStorage.getItem('SPOTIFY_CLIENT_SECRET')
-
-        document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('OPENAI_API_KEY').value = OPENAI_API_KEY
-            document.getElementById('SPOTIFY_CLIENT_ID').value = SPOTIFY_CLIENT_ID
-            document.getElementById('SPOTIFY_CLIENT_SECRET').value = SPOTIFY_CLIENT_SECRET
-        })
-
-        const advice = async (track1, track2) => {
-            const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`
-                },
-                body: JSON.stringify({
-                    model: 'gpt-4o-mini',
-                    messages: [{
-                        "role": "user", 
-        "content": `Compare the following tracks and determine if they are the same. Consider track name and track duration, be permissive, allow partial match, provide short reason. Respond with an object in the format: {"decision": boolean, "reason": "string"} only:
-      Original Track:
-      ${JSON.stringify(track1, null, 2)}
-      
-      Spotify Track:
-      ${JSON.stringify(track2, null, 2)}`
-                    }]
-                })
-            })
-            const payload = await res.json()
-            return JSON.parse(payload.choices[0].message.content)
-        }
-
-        const spotify_access_token = async () => {
-            const _SPOTIFY_CLIENT_ID = localStorage.getItem('SPOTIFY_CLIENT_ID')
-            const _SPOTIFY_CLIENT_SECRET = localStorage.getItem('SPOTIFY_CLIENT_SECRET')
-            const encoder = new TextEncoder()
-            const data = encoder.encode(`${_SPOTIFY_CLIENT_ID}:${_SPOTIFY_CLIENT_SECRET}`)
-            const auth = btoa(String.fromCharCode(...new Uint8Array(data)))
-            
-            const res = await fetch('https://accounts.spotify.com/api/token', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'grant_type=client_credentials'
-            })
-
-            const payload = await res.json()
-
-            return payload
-        }
-
-        const search = async (title) => {
-            const access_token = localStorage.getItem('SPOTIFY_ACCESS_TOKEN')
-
-            const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(title)}&type=track&limit=3`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${access_token}`,
-                }
-            })
-            const payload = await res.json()
-
-            return payload.tracks
-        }
-
-        const ffmpeg = new FFmpeg()
-
-        ffmpeg.on("log", ({ message }) => {
-            console.log(message)
-        })
-
-        await ffmpeg.load({
-            coreURL: "/assets/core/package/dist/esm/ffmpeg-core.js"
-        })
-
-        document.getElementById('init').addEventListener('click', async () => {
-            if (localStorage.getItem('SPOTIFY_ACCESS_TOKEN') && localStorage.getItem('SPOTIFY_ACCESS_TOKEN_EXPIRES') > Date.now()) {
-                document.getElementById('track').disabled = false
-                return localStorage.getItem('SPOTIFY_ACCESS_TOKEN')
-            } else {
-                localStorage.removeItem('SPOTIFY_ACCESS_TOKEN')
-                localStorage.removeItem('SPOTIFY_ACCESS_TOKEN_EXPIRES')
-            }
-
-            const payload = await spotify_access_token()
-
-            localStorage.setItem('SPOTIFY_ACCESS_TOKEN', payload.access_token)
-            localStorage.setItem('SPOTIFY_ACCESS_TOKEN_EXPIRES', Date.now() + payload.expires_in * 1000)
-            
-            document.getElementById('track').disabled = false
-        })
-        document.getElementById('track').addEventListener('change', async (e) => {
-            const track = e.target.files[0]
-            const title = track.name
-            await ffmpeg.writeFile('track', await fetchFile(track))
-            await ffmpeg.ffprobe(['-hide_banner', '-print_format', 'json', '-show_format', 'track', '-o', 'output'])
-            const res = await ffmpeg.readFile('output')
-            const payload = JSON.parse(new TextDecoder().decode(res))
-            payload.format.filename = title
-            console.log('ffprobe response', payload.format)
-
-            const tracks = await search(title)
-            console.log('spotify response', tracks)
-
-            for (const _track of tracks.items) {
-                const comparison = await advice(payload.format, _track)
-                console.log(`${comparison.decision ? '✔' : '❌'} ${comparison.reason}`)
-                if (comparison.decision) {
-                    console.log('matched', _track)
-                }
-            }
-        })
-
-        document.getElementById('SPOTIFY_CLIENT_ID').addEventListener('change', (e) => {
-            localStorage.setItem('SPOTIFY_CLIENT_ID', e.target.value)
-        })
-        document.getElementById('SPOTIFY_CLIENT_SECRET').addEventListener('change', (e) => {
-            localStorage.setItem('SPOTIFY_CLIENT_SECRET', e.target.value)
-        })
-        document.getElementById('OPENAI_API_KEY').addEventListener('change', (e) => {
-            localStorage.setItem('OPENAI_API_KEY', e.target.value)
-        })
-    </script>
+<body style="display: flex; flex-direction: column; justify-content: space-between; height: 90vh;">
+  <img src="link.png" />
+  <iframe id="sc-widget" scrolling="no" frameborder="no" allow="autoplay"
+    src="https://w.soundcloud.com/player/?url=http%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F1848538&show_artwork=true"></iframe>
+  <script src="https://w.soundcloud.com/player/api.js" type="text/javascript"></script>
+  <div style="align-self: center;">
+    <span id="remix-indicator"
+      style="visibility: hidden; font-size: 1.2em; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;">Remixing...</span>
+  </div>
+  <div style="align-self: center;">
+    <button id="revibe">🧬 Revibe</button>
+  </div>
+    <input id="openai-api-key" type="password" placeholder="OPENAI_API_KEY"
+      value="" />
+  <script src="/script.js" type="module"></script>
 </body>
+
 </html>
