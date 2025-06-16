@@ -1,14 +1,10 @@
-import { getStore } from "@netlify/blobs"
-
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
-const store = getStore('store')
+const credentials = {}
 
 const readAccessToken = async () => {
   try {
-    const credentials = await store.get('soundcloud', { type: 'json' })
-
-    if (!credentials) return getAccessToken()
+    if (!credentials.access_token) return getAccessToken()
 
     if (credentials.access_token && Date.now() < credentials.expires_at) {
       return credentials.access_token
@@ -45,16 +41,9 @@ export const getAccessToken = async () => {
   }
 
   const data = await response.json();
-  const credentials = {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    expires_at: Date.now() + (data.expires_in * 1000)
-  }
-  try {
-    store.setJSON('credentials', credentials)
-  } catch (e) {
-    console.log('could not cache credentials')
-  }
+  credentials.access_token = data.access_token
+  credentials.refresh_token = data.refresh_token
+  credentials.expires_at = Date.now() + (data.expires_in * 1000)
 
   return credentials.access_token
 }
@@ -75,16 +64,9 @@ export const refreshToken = async (refresh_token) => {
   }
   const data = await response.json();
 
-  const credentials = {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    expires_at: Date.now() + (data.expires_in * 1000)
-  }
-  try {
-    store.setJSON('credentials', credentials)
-  } catch (e) {
-    console.log('could not cache credentials')
-  }
+  credentials.access_token = data.access_token
+  credentials.refresh_token = data.refresh_token
+  credentials.expires_at = Date.now() + (data.expires_in * 1000)
 
   return credentials.access_token
 }
