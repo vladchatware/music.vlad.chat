@@ -1,4 +1,4 @@
-import { ask, messages } from './ai.js'
+import { ask, messages, speech } from './ai.js'
 
 const widgetIframe = document.getElementById('sc-widget')
 const widget = SC.Widget(widgetIframe)
@@ -23,6 +23,7 @@ widget.bind(SC.Widget.Events.READY, async () => {
 const start_sequence = async () => {
   remix_indicator.style.visibility = 'visible'
   remix_indicator.innerText = 'Hello, I am a virtual DJ, let me play some music.'
+  await speech(remix_indicator.innerText)
   revibe_button.disabled = true
   await revibe()
   revibe_button.disabled = false
@@ -38,8 +39,10 @@ const play_artist = async (url) => {
 const revibe = async () => {
   remix_indicator.style.visibility = 'visible'
   remix_indicator.innerText = 'Remixing...'
+  await speech(remix_indicator.innerText)
   const res = await ask('Find some songs from soundcloud for Frutiger Aero aethtetics. Respond with json object: {"justification": "Why this track", "track": "https://api.soundcloud.com/tracks/13692671"} and nothing else.')
   const payload = JSON.parse(res.output[2].content[0].text)
   remix_indicator.innerText = payload.justification
+  await speech(remix_indicator.innerText)
   return play_artist(payload.track)
 }
