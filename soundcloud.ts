@@ -3,10 +3,13 @@ import path from 'path'
 
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
+const store = getStore('store', { siteID: 'a661b62a-25fd-4a41-8c29-dfa241206789' })
+
 const readAccessToken = async () => {
   try {
-    const file = fs.readFileSync(path.resolve(__dirname, 'soundcloud.json'), 'utf-8')
-    const credentials = JSON.parse(file)
+    const credentials = await store.get('soundcloud', { type: 'json' })
+
+    if (!credentials) return getAccessToken()
 
     if (credentials.access_token && Date.now() < credentials.expires_at) {
       return credentials.access_token
@@ -24,21 +27,6 @@ const readAccessToken = async () => {
 }
 
 export const getAccessToken = async () => {
-  try {
-    const file = fs.readFileSync(path.resolve(__dirname, 'spotify.json'), 'utf-8')
-    const credentials = JSON.parse(file)
-
-    if (credentials.access_token && Date.now() < credentials.expires_at) {
-      return credentials.access_token
-    }
-
-    if (credentials.refresh_token) {
-      const res = await refreshToken(credentials.refresh_token)
-    }
-  } catch (e) {
-    console.log('Cache not found, requesting new token')
-  }
-
   if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new Error('Soundcloud client credentials not found in environment variables')
   }
@@ -64,7 +52,7 @@ export const getAccessToken = async () => {
     expires_at: Date.now() + (data.expires_in * 1000)
   }
   try {
-    fs.writeFileSync(path.resolve(__dirname, 'soundcloud.json'), JSON.stringify(credentials, null, 2), 'utf8')
+    store.setJSON('credentials', credentials)
   } catch (e) {
     console.log('could not cache credentials')
   }
@@ -94,7 +82,7 @@ export const refreshToken = async (refresh_token) => {
     expires_at: Date.now() + (data.expires_in * 1000)
   }
   try {
-    fs.writeFileSync(path.resolve(__dirname, 'soundcloud.json'), JSON.stringify(credentials, null, 2), 'utf8')
+    store.setJSON('credentials', credentials)
   } catch (e) {
     console.log('could not cache credentials')
   }
@@ -122,7 +110,7 @@ export const users = async (query: {
 }
 
 export const tracks = async (query: {
-  q?: string, 
+  q?: string,
   ids?: string,
   urns?: string,
   genres?: string,
