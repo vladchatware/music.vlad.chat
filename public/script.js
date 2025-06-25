@@ -6,25 +6,20 @@ window.player = SC.Widget(widgetIframe)
 const revibe_button = document.getElementById('revibe')
 const remix_indicator = document.getElementById('remix-indicator')
 const inner_container = document.getElementById('inner-container')
+const close = document.getElementById('icon')
+
+close.addEventListener('click', () => {
+  inner_container.style.visibility = 'hidden'
+})
 
 window.player.bind(SC.Widget.Events.READY, async () => {
-  inner_container.style.visibility = 'visible'
   revibe_button.addEventListener('click', async () => {
     await start_sequence()
   })
   window.player.bind(SC.Widget.Events.FINISH, async () => {
     // Hold on, lemme vibe it out
-    inner_container.style.visibility = 'visible'
     await revibe()
   });
-  window.player.bind(SC.Widget.Events.PAUSE, async () => {
-    inner_container.style.visibility = 'visible'
-  })
-  window.player.bind(SC.Widget.Events.ERROR, async () => {
-    // Error encountered
-    inner_container.style.visibility = 'visible'
-    console.log('Song error')
-  })
 })
 
 window.play_sound = async (text) => {
@@ -49,6 +44,7 @@ window.play_sound = async (text) => {
 window.start_sequence = async () => {
   if (revibe_button.disabled) return
   if (queue.length) return revibe()
+
   revibe_button.disabled = true
   remix_indicator.innerHTML = '<p>Hello, I am a virtual DJ, let me play some music.</p>'
   await window.play_sound('Hello, I am a virtual DJ, let me play some music.')
@@ -59,18 +55,17 @@ window.play_artist = async (url) => {
   return new Promise((callback) => {
     window.player.load(url, {
       auto_play: true,
-      show_artwork: true,
+      visual: true,
       show_comments: true,
-      show_playcount: true,
       show_user: true,
+      show_reposts: true,
+      visual: false,
       callback: () => {
         window.player.play()
         callback()
       }
     })
   })
-
-  // return window.player.play()
 }
 
 const history = {
@@ -87,17 +82,13 @@ let queue = []
 
 const revibe = async () => {
   if (queue.length) {
-    inner_container.style.visibility = 'visible'
     const track = queue.shift()
     history.push(track.track)
     remix_indicator.innerHTML = `<p>${track.justification}</p>`
     await window.play_sound(track.justification)
-    await window.play_artist(track.track)
-    inner_container.style.visibility = 'hidden'
-    return
+    return window.play_artist(track.track)
   }
 
-  inner_container.style.visibility = 'visible'
   remix_indicator.innerHTML = '<p>Hold on, lemme vibe it out!</p>'
   const [res] = await Promise.all([
     ask(`
