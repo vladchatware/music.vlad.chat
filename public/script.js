@@ -31,14 +31,15 @@ window.play_sound = async (text) => {
   window.player.setVolume(30)
   const blob = await speech(text)
   return new Promise(async (res, rej) => {
-    const audio = document.createElement('audio')
-    audio.src = await URL.createObjectURL(blob)
+    const audio = document.getElementById('control')
+    audio.src = URL.createObjectURL(blob)
     audio.controls = true
+    audio.muted = false
     audio.style.display = 'none'
     document.body.appendChild(audio)
     audio.play()
     audio.addEventListener('ended', () => {
-      audio.remove()
+      // audio.remove()
       window.player.setVolume(100)
       res()
     })
@@ -55,19 +56,21 @@ window.start_sequence = async () => {
 }
 
 window.play_artist = async (url) => {
-  await new Promise((callback) => {
+  return new Promise((callback) => {
     window.player.load(url, {
       auto_play: true,
       show_artwork: true,
       show_comments: true,
       show_playcount: true,
       show_user: true,
-      height: 1280,
-      callback
+      callback: () => {
+        window.player.play()
+        callback()
+      }
     })
   })
 
-  return window.player.play()
+  // return window.player.play()
 }
 
 const history = {
@@ -89,8 +92,9 @@ const revibe = async () => {
     history.push(track.track)
     remix_indicator.innerHTML = `<p>${track.justification}</p>`
     await window.play_sound(track.justification)
+    await window.play_artist(track.track)
     inner_container.style.visibility = 'hidden'
-    return window.play_artist(track.track)
+    return
   }
 
   inner_container.style.visibility = 'visible'
