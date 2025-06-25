@@ -58,8 +58,8 @@ window.play_artist = async (url) => {
       visual: true,
       show_comments: true,
       show_user: true,
+      hide_related: true,
       show_reposts: true,
-      visual: false,
       callback: () => {
         window.player.play()
         callback()
