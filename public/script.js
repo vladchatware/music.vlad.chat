@@ -62,6 +62,7 @@ window.play_artist = async (url) => {
       show_reposts: true,
       callback: () => {
         window.player.play()
+        window.innerHeight = 500
         callback()
       }
     })
