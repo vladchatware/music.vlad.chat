@@ -1,5 +1,3 @@
-const fetchKey = () => document.getElementById('openai-api-key').value
-
 const systemMessage = {
   role: "system",
   content: `
@@ -44,6 +42,20 @@ messages.push({
   content: "Play Frutiger Aero songs, like 'U werent Here I really missed you' by cult member or Mirros Edge OST."
 })
 
+const fetchKey = () => {
+  let key = window.localStorage.getItem('OPENAI_API_KEY')
+  if (!key) {
+    key = prompt('OPENAI_API_KEY')
+    if (key) {
+      window.localStorage.setItem('OPENAI_API_KEY', key)
+    } else {
+      alert('Agent relies on making requests to Open AI.')
+    }
+  }
+
+  return key
+}
+
 export const speech = async (text) => {
   const OPENAI_API_KEY = fetchKey()
   const payload = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -58,18 +70,8 @@ export const speech = async (text) => {
       voice: 'ash'
     })
   })
-  return new Promise(async (res, rej) => {
-    const audio = document.createElement('audio')
-    audio.src = await URL.createObjectURL(await payload.blob())
-    audio.controls = true
-    audio.style.display = 'none'
-    document.body.appendChild(audio)
-    audio.play()
-    audio.addEventListener('ended', () => {
-      audio.remove()
-      res()
-    })
-  })
+
+  return payload.blob()
 }
 
 export const ask = async (input) => {
