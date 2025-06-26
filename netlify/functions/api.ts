@@ -9,17 +9,6 @@ app.use('/api', createProxyMiddleware({
   changeOrigin: true,
   headers: {
     Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-  },
-  on: {
-    proxyReq: async (proxyReq, req, res) => {
-      const body = await req.json()
-      if (body) {
-        const bodyData = JSON.stringify(req.body)
-        proxyReq.headers['Content-Length'] = Buffer.byteLength(bodyData)
-        proxyReq.write(bodyData)
-      }
-    },
-    error: (err) => console.log(err)
   }
 }))
 
