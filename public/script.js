@@ -6,53 +6,67 @@ window.player = SC.Widget(widgetIframe)
 const revibe_button = document.getElementById('revibe')
 const remix_indicator = document.getElementById('remix-indicator')
 const inner_container = document.getElementById('inner-container')
-const close = document.getElementById('icon')
 
-close.addEventListener('click', () => {
+let started = false
+let startTimeout = null
+let pauseTimeout = null
+
+inner_container.addEventListener('click', (e) => {
+  if (e.target.id === 'revibe') return window.start_sequence()
   inner_container.style.visibility = 'hidden'
 })
 
-window.player.bind(SC.Widget.Events.READY, async () => {
-  revibe_button.addEventListener('click', async () => {
-    await start_sequence()
-  })
-  window.player.bind(SC.Widget.Events.FINISH, async () => {
-    // Hold on, lemme vibe it out
-    await revibe()
-  });
-})
-
-window.play_sound = async (text) => {
-  window.player.setVolume(30)
-  const blob = await speech(text)
-  return new Promise(async (res, rej) => {
-    const audio = document.getElementById('control')
-    audio.src = URL.createObjectURL(blob)
-    audio.controls = true
-    audio.muted = false
-    audio.style.display = 'none'
-    document.body.appendChild(audio)
-    audio.play()
-    audio.addEventListener('ended', () => {
-      // audio.remove()
-      window.player.setVolume(100)
-      res()
-    })
-  })
+const unbind = () => {
+  window.player.unbind(SC.Widget.Events.READY, window.player_ready)
+  window.player.unbind(SC.Widget.Events.PLAY, window.player_play)
+  window.player.unbind(SC.Widget.Events.PAUSE, window.player_pause)
+  window.player.unbind(SC.Widget.Events.FINISH, window.player_finish)
 }
 
-window.start_sequence = async () => {
-  if (revibe_button.disabled) return
-  if (queue.length) return revibe()
+window.player_ready = () => {
+  console.log('player state: START')
+  window.player.play()
+}
 
-  revibe_button.disabled = true
-  remix_indicator.innerHTML = '<p>Hello, I am a virtual DJ, let me play some music.</p>'
-  await window.play_sound('Hello, I am a virtual DJ, let me play some music.')
+window.player_play = () => {
+  started = true
+  if (!started) return
+
+  clearTimeout(startTimeout)
+  clearTimeout(pauseTimeout)
+  startTimeout = setTimeout(() => {
+    console.log('Player: PLAY')
+    inner_container.style.visibility = 'hidden'
+  }, 1000)
+}
+
+window.player_pause = () => {
+  if (!started) return
+  console.log('Player: PAUSE')
+  clearTimeout(pauseTimeout)
+  pauseTimeout = setTimeout(() => {
+    inner_container.style.visibility = 'visible'
+  }, 3000)
+}
+
+window.player_finish = () => {
+  console.log('Player: FINISH')
+  inner_container.style.visibility = 'visible'
   return revibe()
 }
 
+const rebind = () => {
+  window.player.bind(SC.Widget.Events.READY, window.player_ready)
+  window.player.bind(SC.Widget.Events.PLAY, window.player_play)
+  window.player.bind(SC.Widget.Events.PAUSE, window.player_pause)
+  window.player.bind(SC.Widget.Events.FINISH, window.player_finish)
+}
+
+rebind()
+
 window.play_artist = async (url) => {
-  return new Promise((callback) => {
+  unbind()
+  await new Promise((callback) => {
     window.player.load(url, {
       auto_play: true,
       visual: true,
@@ -61,12 +75,42 @@ window.play_artist = async (url) => {
       hide_related: true,
       show_reposts: true,
       callback: () => {
-        window.player.play()
-        window.innerHeight = 500
+        window.innerHeight = 1280
+        window.innerWidth = 720
         callback()
       }
     })
   })
+  rebind()
+}
+
+window.play_sound = async (text) => {
+  window.player.setVolume(30)
+  const blob = await speech(text)
+  return new Promise(async (res, rej) => {
+    const audio = document.getElementById('control') // iOS quirk
+    audio.src = URL.createObjectURL(blob)
+    audio.controls = true
+    audio.muted = false
+    audio.style.display = 'none'
+    document.body.appendChild(audio)
+    audio.play()
+    audio.addEventListener('ended', () => {
+      // audio.remove() // iOS quirk
+      window.player.setVolume(100)
+      res()
+    })
+  })
+}
+
+window.start_sequence = async (e) => {
+  if (revibe_button.disabled) return
+  if (queue.length()) return revibe()
+
+  revibe_button.disabled = true
+  remix_indicator.innerHTML = '<p>Hello, I am a virtual DJ, let me play some music.</p>'
+  await window.play_sound('Hello, I am a virtual DJ, let me play some music.')
+  return revibe()
 }
 
 const history = {
@@ -79,10 +123,36 @@ const history = {
   }
 }
 
-let queue = []
+const queue = {
+  get: () => {
+    const q = window.localStorage.getItem('queue')
+    if (!q) return []
+
+    try {
+      const tracks = JSON.parse(q)
+      return tracks
+    } catch (e) {
+      console.log('error retriving a queue')
+      return []
+    }
+  },
+  length: () => {
+    const tracks = queue.get()
+    return tracks.length
+  },
+  shift: () => {
+    const tracks = queue.get()
+    const track = tracks.shift()
+    queue.set(tracks)
+    return track
+  },
+  set: (tracks) => {
+    window.localStorage.setItem('queue', JSON.stringify(tracks))
+  }
+}
 
 const revibe = async () => {
-  if (queue.length) {
+  if (queue.length()) {
     const track = queue.shift()
     history.push(track.track)
     remix_indicator.innerHTML = `<p>${track.justification}</p>`
@@ -91,8 +161,10 @@ const revibe = async () => {
   }
 
   remix_indicator.innerHTML = '<p>Hold on, lemme vibe it out!</p>'
-  const [res] = await Promise.all([
-    ask(`
+
+  try {
+    const [res] = await Promise.all([
+      ask(`
 Find some songs from soundcloud for Star Wars Flashback Disco
 like as if it was in older star wars, dont repeat previous tracks
 Previous tracks: ${history.get()}
@@ -108,12 +180,16 @@ Respond with json object:
   }]
 }
 and nothing else.`),
-    window.play_sound('Hold on, lemme vibe it out!')
-  ])
-  const payload = JSON.parse(res.output[2].content[0].text)
-  payload.tracks.map(track => console.log(`${track.justification}`))
-  queue = payload.tracks
+      window.play_sound('Hold on, lemme vibe it out!')
+    ])
+    const payload = JSON.parse(res.output[2].content[0].text)
+    payload.tracks.map(track => console.log(`${track.justification}`))
+    queue.set(payload.tracks)
 
-  revibe_button.disabled = false
+    revibe_button.disabled = false
+  } catch (e) {
+    window.play_sound('Could not start bro, lets try one more time!')
+  }
+
   return revibe()
 }
