@@ -6,6 +6,8 @@
 
 [Try it out here 🚀](https://clownz-army.netlify.app/). I didnt ask for the clowns, but I got them.
 
+[![Netlify Status](https://api.netlify.com/api/v1/badges/a661b62a-25fd-4a41-8c29-dfa241206789/deploy-status)](https://app.netlify.com/projects/clownz-army/deploys)
+
 # Features
 
 - **Drag and Drop Track(s)**: Toss your tracks—single files or a batch—into the tool with a quick drag and drop. No fuss, just get your audio in the game, whether it’s a pristine rip or a beat-up mystery.
