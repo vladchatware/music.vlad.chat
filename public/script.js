@@ -85,7 +85,6 @@ window.play_artist = async (url) => {
 }
 
 window.play_sound = async (text) => {
-  return Promise.resolve() // FIX netlify proxy timeout
   window.player.setVolume(30)
   const blob = await speech(text)
   return new Promise(async (res, rej) => {

@@ -9,5 +9,10 @@
 [[redirects]]
   force = true
   status = 200
+  from = "/api/audio/speech"
+  to = "/.netlify/functions/speech"
+[[redirects]]
+  force = true
+  status = 200
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
