@@ -6,3 +6,8 @@
   status = 200
   from = "/mcp"
   to = "/.netlify/functions/mcp"
+[[redirects]]
+  force = true
+  status = 200
+  from = "/api"
+  to = "/.netlify/functions/api"

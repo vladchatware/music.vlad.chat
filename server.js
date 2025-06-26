@@ -4,22 +4,10 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { getAccessToken, tracks, users, playlists } from "./soundcloud"
-import { createProxyMiddleware } from "http-proxy-middleware"
 
 const app = express()
 
 app.use(express.json())
-
-app.use('/api', createProxyMiddleware({
-  target: 'https://api.openai.com',
-  changeOrigin: true,
-  pathRewrite: {
-    '^/api': '/v1'
-  },
-  headers: {
-    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-  }
-}))
 
 app.post('/mcp', async (req, res) => {
   try {
