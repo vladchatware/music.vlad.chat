@@ -1,3 +1,5 @@
+const url = 'https://clownz-army.netlify.app'
+
 const systemMessage = {
   role: "system",
   content: `
@@ -42,27 +44,11 @@ messages.push({
   content: "Play Frutiger Aero songs, like 'U werent Here I really missed you' by cult member or Mirros Edge OST."
 })
 
-const fetchKey = () => {
-  let key = window.localStorage.getItem('OPENAI_API_KEY')
-  if (!key) {
-    key = prompt('OPENAI_API_KEY')
-    if (key) {
-      window.localStorage.setItem('OPENAI_API_KEY', key)
-    } else {
-      alert('Agent relies on making requests to Open AI.')
-    }
-  }
-
-  return key
-}
-
 export const speech = async (text) => {
-  const OPENAI_API_KEY = fetchKey()
-  const payload = await fetch('https://api.openai.com/v1/audio/speech', {
+  const payload = await fetch(`${url}/api/audio/speech`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`
     },
     body: JSON.stringify({
       model: 'gpt-4o-mini-tts',
@@ -75,12 +61,10 @@ export const speech = async (text) => {
 }
 
 export const ask = async (input) => {
-  const OPENAI_API_KEY = fetchKey()
-  const res = await fetch('https://api.openai.com/v1/responses', {
+  const res = await fetch(`${url}/api/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`
     },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
@@ -88,7 +72,7 @@ export const ask = async (input) => {
       tools: [{
         type: 'mcp',
         server_label: 'soundcloud',
-        server_url: 'https://clownz-army.netlify.app/mcp',
+        server_url: `${url}/mcp`,
         require_approval: 'never',
         allowed_tools: ['tracks']
       }],
@@ -101,12 +85,10 @@ export const ask = async (input) => {
 }
 
 export const chat = async (messages) => {
-  const OPENAI_API_KEY = fetchKey()
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await fetch(`${url}/api/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`
     },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
