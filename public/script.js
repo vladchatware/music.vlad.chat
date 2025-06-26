@@ -151,6 +151,8 @@ const queue = {
   }
 }
 
+let limiter = 0
+
 const revibe = async () => {
   if (queue.length()) {
     const track = queue.shift()
@@ -163,8 +165,11 @@ const revibe = async () => {
   remix_indicator.innerHTML = '<p>Hold on, lemme vibe it out!</p>'
 
   try {
-    const [res] = await Promise.all([
-      ask(`
+    clearTimeout(limiter)
+    limiter = setTimeout(async () => {
+
+      const [res] = await Promise.all([
+        ask(`
 Find some songs from soundcloud for Star Wars Flashback Disco
 like as if it was in older star wars, dont repeat previous tracks
 Previous tracks: ${history.get()}
@@ -180,16 +185,16 @@ Respond with json object:
   }]
 }
 and nothing else.`),
-      window.play_sound('Hold on, lemme vibe it out!')
-    ])
-    const payload = JSON.parse(res.output[2].content[0].text)
-    payload.tracks.map(track => console.log(`${track.justification}`))
-    queue.set(payload.tracks)
+        window.play_sound('Hold on, lemme vibe it out!')
+      ])
+      const payload = JSON.parse(res.output[2].content[0].text)
+      payload.tracks.map(track => console.log(`${track.justification}`))
+      queue.set(payload.tracks)
 
-    revibe_button.disabled = false
+      revibe_button.disabled = false
+      return revibe()
+    }, 3000)
   } catch (e) {
     window.play_sound('Could not start bro, lets try one more time!')
   }
-
-  return revibe()
 }

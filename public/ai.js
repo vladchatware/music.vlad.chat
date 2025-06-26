@@ -61,25 +61,27 @@ export const speech = async (text) => {
 }
 
 export const ask = async (input) => {
+  const body = {
+    model: 'gpt-4o-mini',
+    input,
+    tools: [{
+      type: 'mcp',
+      server_label: 'soundcloud',
+      server_url: `${url}/mcp`,
+      require_approval: 'never',
+      allowed_tools: ['tracks']
+    }],
+    text: {
+      format: { type: 'json_object' }
+    }
+  }
+
   const res = await fetch(`${url}/api/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      input,
-      tools: [{
-        type: 'mcp',
-        server_label: 'soundcloud',
-        server_url: `${url}/mcp`,
-        require_approval: 'never',
-        allowed_tools: ['tracks']
-      }],
-      text: {
-        format: {type: 'json_object'}
-      }
-    })
+    body: JSON.stringify(body)
   })
   return res.json()
 }
