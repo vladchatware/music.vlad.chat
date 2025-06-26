@@ -7,13 +7,20 @@ const app = express()
 app.use(express.json())
 
 app.use('/api', createProxyMiddleware({
-  target: 'https://api.openai.com',
+  target: 'https://api.openai.com/v1',
   changeOrigin: true,
-  pathRewrite: {
-    '^/api': '/v1'
-  },
   headers: {
     Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+  },
+  on: {
+    proxyReq: (proxyReq, req, res) => {
+      if (req.body) {
+        const bodyData = JSON.stringify(req.body)
+        proxyReq.headers['Content-Length'] = Buffer.byteLength(bodyData)
+        proxyReq.write(bodyData)
+      }
+    },
+    error: (err) => console.log(err)
   }
 }))
 
