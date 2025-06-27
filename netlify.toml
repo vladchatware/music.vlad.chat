@@ -6,3 +6,13 @@
   status = 200
   from = "/mcp"
   to = "/.netlify/functions/mcp"
+[[redirects]]
+  force = true
+  status = 200
+  from = "/api/responses"
+  to = "/.netlify/functions/responses"
+[[redirects]]
+  force = true
+  status = 200
+  from = "/api/audio/speech"
+  to = "/.netlify/functions/speech"
