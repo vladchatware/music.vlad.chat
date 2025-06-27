@@ -154,10 +154,12 @@ const queue = {
 let limiter = 0
 
 const revibe = async () => {
+  windows.obsstudio && window.obsstudio.stopRecording()
   if (queue.length()) {
     const track = queue.shift()
     history.push(track.track)
     remix_indicator.innerHTML = `<p>${track.justification}</p>`
+    windows.obsstudio &&window.obsstudio.startRecording()
     await window.play_sound(track.justification)
     return window.play_artist(track.track)
   }
