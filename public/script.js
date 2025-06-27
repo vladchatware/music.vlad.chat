@@ -197,6 +197,8 @@ and nothing else.`),
       return revibe()
     }, 3000)
   } catch (e) {
-    window.play_sound('Could not start bro, lets try one more time!')
+    await window.play_sound('Could not start bro, lets try one more time!')
+    revibe_button.disabled = false
+    return revibe()
   }
 }
