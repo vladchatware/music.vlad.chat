@@ -45,12 +45,14 @@ window.player_pause = () => {
   console.log('Player: PAUSE')
   clearTimeout(pauseTimeout)
   pauseTimeout = setTimeout(() => {
+    window.obsstudio?.stopRecording()
     inner_container.style.visibility = 'visible'
   }, 3000)
 }
 
 window.player_finish = () => {
   console.log('Player: FINISH')
+  window.obsstudio?.stopRecording()
   inner_container.style.visibility = 'visible'
   return revibe()
 }
@@ -154,7 +156,6 @@ const queue = {
 let limiter = 0
 
 const revibe = async () => {
-  window.obsstudio?.stopRecording()
   if (queue.length()) {
     const track = queue.shift()
     history.push(track.track)
