@@ -147,8 +147,6 @@ app.post('/api/audio/speech', async (req, res) => {
     body: JSON.stringify(req.body)
   })
 
-  console.log(payload.status, payload.statusText)
-
   const arrayBuffer = await payload.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
   res.setHeader('Content-Type', 'audio/mpeg');
