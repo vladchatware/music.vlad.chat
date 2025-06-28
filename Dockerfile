@@ -1,4 +1,4 @@
-FROM node:carbon
+FROM oven/bun:latest
 
 LABEL maintainer="Sevalla devs"
 

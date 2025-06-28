@@ -5,7 +5,7 @@
   "description": "Clownz Army",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "bun server.js"
   },
   "keywords": [],
   "author": "",
