@@ -15,11 +15,16 @@
     "@netlify/blobs": "^10.0.0",
     "@netlify/functions": "^4.1.5",
     "@remotion/cli": "4.0.314",
+    "@remotion/google-fonts": "^4.0.320",
+    "@remotion/media-utils": "^4.0.320",
+    "@remotion/motion-blur": "^4.0.320",
+    "@remotion/zod-types": "4.0.320",
     "@types/express": "^5.0.3",
     "express": "^4.21.2",
+    "react": "^19.1.0",
     "remotion": "4.0.314",
     "serverless-http": "^3.2.0",
-    "zod": "^3.25.53"
+    "zod": "3.22.3"
   },
   "devDependencies": {
     "@remotion/renderer": "^4.0.314"
