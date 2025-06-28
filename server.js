@@ -121,6 +121,40 @@ app.delete('/mcp', async (req, res) => {
   }));
 });
 
+app.post('/api/responses', async (req, res) => {
+  const payload = await fetch(`https://api.openai.com/v1/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify(req.body)
+  })
+
+  const data = await payload.json()
+
+  res.status(200).json(data)
+})
+
+app.post('/api/audio/speech', async (req, res) => {
+  console.log(req.body)
+  const payload = await fetch(`https://api.openai.com/v1/audio/speech`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify(req.body)
+  })
+
+  console.log(payload.status, payload.statusText)
+
+  const arrayBuffer = await payload.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.send(buffer);
+})
+
 app.use((_, res, next) => {
   res.set({
     // "Cross-Origin-Opener-Policy": "same-origin",
