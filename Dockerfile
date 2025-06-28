@@ -9,7 +9,7 @@ WORKDIR /app
 COPY . /app
 
 # Install any needed packages specified in package.json
-RUN npm install
+RUN bun install
 
 # Run app when the container launches
 CMD ["npm", "start"]
