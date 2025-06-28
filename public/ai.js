@@ -1,4 +1,4 @@
-const url = 'https://clownz-army.netlify.app'
+const url = 'https://clownz-army.kinsta.app'
 
 const systemMessage = {
   role: "system",
