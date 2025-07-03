@@ -37,6 +37,7 @@ window.player_play = () => {
   startTimeout = setTimeout(() => {
     console.log('Player: PLAY')
     inner_container.style.visibility = 'hidden'
+    window.obsstudio?.startRecording()
   }, 1000)
 }
 
