@@ -1,10 +1,13 @@
-import {$} from 'bun'
+import { $ } from 'bun'
 
-const image = 'path'
+const image = 'pic.jpeg'
 const username = 'vlad.chat'
 
-const sequence = ['This is my first message.', 'This is my second message.']
 
+const sequence = [
+  "This video has been rendered using react and Remotion",
+  "If you have an interesting startup idea and you are funded. Hit me up, let's collaborate!"
+]
 let s = 0
 
 for (const content of sequence) {

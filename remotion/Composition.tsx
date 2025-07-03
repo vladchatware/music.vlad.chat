@@ -71,12 +71,14 @@ export const MyComposition = ({ image, username, content }) => {
       <div style={styles.content}>
         <div style={styles.innerContaner}>
           <header style={styles.header}>
-            <div style={{ ...styles.p, width: 50, height: 50, backgroundColor: 'yellow', borderRadius: 100, marginTop: -6, marginLeft: 1, marginRight: 16 }}></div>
+            <div style={{ ...styles.p, width: 50, height: 50, borderRadius: 100, marginTop: -6, marginLeft: 1, marginRight: 16 }}>
+              <Img src={staticFile('pic.jpeg')} width={50} height={50} />
+            </div>
             <div style={{ display: 'flex', flexGrow: 1, justifyContent: 'space-between' }}>
               <p style={styles.p}>{username}</p>
               <p></p>
             </div>
-            <p style={{ ...styles.p, width: 40, height: 40, backgroundColor: 'yellow', borderRadius: 100, marginTop: 0, marginRight: 0 }}></p>
+            <p style={{ ...styles.p, width: 40, height: 40, borderRadius: 100, marginTop: 0, marginRight: 0 }}></p>
           </header>
           <main style={styles.main}>
             <p style={styles.mainP}>{content}</p>
