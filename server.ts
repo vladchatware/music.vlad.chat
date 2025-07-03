@@ -10,6 +10,28 @@ const app = express()
 
 app.use(express.json())
 
+const allowedOrigins = ['http://localhost:3000', 'http://clownz-army.kinsta.app']
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
+
+  res.set({
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept, Range"
+  });
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204)
+  }
+
+  next()
+})
+
 app.post('/mcp', async (req, res) => {
   try {
     const server = new McpServer({
@@ -47,7 +69,6 @@ app.post('/mcp', async (req, res) => {
         to: z.string().optional()
       }).optional()
     }, async (query) => {
-      console.log('query', query)
       const res = await tracks({
         q: query.q
       })
@@ -153,18 +174,6 @@ app.post('/api/audio/speech', async (req, res) => {
   res.send(buffer);
 })
 
-// app.use((_, res, next) => {
-//   res.set({
-//     // "Cross-Origin-Opener-Policy": "same-origin",
-//     // "Cross-Origin-Embedder-Policy": "require-corp",
-//     "Cross-Origin-Resource-Policy": "cross-origin",
-//     // "Origin-Agent-Cluster": "?1",
-//     "Access-Control-Allow-Origin": "*",
-//     // "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-//     // "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept, Range"
-//   })
-//   next()
-// })
 
 app.use(express.static('public'))
 

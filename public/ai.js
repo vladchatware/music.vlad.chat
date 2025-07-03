@@ -1,4 +1,4 @@
-const url = 'https://clownz-army.kinsta.app'
+const url = 'https://clownz-army.kinsta.app' // CORS sensitive
 
 const systemMessage = {
   role: "system",
