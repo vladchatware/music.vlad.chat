@@ -182,13 +182,11 @@ app.get('/', (req, res) => {
 })
 
 app.get('/tracks/:id', (req, res) => {
-  const id = req.params.id || '692509783'
-
   const template = fs.readFileSync(`${__dirname}/public/index.html`, 'utf8')
 
   if (!template) return res.status(500).send('Error reading template')
 
-  const payload = template.replace(/\{id\}/g, id)
+  const payload = template.replace('692509783', req.params.id)
 
   res.send(payload)
 })
