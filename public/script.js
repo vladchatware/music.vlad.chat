@@ -266,10 +266,8 @@ Respond with json object:
 and nothing else.
 `
 
-      const [res] = await Promise.all([
-        ask(`${instructions}\n ${system_instructions}`),
-        window.play_sound('Hold on, lemme vibe it out!')
-      ])
+      await window.play_sound('Hold on, lemme vibe it out!')
+      const res = await ask(`${instructions}\n ${system_instructions}`)
       const payload = JSON.parse(res.output[2].content[0].text)
       payload.tracks.map(track => console.log(`${track.justification}`))
       queue.set(payload.tracks)
