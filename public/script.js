@@ -38,7 +38,7 @@ const toggle_speech = async () => {
     track = tracks[0]
 
     mediaRecorder = new MediaRecorder(stream, {
-      mimeType: 'audio/webm'
+      mimeType: 'video/webm'
     })
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
@@ -71,7 +71,8 @@ const toggle_speech = async () => {
     mediaRecorder.start(1000)
   } catch (e) {
     speech_button.disabled = true
-    alert('Recording has been disabled.')
+    alert(`Recording has been disabled.`, e.message)
+    console.log(MediaRecorder.isTypeSupported('audio/webm'))
     // await window.play_sound('You gotta allow me to hear what ya saying bro')
   }
 }
