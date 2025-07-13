@@ -4,9 +4,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
+import multer from "multer"
 import { getAccessToken, tracks, users, playlists } from "./soundcloud"
 
 const app = express()
+const storage = multer.memoryStorage()
+const upload = multer({ storage })
 
 app.use(express.json())
 
@@ -158,7 +161,6 @@ app.post('/api/responses', async (req, res) => {
 })
 
 app.post('/api/audio/speech', async (req, res) => {
-  console.log(req.body)
   const payload = await fetch(`https://api.openai.com/v1/audio/speech`, {
     method: 'POST',
     headers: {
@@ -174,6 +176,22 @@ app.post('/api/audio/speech', async (req, res) => {
   res.send(buffer);
 })
 
+
+app.post('/api/audio/transcriptions', upload.single('file'), async (req, res) => {
+  const file = new Blob([req.file.buffer], { type: req.file.mimetype })
+  const body = new FormData()
+  body.append('file', file, 'file.webm')
+  body.append('model', 'gpt-4o-mini-transcribe')
+  const payload = await fetch(`https://api.openai.com/v1/audio/transcriptions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body
+  })
+  const data = await payload.json()
+  res.status(200).json(data)
+})
 
 app.use(express.static('public'))
 
