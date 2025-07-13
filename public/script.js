@@ -64,7 +64,7 @@ const toggle_speech = async () => {
       instructions = payload.text
       setTimeout(() => {
         inner_container.classList.remove('speaking')
-        instructions = 'Play some y2k music'
+        // instructions = 'Play some y2k music'
         queue.clear()
         history.clear()
         revibe()
