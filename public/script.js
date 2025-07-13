@@ -15,7 +15,9 @@ let pauseTimeout = null
 inner_container.addEventListener('click', (e) => {
   if (e.target.id === 'revibe') return window.start_sequence()
   if (e.target.id === 'speech') return toggle_speech()
-  // inner_container.style.visibility = 'hidden'
+  if (e.target.id === 'inner-container') {
+    inner_container.style.visibility = 'hidden'
+  }
 })
 
 let track = null
