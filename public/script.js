@@ -7,6 +7,7 @@ const revibe_button = document.getElementById('revibe')
 const remix_indicator = document.getElementById('remix-indicator')
 const inner_container = document.getElementById('inner-container')
 const speech_button = document.getElementById('speech')
+const audio = document.getElementById('control')
 
 let started = false
 let startTimeout = null
@@ -35,21 +36,22 @@ const toggle_speech = async () => {
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    speech_button.classList.toggle('recording')
     const tracks = stream.getTracks()
     track = tracks[0]
 
     mediaRecorder = new MediaRecorder(stream, {
       mimeType: 'video/webm'
     })
+    mediaRecorder.onstart = () => {
+      speech_button.classList.add('recording')
+    }
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         chunks.push(event.data)
       }
     }
-
     mediaRecorder.onstop = async () => {
-      inner_container.classList.toggle('speaking')
+      speech_button.classList.remove('recording')
       const blob = new Blob(chunks)
       const body = new FormData()
       body.append('file', blob, 'file.webm')
@@ -61,8 +63,8 @@ const toggle_speech = async () => {
       console.log(payload)
       instructions = payload.text
       setTimeout(() => {
-        inner_container.classList.toggle('speaking')
-        // instructions = 'Play some y2k music'
+        inner_container.classList.remove('speaking')
+        instructions = 'Play some y2k music'
         queue.clear()
         history.clear()
         revibe()
@@ -74,7 +76,7 @@ const toggle_speech = async () => {
   } catch (e) {
     speech_button.disabled = true
     alert(`Recording has been disabled.`, e.message)
-    console.log(MediaRecorder.isTypeSupported('audio/webm'))
+    console.log('video/webm is supported?', MediaRecorder.isTypeSupported('audio/webm'))
     // await window.play_sound('You gotta allow me to hear what ya saying bro')
   }
 }
@@ -152,18 +154,23 @@ window.play_artist = async (url) => {
 
 window.play_sound = async (text) => {
   window.player.setVolume(30)
+  inner_container.classList.add('speaking')
   const blob = await speech(text)
+  speech_button.style.visibility = 'hidden'
   return new Promise(async (res, rej) => {
-    const audio = document.getElementById('control') // iOS quirk
     audio.src = URL.createObjectURL(blob)
-    audio.controls = true
     audio.muted = false
-    audio.style.display = 'none'
-    document.body.appendChild(audio)
-    audio.play()
+    audio.style.visibility = 'visible'
+    try {
+      audio.play()
+    } catch (e) {
+      alert('Autoplay is disabled due to playform limitations.')
+    }
     audio.addEventListener('ended', () => {
-      // audio.remove() // iOS quirk
       window.player.setVolume(100)
+      audio.style.visibility = 'hidden'
+      speech_button.style.visibility = 'inherit'
+      inner_container.classList.remove('speaking')
       res()
     })
   })
