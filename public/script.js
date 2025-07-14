@@ -162,9 +162,7 @@ window.play_sound = async (text) => {
     audio.muted = false
     audio.autoplay = true
     audio.style.visibility = 'visible'
-    audio.onclick = () => {
-      audio.play()
-    }
+    audio.play()
     audio.onended = () => {
       window.player.setVolume(100)
       audio.style.visibility = 'hidden'
