@@ -229,8 +229,7 @@ const queue = {
 }
 
 let limiter = 0
-let instructions = `Find some songs from soundcloud for Star Wars Flashback Disco
-like as if it was in older star wars, dont repeat previous tracks.`
+let instructions = `Lets set the stage and vibe it out!`
 
 const revibe = async () => {
   inner_container.classList.add('speaking')
@@ -250,7 +249,9 @@ const revibe = async () => {
     limiter = setTimeout(async () => {
 
       const system_instructions = `
-Use search to find the tracks.
+Focus on niche genres and thematic coherence - matching energy, mood, vibe.
+Curate tracks that aren't mainstream, help to discover the hidden gems.
+Use search to find and compose 10 tracks.
 Example justifications:
 - Up next is "Artist Name" because...
 - Moving to our next pick is "Artist Name" because...
