@@ -9,7 +9,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "GPL-3.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@netlify/blobs": "^10.0.0",

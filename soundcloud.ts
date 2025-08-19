@@ -1,5 +1,6 @@
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
+const endpoint = 'https://api.soundcloud.com'
 const credentials = {}
 
 const readAccessToken = async () => {
@@ -106,11 +107,24 @@ export const tracks = async (query: {
 }) => {
   const access_token = await readAccessToken()
   const params = new URLSearchParams(query).toString()
-  const res = await fetch(`https://api.soundcloud.com/tracks?${params}`, {
+  const res = await fetch(`${endpoint}/tracks?${params}`, {
     headers: {
       Authorization: `Bearer ${access_token}`
     }
   })
+  const payload = await res.json()
+
+  return payload
+}
+
+export const related = async (id) => {
+  const access_token = await readAccessToken()
+  const res = await fetch(`${endpoint}/tracks/soundcloud:tracks:${id}/related`, {
+    headers: {
+      Authorization: `Bearer ${access_token}`
+    }
+  })
+
   const payload = await res.json()
 
   return payload
@@ -121,7 +135,7 @@ export const playlists = async (query: {
   limit?: string
 }) => {
   const access_token = await readAccessToken()
-  const res = await fetch('https://api.soundcloud.com/users', {
+  const res = await fetch(`${endpoint}/users`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
       'Content-Type': 'application/json'
