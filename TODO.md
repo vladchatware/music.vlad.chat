@@ -27,9 +27,9 @@ The AI calles SoundCloud MCP server to fetch a new song and announce the song to
 
 ## It works
 
-- [ ] MCP Server
-- [ ] AI Call
-- [ ] Sound
+- [X] MCP Server
+- [X] AI Call
+- [X] Sound
 
 ## It Looks
 
@@ -43,6 +43,6 @@ The AI calles SoundCloud MCP server to fetch a new song and announce the song to
 
 ## It Listens
 
-- [ ] Hold to listen button
-- [ ] Voice 2 text translation
-- [ ] Change the input box
+- [X] Hold to listen button
+- [X] Voice 2 text translation
+- [X] Change the input box

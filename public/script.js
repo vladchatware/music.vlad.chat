@@ -1,4 +1,4 @@
-import { ask, messages, speech as play_sound, speech } from './ai.js'
+import { ask, speech } from './ai.js'
 
 const widgetIframe = document.getElementById('sc-widget')
 window.player = SC.Widget(widgetIframe)
@@ -229,7 +229,7 @@ const queue = {
 }
 
 let limiter = 0
-let instructions = `Lets set the stage and vibe it out!`
+let instructions = `Dreamscape genres, like y2k, vaporware, synthwave, and other niche genres.`
 
 const revibe = async () => {
   inner_container.classList.add('speaking')
@@ -251,10 +251,10 @@ const revibe = async () => {
       const system_instructions = `
 Focus on niche genres and thematic coherence - matching energy, mood, vibe.
 Curate tracks that aren't mainstream, help to discover the hidden gems.
-Use search to find and compose 10 tracks.
 Example justifications:
 - Up next is "Artist Name" because...
 - Moving to our next pick is "Artist Name" because...
+- ...
 - Finally our last pick is "Artist Name" because...
 Respond with json object:
 {
@@ -268,6 +268,7 @@ and nothing else.
 
       await window.play_sound('Hold on, lemme vibe it out!')
       const res = await ask(`${instructions}\n ${system_instructions}`)
+      console.log(res)
       const payload = JSON.parse(res.output[res.output.length - 1].content[0].text)
       payload.tracks.map(track => console.log(`${track.justification}`))
       queue.set(payload.tracks)
