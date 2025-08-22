@@ -12,7 +12,7 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
+import { mapValues } from '../../runtime';
 import type { Hashtag } from './Hashtag';
 import {
     HashtagFromJSON,

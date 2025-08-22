@@ -12,7 +12,7 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
+import { mapValues } from '../../runtime';
 import type { StoryLocation } from './StoryLocation';
 import {
     StoryLocationFromJSON,
