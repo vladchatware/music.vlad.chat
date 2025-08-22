@@ -1,10 +1,12 @@
 # Agentic music mixing
 
+[Demo](https://clownz-army.kinsta.app)
+
 ## Project overview
 
-Frontend: vanillajs
-Backend: expressjs
-Runtime: bun
+- Frontend: vanillajs
+- Backend: expressjs
+- Runtime: bun
 
 ## External dependencies
 

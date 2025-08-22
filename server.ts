@@ -9,7 +9,7 @@ app.use(express.json())
 
 const allowedOrigins = [
   'http://localhost:3000',
-  'http://clownz-army.kinsta.app',
+  'https://clownz-army.kinsta.app',
   'https://music.vlad.chat',
   'https://a0006e19375d.ngrok-free.app'
 ]
