@@ -1,16 +1,20 @@
 {
-  "name": "clownz-army",
-  "type": "module",
-  "version": "1.0.0",
-  "description": "Clownz Army",
+  "name": "music.vlad.chat",
+  "version": "0.0.2",
+  "description": "Virtual DJ",
   "main": "index.js",
   "scripts": {
-    "start": "bun server.js"
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
+    "start": "next start"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "next": "15.5.4",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@netlify/blobs": "^10.0.0",
     "@netlify/functions": "^4.1.5",
@@ -20,5 +24,13 @@
     "multer": "^2.0.1",
     "serverless-http": "^3.2.0",
     "zod": "^3.25.53"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4"
   }
 }
