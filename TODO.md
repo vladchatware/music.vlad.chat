@@ -1,10 +1,9 @@
-# Version 0.1
+# v0.0.4
 
-- [X] Sign in with Spotify
-- [X] Simple input box
-- [X] Correct LLM output format
-- [X] Spotify is playing music
-- [X] Correct spotify query to fetch the tracks
+- [X] Deploy to vercel
+- [X] Refactor to api endpoints instead of expressjs
+- [X] Redirect to previous place
+- [X] Migrate endpoints
 
 ---
 
@@ -12,9 +11,9 @@
 
 [API](https://developers.soundcloud.com/docs/api/explorer/open-api)
 
-- [ ] Search track
-- [ ] Search user
-- [ ] Search playlist
+- [X] Search track
+- [X] Search user
+- [X] Search playlist
 
 # Version 0.2
 
@@ -27,22 +26,13 @@ The AI calles SoundCloud MCP server to fetch a new song and announce the song to
 
 ## It works
 
-- [ ] MCP Server
-- [ ] AI Call
-- [ ] Sound
+- [X] MCP Server
+- [X] AI Call
+- [X] Sound
 
-## It Looks
+## Ideas
 
-- [ ] Establish a front end layer in PReact can be served as an early prototype before XR
-- [ ] Frontend on [XR](https://github.com/pmndrs/xr)
-- [ ] Liquid glass design
+- Establish a front end layer in PReact can be served as an early prototype before XR
+- Frontend on [XR](https://github.com/pmndrs/xr)
+- Liquid glass design
 
-## It Talks
-
-- [X] Kokoro connection
-
-## It Listens
-
-- [ ] Hold to listen button
-- [ ] Voice 2 text translation
-- [ ] Change the input box

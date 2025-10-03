@@ -3,11 +3,38 @@ import { ask, messages, speech as play_sound, speech } from './ai.js'
 const widgetIframe = document.getElementById('sc-widget')
 window.player = SC.Widget(widgetIframe)
 
+const connect = document.getElementById('connect')
+const connect_image = document.getElementById('connect-image')
+let connected = false
+
 const revibe_button = document.getElementById('revibe')
 const remix_indicator = document.getElementById('remix-indicator')
 const inner_container = document.getElementById('inner-container')
 const speech_button = document.getElementById('speech')
 const audio = document.getElementById('control')
+
+connect.addEventListener('click', (e) => {
+  const params = new URLSearchParams({
+    client_id: 'wrAA8ZBg2HQOEBcGNPt8qivFxrsn18pp',
+    redirect_uri: 'http://localhost:3000/auth',
+    response_type: 'code',
+    //   code_challenge: '',
+    //   code_challenge_method: '',
+    //   state: ''
+  })
+
+  window.location.href = `https://secure.soundcloud.com/authorize?${params.toString()}`
+})
+
+speech_button.disabled = true
+
+// connect with soundcloud
+const urlParams = new URLSearchParams(window.location.search)
+if (urlParams.has('access_token')) {
+  connected = true
+  speech_button.disabled = false
+  connect_image.src = 'https://connect.soundcloud.com/2/btn-disconnect-s.png'
+}
 
 let started = false
 let startTimeout = null
@@ -55,7 +82,7 @@ const toggle_speech = async () => {
       const blob = new Blob(chunks)
       const body = new FormData()
       body.append('file', blob, 'file.webm')
-      const res = await fetch(`https://clownz-army.kinsta.app/api/audio/transcriptions`, {
+      const res = await fetch(`https://music.vlad.chat/api/audio/transcriptions`, {
         method: 'POST',
         body
       })
@@ -266,7 +293,7 @@ and nothing else.
 `
 
       await window.play_sound('Hold on, lemme vibe it out!')
-      const res = await ask(`${instructions}\n ${system_instructions}`)
+      const res = await ask(`${instructions}\n ${system_instructions}`, urlParams.get('access_token'))
       const payload = JSON.parse(res.output[res.output.length - 1].content[0].text)
       payload.tracks.map(track => console.log(`${track.justification}`))
       queue.set(payload.tracks)

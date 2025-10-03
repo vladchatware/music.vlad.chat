@@ -1,4 +1,4 @@
-const url = 'https://clownz-army.kinsta.app' // CORS sensitive
+const url = 'https://music.vlad.chat' // CORS sensitive
 
 const systemMessage = {
   role: "system",
@@ -60,16 +60,17 @@ export const speech = async (text) => {
   return payload.blob()
 }
 
-export const ask = async (input) => {
+export const ask = async (input, authorization) => {
   const body = {
     model: 'gpt-4o-mini',
     input,
     tools: [{
       type: 'mcp',
       server_label: 'soundcloud',
-      server_url: `${url}/mcp`,
+      server_url: `${url}/api/mcp`,
       require_approval: 'never',
-      allowed_tools: ['tracks']
+      allowed_tools: ['tracks'],
+      authorization
     }],
     text: {
       format: { type: 'json_object' }
