@@ -1,3 +1,11 @@
+# v0.0.5 The Interface
+
+(example)[https://github.com/pmndrs/uikit/blob/main/examples/card/src/App.tsx]
+
+- [ ] The basic interface using uikit
+- [ ] Make sure it plays 
+- [ ] Add a circle visualizer
+
 # v0.0.4
 
 - [X] Deploy to vercel

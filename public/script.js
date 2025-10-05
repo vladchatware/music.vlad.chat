@@ -3,30 +3,32 @@ import { ask, messages, speech as play_sound, speech } from './ai.js'
 const widgetIframe = document.getElementById('sc-widget')
 window.player = SC.Widget(widgetIframe)
 
-const connect = document.getElementById('connect')
-const connect_image = document.getElementById('connect-image')
+// const connect = document.getElementById('connect')
+// const connect_image = document.getElementById('connect-image')
 let connected = false
 
 const revibe_button = document.getElementById('revibe')
 const remix_indicator = document.getElementById('remix-indicator')
-const inner_container = document.getElementById('inner-container')
+// const inner_container = document.getElementById('inner-container')
 const speech_button = document.getElementById('speech')
 const audio = document.getElementById('control')
 
-connect.addEventListener('click', (e) => {
-  const params = new URLSearchParams({
-    client_id: 'wrAA8ZBg2HQOEBcGNPt8qivFxrsn18pp',
-    redirect_uri: 'http://localhost:3000/auth',
-    response_type: 'code',
-    //   code_challenge: '',
-    //   code_challenge_method: '',
-    //   state: ''
-  })
+console.log('from the script')
 
-  window.location.href = `https://secure.soundcloud.com/authorize?${params.toString()}`
-})
+// connect.addEventListener('click', (e) => {
+//   const params = new URLSearchParams({
+//     client_id: 'wrAA8ZBg2HQOEBcGNPt8qivFxrsn18pp',
+//     redirect_uri: 'http://localhost:3000/auth',
+//     response_type: 'code',
+//     //   code_challenge: '',
+//     //   code_challenge_method: '',
+//     //   state: ''
+//   })
+//
+//   window.location.href = `https://secure.soundcloud.com/authorize?${params.toString()}`
+// })
 
-speech_button.disabled = true
+// speech_button.disabled = true
 
 // connect with soundcloud
 const urlParams = new URLSearchParams(window.location.search)
@@ -40,13 +42,13 @@ let started = false
 let startTimeout = null
 let pauseTimeout = null
 
-inner_container.addEventListener('click', (e) => {
-  if (e.target.id === 'revibe') return window.start_sequence()
-  if (e.target.id === 'speech') return toggle_speech()
-  if (e.target.id === 'inner-container') {
-    inner_container.style.visibility = 'hidden'
-  }
-})
+// inner_container.addEventListener('click', (e) => {
+//   if (e.target.id === 'revibe') return window.start_sequence()
+//   if (e.target.id === 'speech') return toggle_speech()
+//   if (e.target.id === 'inner-container') {
+//     inner_container.style.visibility = 'hidden'
+//   }
+// })
 
 let track = null
 let mediaRecorder = null
@@ -54,7 +56,7 @@ let chunks = []
 
 const toggle_speech = async () => {
   if (track) {
-    inner_container.classList.remove('speaking')
+    // inner_container.classList.remove('speaking')
     speech_button.classList.remove('recording')
     track.stop()
     track = null
@@ -90,7 +92,7 @@ const toggle_speech = async () => {
       console.log(payload)
       instructions = payload.text
       setTimeout(() => {
-        inner_container.classList.remove('speaking')
+        // inner_container.classList.remove('speaking')
         // instructions = 'Play some y2k music'
         queue.clear()
         history.clear()
@@ -128,7 +130,7 @@ window.player_play = () => {
   clearTimeout(pauseTimeout)
   startTimeout = setTimeout(() => {
     console.log('Player: PLAY')
-    inner_container.style.visibility = 'hidden'
+    // inner_container.style.visibility = 'hidden'
     window.obsstudio?.startRecording()
   }, 1000)
 }
@@ -139,14 +141,14 @@ window.player_pause = () => {
   clearTimeout(pauseTimeout)
   pauseTimeout = setTimeout(() => {
     window.obsstudio?.stopRecording()
-    inner_container.style.visibility = 'visible'
+    // inner_container.style.visibility = 'visible'
   }, 3000)
 }
 
 window.player_finish = () => {
   console.log('Player: FINISH')
   window.obsstudio?.stopRecording()
-  inner_container.style.visibility = 'visible'
+  // inner_container.style.visibility = 'visible'
   return revibe()
 }
 
@@ -162,6 +164,8 @@ rebind()
 window.play_artist = async (url) => {
   unbind()
   await new Promise((callback) => {
+    window.innerHeight = 250
+    window.innerWidth = 250
     window.player.load(url, {
       auto_play: true,
       visual: true,
@@ -170,8 +174,8 @@ window.play_artist = async (url) => {
       hide_related: true,
       show_reposts: true,
       callback: () => {
-        window.innerHeight = 1280
-        window.innerWidth = 720
+        window.innerHeight = 250
+        window.innerWidth = 250
         callback()
       }
     })
@@ -181,7 +185,7 @@ window.play_artist = async (url) => {
 
 window.play_sound = async (text) => {
   window.player.setVolume(30)
-  inner_container.classList.add('speaking')
+  // inner_container.classList.add('speaking')
   const blob = await speech(text)
   speech_button.style.visibility = 'hidden'
   return new Promise(async (res, rej) => {
@@ -194,7 +198,7 @@ window.play_sound = async (text) => {
       window.player.setVolume(100)
       audio.style.visibility = 'hidden'
       speech_button.style.visibility = 'inherit'
-      inner_container.classList.remove('speaking')
+      // inner_container.classList.remove('speaking')
       delete audio.onended
       res()
     }
@@ -260,7 +264,7 @@ let instructions = `Find some songs from soundcloud for Star Wars Flashback Disc
 like as if it was in older star wars, dont repeat previous tracks.`
 
 const revibe = async () => {
-  inner_container.classList.add('speaking')
+  // inner_container.classList.add('speaking')
   if (queue.length()) {
     const track = queue.shift()
     history.push(track.track)
@@ -299,13 +303,13 @@ and nothing else.
       queue.set(payload.tracks)
 
       revibe_button.disabled = false
-      inner_container.classList.remove('speaking')
+      // inner_container.classList.remove('speaking')
       return revibe()
     }, 3000)
   } catch (e) {
     await window.play_sound('Could not start bro, lets try one more time!')
     revibe_button.disabled = false
-    inner_container.classList.remove('speaking')
+    // inner_container.classList.remove('speaking')
     return revibe()
   }
 }
