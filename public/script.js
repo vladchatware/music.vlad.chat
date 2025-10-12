@@ -9,7 +9,7 @@ let connected = false
 
 const revibe_button = document.getElementById('revibe')
 const remix_indicator = document.getElementById('remix-indicator')
-// const inner_container = document.getElementById('inner-container')
+const inner_container = document.getElementById('inner-container')
 const speech_button = document.getElementById('speech')
 const audio = document.getElementById('control')
 
@@ -31,24 +31,24 @@ console.log('from the script')
 // speech_button.disabled = true
 
 // connect with soundcloud
-const urlParams = new URLSearchParams(window.location.search)
-if (urlParams.has('access_token')) {
-  connected = true
-  speech_button.disabled = false
-  connect_image.src = 'https://connect.soundcloud.com/2/btn-disconnect-s.png'
-}
+// const urlParams = new URLSearchParams(window.location.search)
+// if (urlParams.has('access_token')) {
+//   connected = true
+//   speech_button.disabled = false
+//   connect_image.src = 'https://connect.soundcloud.com/2/btn-disconnect-s.png'
+// }
 
 let started = false
 let startTimeout = null
 let pauseTimeout = null
 
-// inner_container.addEventListener('click', (e) => {
-//   if (e.target.id === 'revibe') return window.start_sequence()
-//   if (e.target.id === 'speech') return toggle_speech()
-//   if (e.target.id === 'inner-container') {
-//     inner_container.style.visibility = 'hidden'
-//   }
-// })
+inner_container.addEventListener('click', (e) => {
+  if (e.target.id === 'revibe') return window.start_sequence()
+  if (e.target.id === 'speech') return toggle_speech()
+  if (e.target.id === 'inner-container') {
+    inner_container.style.visibility = 'hidden'
+  }
+})
 
 let track = null
 let mediaRecorder = null
@@ -130,7 +130,7 @@ window.player_play = () => {
   clearTimeout(pauseTimeout)
   startTimeout = setTimeout(() => {
     console.log('Player: PLAY')
-    // inner_container.style.visibility = 'hidden'
+    inner_container.style.visibility = 'hidden'
     window.obsstudio?.startRecording()
   }, 1000)
 }
@@ -141,14 +141,14 @@ window.player_pause = () => {
   clearTimeout(pauseTimeout)
   pauseTimeout = setTimeout(() => {
     window.obsstudio?.stopRecording()
-    // inner_container.style.visibility = 'visible'
+    inner_container.style.visibility = 'visible'
   }, 3000)
 }
 
 window.player_finish = () => {
   console.log('Player: FINISH')
   window.obsstudio?.stopRecording()
-  // inner_container.style.visibility = 'visible'
+  inner_container.style.visibility = 'visible'
   return revibe()
 }
 
@@ -185,7 +185,7 @@ window.play_artist = async (url) => {
 
 window.play_sound = async (text) => {
   window.player.setVolume(30)
-  // inner_container.classList.add('speaking')
+  inner_container.classList.add('speaking')
   const blob = await speech(text)
   speech_button.style.visibility = 'hidden'
   return new Promise(async (res, rej) => {
@@ -198,7 +198,7 @@ window.play_sound = async (text) => {
       window.player.setVolume(100)
       audio.style.visibility = 'hidden'
       speech_button.style.visibility = 'inherit'
-      // inner_container.classList.remove('speaking')
+      inner_container.classList.remove('speaking')
       delete audio.onended
       res()
     }
@@ -264,7 +264,7 @@ let instructions = `Find some songs from soundcloud for Star Wars Flashback Disc
 like as if it was in older star wars, dont repeat previous tracks.`
 
 const revibe = async () => {
-  // inner_container.classList.add('speaking')
+  inner_container.classList.add('speaking')
   if (queue.length()) {
     const track = queue.shift()
     history.push(track.track)
@@ -303,13 +303,13 @@ and nothing else.
       queue.set(payload.tracks)
 
       revibe_button.disabled = false
-      // inner_container.classList.remove('speaking')
+      inner_container.classList.remove('speaking')
       return revibe()
     }, 3000)
   } catch (e) {
     await window.play_sound('Could not start bro, lets try one more time!')
     revibe_button.disabled = false
-    // inner_container.classList.remove('speaking')
+    inner_container.classList.remove('speaking')
     return revibe()
   }
 }
