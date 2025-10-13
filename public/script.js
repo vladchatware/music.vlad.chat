@@ -55,7 +55,7 @@ const toggle_speech = async () => {
       const blob = new Blob(chunks)
       const body = new FormData()
       body.append('file', blob, 'file.webm')
-      const res = await fetch(`https://clownz-army.kinsta.app/api/audio/transcriptions`, {
+      const res = await fetch(`https://music.vlad.chat/api/audio/transcriptions`, {
         method: 'POST',
         body
       })

@@ -1,4 +1,4 @@
-const url = 'https://clownz-army.kinsta.app' // CORS sensitive
+const url = 'https://music.vlad.chat' // CORS sensitive
 
 export const speech = async (text) => {
   const payload = await fetch(`${url}/api/audio/speech`, {
