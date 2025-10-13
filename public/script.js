@@ -3,8 +3,8 @@ import { ask, messages, speech as play_sound, speech } from './ai.js'
 const widgetIframe = document.getElementById('sc-widget')
 window.player = SC.Widget(widgetIframe)
 
-// const connect = document.getElementById('connect')
-// const connect_image = document.getElementById('connect-image')
+const connect = document.getElementById('connect')
+const connect_image = document.getElementById('connect-image')
 let connected = false
 
 const revibe_button = document.getElementById('revibe')
@@ -13,30 +13,28 @@ const inner_container = document.getElementById('inner-container')
 const speech_button = document.getElementById('speech')
 const audio = document.getElementById('control')
 
-console.log('from the script')
-
 // connect.addEventListener('click', (e) => {
 //   const params = new URLSearchParams({
 //     client_id: 'wrAA8ZBg2HQOEBcGNPt8qivFxrsn18pp',
 //     redirect_uri: 'http://localhost:3000/auth',
 //     response_type: 'code',
-//     //   code_challenge: '',
-//     //   code_challenge_method: '',
-//     //   state: ''
+//     code_challenge: '',
+//     code_challenge_method: '',
+//     // state: ''
 //   })
 //
 //   window.location.href = `https://secure.soundcloud.com/authorize?${params.toString()}`
 // })
 
-// speech_button.disabled = true
+speech_button.disabled = true
 
 // connect with soundcloud
-// const urlParams = new URLSearchParams(window.location.search)
-// if (urlParams.has('access_token')) {
-//   connected = true
-//   speech_button.disabled = false
-//   connect_image.src = 'https://connect.soundcloud.com/2/btn-disconnect-s.png'
-// }
+const urlParams = new URLSearchParams(window.location.search)
+if (urlParams.has('access_token')) {
+  connected = true
+  speech_button.disabled = false
+  connect_image.src = 'https://connect.soundcloud.com/2/btn-disconnect-s.png'
+}
 
 let started = false
 let startTimeout = null
@@ -56,7 +54,7 @@ let chunks = []
 
 const toggle_speech = async () => {
   if (track) {
-    // inner_container.classList.remove('speaking')
+    inner_container.classList.remove('speaking')
     speech_button.classList.remove('recording')
     track.stop()
     track = null
@@ -92,7 +90,7 @@ const toggle_speech = async () => {
       console.log(payload)
       instructions = payload.text
       setTimeout(() => {
-        // inner_container.classList.remove('speaking')
+        inner_container.classList.remove('speaking')
         // instructions = 'Play some y2k music'
         queue.clear()
         history.clear()

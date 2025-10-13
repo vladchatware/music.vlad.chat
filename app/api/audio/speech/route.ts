@@ -2,7 +2,6 @@ import { NextResponse, NextRequest } from 'next/server'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  console.log(body)
   const payload = await fetch(`https://api.openai.com/v1/audio/speech`, {
     method: 'POST',
     headers: {
