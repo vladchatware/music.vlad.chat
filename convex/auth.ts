@@ -7,13 +7,9 @@ const Soundcloud = (options) => {
     id: 'soundcloud',
     name: 'SoundCloud',
     type: 'oauth',
-    authorization: {
-      url: 'https://soundcloud.com/connect',
-      params: {
-        scope: 'non-expiring'
-      }
-    },
-    token: "https://api.soundcloud.com/oauth2/token",
+    authorization: "https://secure.soundcloud.com/authorize",
+    checks: [],
+    token: url: "https://secure.soundcloud.com/oauth/token",
     userinfo: "https://api.soundcloud.com/me",
     profile(profile) {
       console.log(profile)

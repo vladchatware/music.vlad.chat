@@ -1,4 +1,5 @@
 import { NextResponse, NextRequest } from 'next/server'
+import { track } from '../../../../soundcloud'
 
 export async function GET(req: NextRequest, { params }) {
   const { id } = await params
@@ -7,13 +8,11 @@ export async function GET(req: NextRequest, { params }) {
   }
 
   try {
-    const res = await fetch(`https://api.soundcloud.com/tracks/${id}?client_id=${process.env.CLIENT_ID}`)
-    if (!res.ok) {
-      return NextResponse.json({ error: 'Track not found' }, { status: res.status })
-    }
+    const _track = track(id)
 
-    const track = await res.json()
-    return NextResponse.json(track)
+    if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
+
+    return NextResponse.json(_track)
   } catch (e) {
     return NextResponse.json({ error: 'Failed to fetch track' }, { status: 500 })
   }

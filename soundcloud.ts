@@ -26,6 +26,8 @@ export const getAccessToken = async () => {
     throw new Error('Soundcloud client credentials not found in environment variables')
   }
 
+  if (credentials.access_token) return credentials.access_token
+
   const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const response = await fetch('https://secure.soundcloud.com/oauth/token', {
     method: 'POST',
@@ -37,6 +39,9 @@ export const getAccessToken = async () => {
   })
 
   if (!response.ok) {
+    console.log(response.statusText)
+    const error = await response.json()
+    console.log(error)
     throw new Error(`Authentication failed with status: ${response.status}`);
   }
 
@@ -88,6 +93,35 @@ export const users = async (query: {
   const payload = await res.json()
 
   return payload
+}
+
+export const track = async (id: string | number) => {
+  const access_token = await getAccessToken()
+  const res = await fetch(`https://api.soundcloud.com/tracks/${id}`, {
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+    }
+  })
+  if (!res.ok) {
+    const error = await res.json()
+    console.log(error)
+    return null
+  }
+
+  const track = await res.json()
+  track.artwork_url = track.artwork_url.replace('large', 't500x500')
+  return track
+}
+
+export const streamTrack = async (id: string | number) => {
+  const access_token = await getAccessToken()
+  const res = await fetch(`https://api.soundcloud.com/tracks/${id}/stream`, {
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+    }
+  })
+
+  return res
 }
 
 export const tracks = async (query: {
