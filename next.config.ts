@@ -4,5 +4,8 @@ module.exports = {
       source: '/',
       destination: '/index.html'
     }]
+  },
+  experimental: {
+    turbopackScopeHoisting: false
   }
 }

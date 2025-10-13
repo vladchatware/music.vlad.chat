@@ -9,7 +9,7 @@ const Soundcloud = (options) => {
     type: 'oauth',
     authorization: "https://secure.soundcloud.com/authorize",
     checks: [],
-    token: url: "https://secure.soundcloud.com/oauth/token",
+    token: "https://secure.soundcloud.com/oauth/token",
     userinfo: "https://api.soundcloud.com/me",
     profile(profile) {
       console.log(profile)
@@ -25,8 +25,7 @@ const Soundcloud = (options) => {
 }
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Anonymous, Soundcloud],
-  debug: true,
+  providers: [Anonymous],
   callbacks: {
     async afterUserCreatedOrUpdated(ctx: MutationCtx, { userId }) {
       await ctx.db.patch(userId, { trialMessages: 10, trialTokens: 16000000, tokens: 0 })

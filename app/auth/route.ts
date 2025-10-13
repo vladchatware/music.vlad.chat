@@ -1,6 +1,5 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
-import { supabase } from '../../utils/supabase'
 
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
@@ -32,16 +31,6 @@ export async function GET(req: NextRequest) {
     const store = await cookies()
     const profile = await me.json()
     store.set('id', profile.id)
-    const { data, error } = await supabase
-      .from('users')
-      .upsert({
-        sc_id: profile.id,
-        access_token: payload.access_token,
-        refresh_token: payload.refresh_token,
-        expires_in: payload.expires_in
-      }, { onConflict: 'sc_id' })
-      .select()
-    if (error) console.log(error)
     redirect.searchParams.set('access_token', payload.access_token)
     redirect.searchParams.set('expires_in', payload.expires_in)
   }

@@ -13,7 +13,6 @@ export function CardPage() {
           borderRadius={20}
           cursor="pointer"
           flexDirection="column"
-          zIndex={10}
         >
           <Content transformTranslateZ={1} padding={14} keepAspectRatio={false} width="100%" height={400}>
             <Text>Test</Text>

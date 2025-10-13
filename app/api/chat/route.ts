@@ -4,12 +4,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { openai } from '@ai-sdk/openai';
 import { getAccessToken } from '../../../soundcloud';
 import { systemMessage } from '../../../lib/ai';
-import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server';
 import { fetchMutation, fetchQuery } from "convex/nextjs"
 import { api, internal } from '../../../convex/_generated/api';
 
 export async function POST(req: NextRequest) {
-  const user = await fetchQuery(api.users.viewer, {}, { token: await convexAuthNextjsToken() })
   const { messages } = await req.json()
   const authorization = await getAccessToken()
   const url = 'https://1e41f9fe8db4.ngrok-free.app'
