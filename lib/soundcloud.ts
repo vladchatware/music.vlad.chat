@@ -1,4 +1,4 @@
-const url = 'https://music.vlad.chat'
+const url = "https://music.vlad.chat"
 
 export const fetchTrack = async (id) => {
   const res = await fetch(`${url}/api/tracks/${id}`)

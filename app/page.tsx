@@ -10,17 +10,38 @@ import { useChat } from '@ai-sdk/react';
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Floating } from '../components/Simulation'
 import { fetchTrack, streamTrack } from '../lib/soundcloud'
+import { z } from 'zod'
+import { id } from 'zod/v4/locales'
+
 
 export default function Page() {
   const { signIn, signOut } = useAuthActions()
   const videoRef = useRef<VideoInternals>(null)
   const [track, setTrack] = useState(null)
   const [loading, setLoading] = useState(true)
-  const { messages, sendMessage, status, error, regenerate } = useChat({
+
+
+  const { messages, sendMessage, status, error, regenerate, addToolResult } = useChat({
     onError: error => {
       console.log('error caught', error)
+    },
+    onToolCall: async (ctx) => {
+      console.log('tool call', ctx)
+      if (ctx.toolCall.toolName === 'player') {
+        setLoading(true)
+        const track = await fetchTrack((ctx.toolCall.input as { id: number }).id)
+        setTrack(track)
+        setLoading(false)
+        addToolResult({
+          tool: ctx.toolCall.toolName,
+          toolCallId: ctx.toolCall.toolCallId,
+          output: `Playing ${(ctx.toolCall.input as { id: number }).id}`
+        })
+      }
     }
   });
+
+  // console.log(messages)
 
   useEffect(() => {
     const main = async () => {
@@ -37,10 +58,12 @@ export default function Page() {
     setLoading(true)
     const track = await fetchTrack(2079734469)
     setTrack(track)
-    setLoading((false))
+    setLoading(false)
   }
 
+
   const onRevibe = async () => {
+    if (status === 'streaming') return
     sendMessage({ role: 'user', text: 'Play some angel core genre' })
   }
 
@@ -93,13 +116,13 @@ export default function Page() {
                 {/*   <Text>Sign In</Text> */}
                 {/* </Button> */}
               </Container>
-              <Container>
-                {messages.map(message => <Text>{JSON.stringify(message)}</Text>)}
-              </Container>
+              {/* <Container flexDirection="column"> */}
+              {/*   {messages.map(message => <Text>{message.parts[0].text}</Text>)} */}
+              {/* </Container> */}
             </Container></>
         }
       </Fullscreen>
-      {/* <Floating position={[0, 0, 7]} /> */}
+      <Floating position={[0, 0, 7]} />
       <Environment preset="city" />
     </Defaults>
   </Canvas >
