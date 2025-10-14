@@ -8,7 +8,7 @@ export async function GET(req: NextRequest, { params }) {
   }
 
   try {
-    const _track = track(id)
+    const _track = await track(id)
 
     if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
 

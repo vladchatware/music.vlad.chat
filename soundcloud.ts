@@ -228,9 +228,7 @@ export const track = async (id: string | number) => {
     }
   })
   if (!res.ok) {
-    const error = await res.json()
-    console.log(error)
-    return null
+    throw new Error(res.statusText)
   }
 
   const track = await res.json()

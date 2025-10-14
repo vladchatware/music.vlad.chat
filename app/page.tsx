@@ -24,7 +24,7 @@ export default function Page() {
 
   useEffect(() => {
     const main = async () => {
-      // onFetchTrack()
+      onFetchTrack()
 
       // videoRef.current?.element.onended = (e) => console.log('ended', e)
       setLoading(false)
@@ -89,9 +89,9 @@ export default function Page() {
                 <Button onClick={onRevibe}>
                   <Text>Revibe</Text>
                 </Button>
-                <Button onClick={onSignIn}>
-                  <Text>Sign In</Text>
-                </Button>
+                {/* <Button onClick={onSignIn}> */}
+                {/*   <Text>Sign In</Text> */}
+                {/* </Button> */}
               </Container>
               <Container>
                 {messages.map(message => <Text>{JSON.stringify(message)}</Text>)}
