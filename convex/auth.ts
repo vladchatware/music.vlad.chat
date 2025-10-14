@@ -24,7 +24,7 @@ const Soundcloud = (options) => {
 }
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Anonymous, Soundcloud],
+  providers: [Anonymous],
   callbacks: {
     async afterUserCreatedOrUpdated(ctx: MutationCtx, { userId }) {
       await ctx.db.patch(userId, { trialMessages: 10, trialTokens: 16000000, tokens: 0 })
