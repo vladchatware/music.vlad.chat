@@ -10,7 +10,7 @@ import { api, internal } from '../../../convex/_generated/api';
 export async function POST(req: NextRequest) {
   const { messages } = await req.json()
   const authorization = await getAccessToken()
-  const url = 'https://1e41f9fe8db4.ngrok-free.app'
+  const url = 'https://music.vlad.chat'
   const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`))
   const notion = await experimental_createMCPClient({
     transport
