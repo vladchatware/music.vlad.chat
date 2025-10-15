@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber'
 import { Fullscreen, Container, Text, Image, VideoInternals } from '@react-three/uikit'
 import { Defaults, Button, Video } from '@react-three/uikit-default'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default"
@@ -19,7 +19,6 @@ export default function Page() {
   const videoRef = useRef<VideoInternals>(null)
   const [track, setTrack] = useState(null)
   const [loading, setLoading] = useState(true)
-
 
   const { messages, sendMessage, status, error, regenerate, addToolResult } = useChat({
     onError: error => {
@@ -41,8 +40,6 @@ export default function Page() {
     }
   });
 
-  // console.log(messages)
-
   useEffect(() => {
     const main = async () => {
       onFetchTrack()
@@ -62,7 +59,8 @@ export default function Page() {
   }
 
 
-  const onRevibe = async () => {
+  const onRevibe = async (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
     if (status === 'streaming') return
     sendMessage({ role: 'user', text: 'Play some angel core genre' })
   }
@@ -88,39 +86,37 @@ export default function Page() {
         justifyContent="center"
         padding={32}
       >
-        {loading ? <Text color="white">Loading</Text> :
-          <><Card width={360} backgroundColor="rgb(4, 16, 22)">
-            <CardContent gap={16} paddingTop={24}>
-              <Video src={streamTrack(track?.id)} autoplay={true} ref={videoRef}>
-                <Image src={track?.artwork_url} width={340} />
-              </Video>
-            </CardContent>
-            <CardHeader>
-              <CardTitle>
-                <Text color="white" fontWeight="bold">{track?.title}</Text>
-              </CardTitle>
-              <CardDescription>
-                <Text color="rgb(192, 192, 197)">{track?.user?.username || track?.user?.full_name}</Text>
-              </CardDescription>
-            </CardHeader>
-          </Card>
-            <Container flexDirection="column" alignItems="center" gap={16}>
-              <Container>
-                <Text color="white">Hello, I am a virtual DJ, let me play some music.</Text>
-              </Container>
-              <Container gap={16}>
-                <Button onClick={onRevibe}>
-                  <Text>Revibe</Text>
-                </Button>
-                {/* <Button onClick={onSignIn}> */}
-                {/*   <Text>Sign In</Text> */}
-                {/* </Button> */}
-              </Container>
-              {/* <Container flexDirection="column"> */}
-              {/*   {messages.map(message => <Text>{message.parts[0].text}</Text>)} */}
-              {/* </Container> */}
-            </Container></>
-        }
+        <Card width={360} backgroundColor="rgb(4, 16, 22)">
+          <CardContent gap={16} paddingTop={24}>
+            <Video src={streamTrack(track?.id)} autoplay={true} ref={videoRef}>
+              <Image src={track?.artwork_url} width={340} />
+            </Video>
+          </CardContent>
+          <CardHeader>
+            <CardTitle>
+              <Text color="white" fontWeight="bold">{track?.title}</Text>
+            </CardTitle>
+            <CardDescription>
+              <Text color="rgb(192, 192, 197)">{track?.user?.username || track?.user?.full_name}</Text>
+            </CardDescription>
+          </CardHeader>
+        </Card>
+        <Container flexDirection="column" alignItems="center" gap={16}>
+          <Container>
+            <Text color="white">Hello, I am a virtual DJ, let me play some music.</Text>
+          </Container>
+          <Container gap={16}>
+            <Button onClick={onRevibe}>
+              <Text>Revibe</Text>
+            </Button>
+            {/* <Button onClick={onSignIn}> */}
+            {/*   <Text>Sign In</Text> */}
+            {/* </Button> */}
+          </Container>
+          {/* <Container flexDirection="column"> */}
+          {/*   {messages.map(message => <Text>{message.parts[0].text}</Text>)} */}
+          {/* </Container> */}
+        </Container>
       </Fullscreen>
       <Floating position={[0, 0, 7]} />
       <Environment preset="city" />
