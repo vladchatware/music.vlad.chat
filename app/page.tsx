@@ -152,11 +152,11 @@ export default function Page() {
     }
     setLoading(true)
     setIsLoaded(false)
-    const _track = await fetchTrack(2060531140)
+    const _track = await fetchTrack(2181656427)
     audioRef.current.pause();
     audioRef.current.src = streamTrack(_track.id);
     setIsLoaded(true);
-    setIsPlaying(true);
+    // setIsPlaying(true);
     console.log(_track)
     setTrack(_track)
     setLoading(false)
@@ -193,9 +193,7 @@ export default function Page() {
       >
         <Card width={460} backgroundColor="rgb(4, 16, 22)">
           <CardContent gap={16} paddingTop={24}>
-            <Video src={streamTrack(track?.id)} autoplay={true} ref={videoRef}>
-              <Image src={track?.artwork_url} width={440} />
-            </Video>
+            <Image src={track?.artwork_url} width={440} />
           </CardContent>
           <CardHeader>
             <CardTitle>
