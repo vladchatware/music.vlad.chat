@@ -42,7 +42,8 @@
     "serverless-http": "^3.2.0",
     "stripe": "^19.1.0",
     "three": "^0.180.0",
-    "zod": "^3.25.53"
+    "zod": "^3.25.53",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "typescript": "^5",
