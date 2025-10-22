@@ -20,7 +20,6 @@ import { Authenticated, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { Rig } from '@/components/Rig'
 
-
 export default function Page() {
   const user = useQuery(api.users.viewer)
   const isAuthenticated = useQuery(api.auth.isAuthenticated)
@@ -80,10 +79,12 @@ export default function Page() {
 
     audioRef.current.addEventListener('playing', () => {
       setNeedsUserInteraction(false)
+      // @ts-ignore OBS
       window.obsstudio?.startRecording()
     })
     audioRef.current.addEventListener('ended', async (e) => {
       await onRevibe(e)
+      // @ts-ignore OBS
       window.obsstudio?.stopRecording()
     })
 
@@ -183,7 +184,7 @@ export default function Page() {
     setIsLoaded(true)
   }
 
-  const onRevibe = async (e: Event) => {
+  const onRevibe = async (e: Event | ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
 
     if (status === 'streaming') return

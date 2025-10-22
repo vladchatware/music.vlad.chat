@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
   const url = process.env.SITE_URL
   const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`))
   const notion = await experimental_createMCPClient({
+    // @ts-ignore TODO 
     transport
   })
 

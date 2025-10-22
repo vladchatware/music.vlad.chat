@@ -269,6 +269,7 @@ export default class FFTAnalyzer implements TAnalyzerInputControl {
     const n = this._freqBinInfos.length;
     // get a new array of data from the FFT
     const fftData = this._fftData;
+    // @ts-ignore FIXME
     this._analyzer.getByteFrequencyData(fftData);
     // helper function for FFT data interpolation
     const interpolate = (bin: number, ratio: number) =>

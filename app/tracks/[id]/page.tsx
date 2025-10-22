@@ -118,7 +118,9 @@ export default function Page() {
         setIsPlaying(false);
       } else {
         await audioRef.current.play();
+        // @ts-ignore OBS
         audioRef.current.addEventListener('playing', () => window.obsstudio?.startRecording())
+        // @ts-ignore OBS
         audioRef.current.addEventListener('ended', () => window.obsstudio?.stopRecording())
         setIsPlaying(true);
         setNeedsUserInteraction(false); // User has interacted, no longer needed
@@ -160,7 +162,7 @@ export default function Page() {
     setIsLoaded(true)
   }
 
-  const onRevibe = async (e: ThreeEvent<MouseEvent>) => {
+  const onRevibe = async (e: Event | ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     return togglePlay()
     // if (status === 'streaming') return
