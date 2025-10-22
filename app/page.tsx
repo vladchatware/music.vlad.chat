@@ -6,7 +6,7 @@ import { Fullscreen, Container, Text, Image, VideoInternals } from '@react-three
 import { Defaults, Button, Video } from '@react-three/uikit-default'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default"
 import { Environment } from '@react-three/drei'
-import { useChat } from '@ai-sdk/react';
+import { UIMessage, useChat } from '@ai-sdk/react';
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Floating } from '../components/Simulation'
 import { fetchTrack, streamTrack } from '../lib/soundcloud'
@@ -16,11 +16,15 @@ import BaseDiffusedRing from '@/components/Ring/base'
 import { CoordinateMapper_Waveform } from '@/lib/mappers/coordinateMappers/waveform'
 import { CoordinateMapper_Data } from '@/lib/mappers/coordinateMappers/data'
 import FFTAnalyzer from '@/lib/analyzers/ftt'
+import { Authenticated, useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+import { Rig } from '@/components/Rig'
 
 
 export default function Page() {
+  const user = useQuery(api.users.viewer)
+  const isAuthenticated = useQuery(api.auth.isAuthenticated)
   const { signIn, signOut } = useAuthActions()
-  const videoRef = useRef<VideoInternals>(null)
   const [track, setTrack] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -33,8 +37,16 @@ export default function Page() {
       if (ctx.toolCall.toolName === 'player') {
         setLoading(true)
         const track = await fetchTrack((ctx.toolCall.input as { id: number }).id)
+        if (isPlaying) {
+          await togglePlay()
+        }
         setTrack(track)
-        setLoading(false)
+        audioRef.current.addEventListener('loadeddata', e => {
+          console.log('loaded')
+          setIsLoaded(true)
+          setLoading(false)
+          togglePlay()
+        })
         addToolResult({
           tool: ctx.toolCall.toolName,
           toolCallId: ctx.toolCall.toolCallId,
@@ -54,24 +66,36 @@ export default function Page() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [needsUserInteraction, setNeedsUserInteraction] = useState(true);
 
-  // Create audio element and analyzer together
-  useEffect(() => {
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audioRef.current = audio;
+  const buttonLabel = needsUserInteraction ? 'Play' : 'Revibe'
 
-    // Create analyzer with the audio element
+  useEffect(() => {
+    if (isAuthenticated) return
+
+    signIn('anonymous')
+  }, [])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    audio.crossOrigin = "anonymous";
+
+    audioRef.current.addEventListener('playing', () => {
+      setNeedsUserInteraction(false)
+      window.obsstudio?.startRecording()
+    })
+    audioRef.current.addEventListener('ended', async (e) => {
+      await onRevibe(e)
+      window.obsstudio?.stopRecording()
+    })
+
     const analyzer = new FFTAnalyzer(audio);
     analyzerRef.current = analyzer;
 
     return () => {
-      // Stop the analyzer's internal loop
       analyzer.toggleAnalyzer(false);
       analyzer.disconnectInputs();
       try {
         audio.pause();
       } catch { }
-      audioRef.current = null;
       analyzerRef.current = null;
     };
   }, []);
@@ -107,8 +131,8 @@ export default function Page() {
 
   const togglePlay = useCallback(async () => {
     console.log('toggle play', audioRef.current, isLoaded)
+    if (!audioRef.current.src) return
     if (!audioRef.current) return;
-    if (!isLoaded) return;
 
     try {
       // Resume audio context if suspended (required for some browsers)
@@ -122,7 +146,6 @@ export default function Page() {
       } else {
         await audioRef.current.play();
         setIsPlaying(true);
-        setNeedsUserInteraction(false); // User has interacted, no longer needed
       }
     } catch (err) {
       console.error("Playback error:", err);
@@ -131,19 +154,19 @@ export default function Page() {
         alert('Please click the play button to start audio playback');
       }
     }
-  }, [isLoaded, isPlaying]);
+  }, [isPlaying]);
 
   useEffect(() => {
-    const main = async () => {
-      onFetchTrack()
+    if (!isAuthenticated) return
 
-      // videoRef.current?.element.addEventListener('ended', (e) => window?.obsstudio?.stopRecording)
-      // videoRef.current?.element.addEventListener('playing', (e) => window?.obsstudio?.startRecording)
+    console.log('init', isAuthenticated)
+    const main = async () => {
+      await onFetchTrack()
       setLoading(false)
     }
 
     main()
-  }, [])
+  }, [isAuthenticated])
 
   const onFetchTrack = async () => {
     if (!audioRef.current) {
@@ -152,22 +175,31 @@ export default function Page() {
     }
     setLoading(true)
     setIsLoaded(false)
-    const _track = await fetchTrack(2181656427)
+    const _track = await fetchTrack(2094321906)
     audioRef.current.pause();
-    audioRef.current.src = streamTrack(_track.id);
     setIsLoaded(true);
-    // setIsPlaying(true);
-    console.log(_track)
     setTrack(_track)
     setLoading(false)
     setIsLoaded(true)
   }
 
-  const onRevibe = async (e: ThreeEvent<MouseEvent>) => {
+  const onRevibe = async (e: Event) => {
     e.stopPropagation()
-    return togglePlay()
+
     if (status === 'streaming') return
-    // sendMessage({ role: 'user', text: 'Play some angel core genre' })
+
+    if (needsUserInteraction) {
+      return togglePlay()
+    }
+
+    sendMessage({ role: 'user', text: 'Play some angel core genre' })
+  }
+
+  const getLastMessage = (messages: UIMessage[]) => {
+    const userMessages = messages.filter(m => m.role === 'user') // the next message
+    const lastMessage = userMessages[userMessages.length - 1]
+    if (!lastMessage) return ''
+    return lastMessage.parts.filter(p => p.type === 'text').map(p => p.text).join('')
   }
 
   const onSignIn = async () => {
@@ -182,45 +214,50 @@ export default function Page() {
     <spotLight decay={0} position={[0, 5, 10]} angle={0.25} penumbra={1} intensity={2} castShadow />
     <Defaults>
       <Fullscreen
-        overflow="scroll"
-        scrollbarColor="black"
+        overflow="hidden"
         flexDirection="column"
         gap={32}
-        paddingX={32}
         alignItems="center"
         justifyContent="center"
         padding={32}
       >
-        <Card width={460} backgroundColor="rgb(4, 16, 22)">
-          <CardContent gap={16} paddingTop={24}>
-            <Image src={track?.artwork_url} width={440} />
-          </CardContent>
-          <CardHeader>
-            <CardTitle>
-              <Text color="white" fontWeight="bold">{track?.title}</Text>
-            </CardTitle>
-            <CardDescription>
-              <Text color="rgb(192, 192, 197)">{track?.user?.username || track?.user?.full_name}</Text>
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <Container>
+          <Card width={460} backgroundColor="rgb(4, 16, 22)">
+            <CardContent gap={16} paddingTop={24}>
+              <Image src={track?.artwork_url} width={440} />
+            </CardContent>
+            <CardHeader>
+              <CardTitle>
+                <Text color="white" fontWeight="bold">{track?.title}</Text>
+              </CardTitle>
+              <CardDescription>
+                <Text color="rgb(192, 192, 197)">{track?.user?.username || track?.user?.full_name}</Text>
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Container>
         <Container flexDirection="column" alignItems="center" gap={16}>
           <Container>
-            <Text color="white">Hello, I am a virtual DJ, let me play some music.</Text>
+            <Text color="white" backgroundColor="black">{getLastMessage(messages) || `Hello, I am a virtual DJ, let me play some music.`}</Text>
           </Container>
           <Container gap={16}>
-            <Button onClick={onRevibe}>
-              <Text>Revibe</Text>
+            <Button onClick={onRevibe} disabled={status === "streaming"}>
+              <Text>{buttonLabel}</Text>
             </Button>
-            {/* <Button onClick={onSignIn}> */}
-            {/*   <Text>Sign In</Text> */}
-            {/* </Button> */}
           </Container>
-          {/* <Container flexDirection="column"> */}
-          {/*   {messages.map(message => <Text>{message.parts[0].text}</Text>)} */}
-          {/* </Container> */}
+          <Container flexDirection="column">
+            {user?.isAnonymous && messages.length > 0 && <Authenticated>
+              <Text onClick={() => {
+                return signIn('soundcloud')
+              }}>{`You have only ${user?.trialMessages} messages left. Sign in to reset your limits.`}</Text>
+            </Authenticated>}
+            {user?.trialTokens <= 0 && user.tokens <= 0 &&
+              <Text onClick={() => { /* checkout() */ }}>You have run out of credits. Buy more.</Text>
+            }
+          </Container>
         </Container>
       </Fullscreen>
+      <Rig />
       <BaseDiffusedRing
         coordinateMapper={coordinateMapper}
         radius={2.8}
@@ -231,5 +268,5 @@ export default function Page() {
       <Floating position={[0, 0, 7]} />
       <Environment preset="city" />
     </Defaults>
-  </Canvas></>
+  </Canvas><audio ref={audioRef} src={streamTrack(track?.id)} /></>
 }

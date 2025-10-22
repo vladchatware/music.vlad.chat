@@ -6,6 +6,6 @@ export const fetchTrack = async (id) => {
 }
 
 export const streamTrack = (id) => {
-  if (!id) return ''
+  if (!id) return null
   return `${url}/api/tracks/${id}/stream`
 }

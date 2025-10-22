@@ -43,7 +43,11 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   ],
   callbacks: {
     async afterUserCreatedOrUpdated(ctx: MutationCtx, { userId }) {
-      await ctx.db.patch(userId, { trialMessages: 10, trialTokens: 16000000, tokens: 0 })
+      await ctx.db.patch(userId, {
+        trialMessages: 10,
+        trialTokens: 16000000,
+        tokens: 0
+      })
     }
   }
 });
