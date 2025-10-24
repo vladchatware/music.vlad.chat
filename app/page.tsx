@@ -70,7 +70,7 @@ export default function Page() {
   useEffect(() => {
     if (isAuthenticated) return
 
-    signIn('anonymous')
+    // signIn('anonymous')
   }, [])
 
   useEffect(() => {
@@ -187,6 +187,8 @@ export default function Page() {
   const onRevibe = async (e: Event | ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
 
+    if (!isAuthenticated) await signIn('anonymous')
+
     if (status === 'streaming') return
 
     if (needsUserInteraction) {
@@ -250,7 +252,7 @@ export default function Page() {
             {user?.isAnonymous && messages.length > 0 && <Authenticated>
               <Text onClick={() => {
                 return signIn('soundcloud')
-              }}>{`You have only ${user?.trialMessages} messages left. Sign in to reset your limits.`}</Text>
+              }} color="white">{`You have only ${user?.trialMessages} messages left. Sign in to reset your limits.`}</Text>
             </Authenticated>}
             {user?.trialTokens <= 0 && user.tokens <= 0 &&
               <Text onClick={() => { /* checkout() */ }}>You have run out of credits. Buy more.</Text>

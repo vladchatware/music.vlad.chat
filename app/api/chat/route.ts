@@ -8,17 +8,28 @@ import { fetchMutation, fetchQuery } from "convex/nextjs"
 import { api, internal } from '../../../convex/_generated/api';
 import z from 'zod';
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server';
+import { stripe } from '@/lib/stripe';
 
 export async function POST(req: NextRequest) {
   const { messages } = await req.json()
 
   const user = await fetchQuery(api.users.viewer, {}, { token: await convexAuthNextjsToken() })
 
-  if (!user) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 })
+  if (!user.isAnonymous) {
+    if (!user.stripeId) {
+      const customer = await stripe.customers.create(({
+        email: user.email
+      }))
+      await fetchMutation(api.users.connect, { stripeId: customer.id }, { token: await convexAuthNextjsToken() })
+      user.stripeId = customer.id
+    }
 
-  if (user.isAnonymous && user.trialMessages <= 0) return NextResponse.json({ error: "No trial messages." }, { status: 403 })
-
-  if (user.trialTokens <= 0 && user.tokens <= 0) return NextResponse.json({ error: "No more tokens." }, { status: 403 })
+    if (user.trialTokens <= 0 && user.tokens <= 0) {
+      return new NextResponse('out of tokens', { status: 429 })
+    }
+  } else {
+    if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
+  }
 
   const url = process.env.SITE_URL
   const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`))
