@@ -68,12 +68,6 @@ export default function Page() {
   const buttonLabel = needsUserInteraction ? 'Play' : 'Revibe'
 
   useEffect(() => {
-    if (isAuthenticated) return
-
-    // signIn('anonymous')
-  }, [])
-
-  useEffect(() => {
     const audio = audioRef.current
     audio.crossOrigin = "anonymous";
 
@@ -224,7 +218,7 @@ export default function Page() {
         justifyContent="center"
         padding={32}
       >
-        <Container>
+        <Container display={isAuthenticated && track ? 'flex' : 'none'}>
           <Card width={460} backgroundColor="rgb(4, 16, 22)">
             <CardContent gap={16} paddingTop={24}>
               <Image src={track?.artwork_url} width={440} />
@@ -259,8 +253,7 @@ export default function Page() {
             }
           </Container>
         </Container>
-      </Fullscreen>
-      <Rig />
+      </Fullscreen>      {/* <Rig /> */}
       <BaseDiffusedRing
         coordinateMapper={coordinateMapper}
         radius={2.8}
