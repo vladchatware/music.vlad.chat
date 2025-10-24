@@ -203,6 +203,17 @@ export default function Page() {
     signIn('soundcloud')
   }
 
+  const checkout = async () => {
+    const res = await fetch(`/api/checkout_session`, {
+      method: 'POST',
+      body: JSON.stringify({
+        price: 5
+      })
+    })
+    const session = await res.json()
+    window.open(session.url, '_blank')
+  }
+
   return <><Canvas
     camera={{ position: [0, 0, 18], fov: 32.5 }}
     style={{ position: "absolute", inset: "0", touchAction: "none", backgroundColor: 'black' }}
@@ -249,7 +260,7 @@ export default function Page() {
               }} color="white">{`You have only ${user?.trialMessages} messages left. Sign in to reset your limits.`}</Text>
             </Authenticated>}
             {user?.trialTokens <= 0 && user.tokens <= 0 &&
-              <Text onClick={() => { /* checkout() */ }}>You have run out of credits. Buy more.</Text>
+              <Text onClick={() => { checkout() }}>You have run out of credits. Buy more.</Text>
             }
           </Container>
         </Container>
