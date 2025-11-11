@@ -246,7 +246,7 @@ export default function Page() {
         </Container>
         <Container flexDirection="column" alignItems="center" gap={16}>
           <Container>
-            <Text color="white" backgroundColor="black">{getLastMessage(messages) || `Hello, I am a virtual DJ, let me play some music.`}</Text>
+            <Text color="white" padding={16} backgroundColor="black">{getLastMessage(messages) || `Hello, I am a virtual DJ, let me play some music.`}</Text>
           </Container>
           <Container gap={16}>
             <Button onClick={onRevibe} disabled={status === "streaming"}>
@@ -264,7 +264,8 @@ export default function Page() {
             }
           </Container>
         </Container>
-      </Fullscreen>      {/* <Rig /> */}
+      </Fullscreen>      
+      <Rig />
       <BaseDiffusedRing
         coordinateMapper={coordinateMapper}
         radius={2.8}
@@ -273,7 +274,7 @@ export default function Page() {
         mirrorEffects={true}
       />
       <Floating position={[0, 0, 7]} />
-      <Environment preset="city" />
+      <Environment preset="warehouse" environmentIntensity={0.25} />
     </Defaults>
   </Canvas><audio ref={audioRef} src={streamTrack(track?.id)} /></>
 }

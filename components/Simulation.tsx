@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { useGLTF, Float } from '@react-three/drei'
+import { useGLTF, Float, MeshTransmissionMaterial } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { Physics, RigidBody, BallCollider, RapierRigidBody } from '@react-three/rapier'
 import { useMemo, useRef } from 'react'
@@ -7,47 +7,72 @@ import { useMemo, useRef } from 'react'
 // Shapes by https://app.spline.design/library/a4eeaee4-be03-4df8-ab05-5a073eda2eb4
 export function Floating(props: any) {
   const { nodes, materials } = useGLTF('/smileys-transformed.glb')
+  const material = useMemo(() => {
+    return (
+      <MeshTransmissionMaterial
+        color="white"
+        metalness={0}
+        roughness={0.01}
+        ior={1.8}
+        thickness={0.45}
+        reflectivity={0.45}
+        chromaticAberration={0.1}
+        clearcoat={0.4}
+        resolution={1024}
+        clearcoatRoughness={0.05}
+        iridescence={0.9}
+        iridescenceIOR={0.1}
+        iridescenceThicknessRange={[0, 140]}
+        samples={4}
+      />
+    );
+  }, []);
   return (
     <group {...props} dispose={null}>
       <Float>
         <mesh
           geometry={(nodes.hash as any).geometry}
-          material={materials.PaletteMaterial001}
           position={[-4.095, 1.891, -2.58]}
           scale={0.216}
-        />
+        >
+          {material}
+        </mesh>
       </Float>
       <Float>
         <mesh
           geometry={(nodes.star001 as any).geometry}
-          material={materials.PaletteMaterial001}
           position={[2.932, -2.747, -2.807]}
           scale={0.278}
-        />
+        >
+          {material}
+        </mesh>
       </Float>
       <Float>
         <mesh
           geometry={(nodes.play as any).geometry}
-          material={materials.PaletteMaterial001}
           position={[3.722, 0.284, -1.553]}
           scale={0.245}
-        />
+        >
+          <MeshTransmissionMaterial transmission={0.95} side={THREE.DoubleSide} />
+        </mesh>
       </Float>
       <Float>
         <mesh
           geometry={(nodes.points as any).geometry}
-          material={materials.PaletteMaterial001}
           position={[3, 2.621, -1.858]}
           scale={0.239}
-        />
+        >
+          {material}
+        </mesh>
       </Float>
       <Float>
         <mesh
           geometry={(nodes.Ellipse as any).geometry}
-          material={materials.PaletteMaterial001}
           position={[-3.275, -1, -3.389]}
           scale={0.317}
-        />
+        >
+          {material}
+        </mesh>
       </Float>
     </group>
   )
