@@ -3,11 +3,31 @@ import { extend, useThree } from "@react-three/fiber";
 import { shaderMaterial, useTexture, useVideoTexture } from "@react-three/drei";
 import * as THREE from "three";
 
+// Type for the custom shader material
+type CustomVideoMaterialType = THREE.ShaderMaterial & {
+  map: THREE.Texture | null;
+  viewportResolution: THREE.Vector2;
+  videoResolution: THREE.Vector2;
+};
+
+// Extend JSX types for custom material
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      customVideoMaterial: {
+        ref?: React.Ref<CustomVideoMaterialType>;
+        depthWrite?: boolean;
+        [key: string]: any;
+      };
+    }
+  }
+}
+
 function VideoBackground() {
   const { viewport, camera } = useThree();
 
-  const materialRef = useRef();
-  const meshRef = useRef();
+  const materialRef = useRef<CustomVideoMaterialType>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
 
   const CustomVideoMaterial = useMemo(
     () =>
@@ -121,7 +141,7 @@ function VideoBackground() {
   // Listen for camera changes (FOV animations, etc.)
   useEffect(() => {
     updateDimensions();
-  }, [camera.fov, camera.aspect]);
+  }, [camera, viewport]);
 
   // Ensure texture is always applied when it changes
   useEffect(() => {
@@ -137,16 +157,17 @@ function VideoBackground() {
       scale={[viewport.width, viewport.height, 1]}
     >
       <planeGeometry args={[2.5, 2.5]} />
+      {/* @ts-expect-error - customVideoMaterial is extended via extend() */}
       <customVideoMaterial ref={materialRef} depthWrite={false} />
     </mesh>
   );
 }
 
-function ImageBackground({ imageName }) {
+function ImageBackground({ imageName }: { imageName: string }) {
   const { viewport, camera } = useThree();
 
-  const materialRef = useRef();
-  const meshRef = useRef();
+  const materialRef = useRef<CustomVideoMaterialType>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
 
   const CustomVideoMaterial = shaderMaterial(
     {
@@ -251,7 +272,7 @@ function ImageBackground({ imageName }) {
   // Listen for camera changes (FOV animations, etc.)
   useEffect(() => {
     updateDimensions();
-  }, [camera.fov, camera.aspect]);
+  }, [camera, viewport]);
 
   // Ensure texture is always applied when it changes
   useEffect(() => {
@@ -267,6 +288,7 @@ function ImageBackground({ imageName }) {
       scale={[viewport.width, viewport.height, 1]}
     >
       <planeGeometry args={[2.5, 2.5]} />
+      {/* @ts-expect-error - customVideoMaterial is extended via extend() */}
       <customVideoMaterial ref={materialRef} depthWrite={false} />
     </mesh>
   );
