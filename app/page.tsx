@@ -19,6 +19,7 @@ import FFTAnalyzer from '@/lib/analyzers/ftt'
 import { Authenticated, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { Rig } from '@/components/Rig'
+import BackgroundImageCover from '@/components/BackgroundImage'
 
 export default function Page() {
   const user = useQuery(api.users.viewer)
@@ -216,7 +217,7 @@ export default function Page() {
 
   return <><Canvas
     camera={{ position: [0, 0, 18], fov: 32.5 }}
-    style={{ position: "absolute", inset: "0", touchAction: "none", backgroundColor: 'black' }}
+    style={{ position: "absolute", inset: "0", touchAction: "none" }}
     gl={{ localClippingEnabled: true }}>
     <ambientLight intensity={Math.PI} />
     <spotLight decay={0} position={[0, 5, 10]} angle={0.25} penumbra={1} intensity={2} castShadow />
@@ -274,6 +275,7 @@ export default function Page() {
         mirrorEffects={true}
       />
       <Floating position={[0, 0, 7]} />
+      <BackgroundImageCover />
       <Environment preset="warehouse" environmentIntensity={0.25} />
     </Defaults>
   </Canvas><audio ref={audioRef} src={streamTrack(track?.id)} /></>
