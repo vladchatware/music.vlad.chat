@@ -17,6 +17,7 @@ import FFTAnalyzer from '@/lib/analyzers/ftt'
 import { useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { useParams } from 'next/navigation'
+import BackgroundImageCover from '@/components/BackgroundImage'
 
 
 export default function Page() {
@@ -232,7 +233,8 @@ export default function Page() {
         mirrorEffects={true}
       />
       <Floating position={[0, 0, 7]} />
-      <Environment preset="city" />
+      <BackgroundImageCover />
+      <Environment preset="warehouse" environmentIntensity={0.25} />
     </Defaults>
   </Canvas></>
 }
