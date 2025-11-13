@@ -1,4 +1,4 @@
-const url = "https://music.vlad.chat"
+const url = process.env.NEXT_PUBLIC_SITE_URL
 
 export const fetchTrack = async (id) => {
   const res = await fetch(`${url}/api/tracks/${id}`)
