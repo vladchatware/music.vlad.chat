@@ -1,43 +1,175 @@
-# Clownz Army
+# Music.Vlad.Chat - Virtual DJ
 
-![Clownz Army](https://github.com/user-attachments/assets/ffa5c50f-7d9b-4efc-ad65-a45b3a62ce8e)
+An AI-powered virtual DJ application that uses OpenAI to curate and play music from SoundCloud, featuring immersive 3D visualizations powered by React Three Fiber.
 
-    A beat that slaps harder than a clown shoe.
+## Overview
 
-[Try it out here 🚀](https://clownz-army.netlify.app/). I didnt ask for the clowns, but I got them.
+Music.Vlad.Chat is a web application that combines AI music curation with real-time audio visualization. Users can interact with an AI DJ that selects and plays tracks from SoundCloud based on natural language requests. The application features stunning 3D visualizations that react to the audio in real-time.
 
-[![Netlify Status](https://api.netlify.com/api/v1/badges/a661b62a-25fd-4a41-8c29-dfa241206789/deploy-status)](https://app.netlify.com/projects/clownz-army/deploys)
+## Features
 
-# Features
+- **AI-Powered Music Curation**: Chat with an AI DJ that understands music requests and plays tracks from SoundCloud
+- **Real-Time Audio Visualization**: 3D visualizations powered by React Three Fiber that react to audio frequency data
+- **SoundCloud Integration**: Seamless integration with SoundCloud for track discovery and playback
+- **User Authentication**: Support for anonymous and SoundCloud OAuth authentication via Convex Auth
+- **Payment Integration**: Stripe integration for purchasing credits/tokens
+- **MCP (Model Context Protocol) Integration**: Uses MCP for enhanced AI capabilities
+- **OBS Studio Integration**: Automatic recording start/stop for OBS Studio
 
-- **Drag and Drop Track(s)**: Toss your tracks—single files or a batch—into the tool with a quick drag and drop. No fuss, just get your audio in the game, whether it’s a pristine rip or a beat-up mystery.
+## Tech Stack
 
-- **Lookup in Spotify Library**: It hits up Spotify’s library via its API, searching for a match. It scans the track’s audio fingerprint and pulls potential hits—artist, title, BPM, energy, all the goods—straight from Spotify’s massive catalog.
+### Frontend
+- **Next.js 15** - React framework with App Router
+- **React 19** - UI library
+- **React Three Fiber** - 3D graphics library
+- **React Three Drei** - Useful helpers for R3F
+- **React Three UI Kit** - 3D UI components
+- **Tailwind CSS** - Styling
+- **Zustand** - State management
+- **Vercel AI SDK** - AI chat functionality
 
-- **Repair with AI Assistance**: If the metadata’s missing, wrong, or half-baked (no artist? garbled title?), Spotify’s data starts the fix. AI jumps in to refine it—analyzing the audio itself to confirm the match and fill gaps, ensuring “Sweet Child O’ Mine” isn’t tagged as elevator jazz.
+### Backend
+- **Convex** - Backend-as-a-Service for database and real-time functionality
+- **Convex Auth** - Authentication system
+- **OpenAI** - AI model provider (GPT-5-mini)
+- **Stripe** - Payment processing
+- **Model Context Protocol (MCP)** - Enhanced AI capabilities
 
-- **Export to DJ Deck**: Once repaired, export the track—metadata intact—straight to your DJ deck. No detours, just a clean handoff to your setup, ready to spin without a hiccup.
+### Audio Processing
+- **FFT Analyzer** - Real-time frequency analysis
+- **Web Audio API** - Audio playback and analysis
 
-# Premium features
+## Getting Started
 
-- **Honk radar** - The clowns demanded I hook you up with similar tracks. Honk radar sniffs out bangerz so wild - your next obsession incoming.
+### Prerequisites
 
-- **Ringmaster's roast** - The clowns picked me, now they're picking your tracks for their elite pool. Only the fierciest survive the cutthroat honk-off.
+- Node.js 18+ or Bun
+- Convex account and project
+- OpenAI API key
+- Stripe account (for payments)
+- SoundCloud API credentials
 
-- **Clownspirancy drop zone** - Access your bangers anywhere, anytime. Rain or shine, your hits are ours, darling.
+### Installation
 
-# Version 0.1 - The Big Top Debut 🎪
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd music.vlad.chat
+```
 
-The first release brings the circus to town with essential features to get your tracks organized:
+2. Install dependencies:
+```bash
+bun install
+# or
+npm install
+```
 
-1. FFprobe mp3 file inspection input (yes it is running ffmpeg.wasm in the browser)
-2. Spotify metadata lookup
-3. AI-assisted track repair
-4. Basic secrets management
+3. Set up environment variables:
+Create a `.env.local` file with the following variables:
 
-In order to use the tool you would need to specify open ai api key, spotify client id and client secret.
+```env
+# Convex
+CONVEX_DEPLOYMENT=<your-convex-deployment-url>
+NEXT_PUBLIC_CONVEX_URL=<your-convex-url>
 
-- Head over to [Open AI Dashboard](https://platform.openai.com/settings) to create an new API key.
-- Then head over to [Spotify Dashboard](https://developer.spotify.com/dashboard) to create an app and take the keys from there.
+# OpenAI
+OPENAI_API_KEY=<your-openai-api-key>
 
-This version lays the foundation for our clown-powered music management revolution. Stay tuned for more circus-grade features coming in hot!
+# Stripe
+STRIPE_SECRET_KEY=<your-stripe-secret-key>
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=<your-stripe-publishable-key>
+
+# Site URL
+SITE_URL=http://localhost:3000
+
+# SoundCloud (if needed)
+SOUNDCLOUD_CLIENT_ID=<your-soundcloud-client-id>
+SOUNDCLOUD_CLIENT_SECRET=<your-soundcloud-client-secret>
+```
+
+4. Set up Convex:
+```bash
+npx convex dev
+```
+
+5. Run the development server:
+```bash
+bun dev
+# or
+npm run dev
+```
+
+6. Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Project Structure
+
+```
+music.vlad.chat/
+├── app/                    # Next.js App Router
+│   ├── api/               # API routes
+│   │   ├── audio/         # Audio processing endpoints
+│   │   ├── chat/          # AI chat endpoint
+│   │   ├── tracks/        # SoundCloud track endpoints
+│   │   └── checkout_session/ # Stripe checkout
+│   ├── tracks/            # Track detail pages
+│   ├── layout.tsx         # Root layout
+│   └── page.tsx           # Main page
+├── components/            # React components
+│   ├── Ring/              # Audio visualization rings
+│   ├── visualizers/       # Visualization components
+│   └── ...                # Other UI components
+├── convex/                # Convex backend
+│   ├── schema.ts          # Database schema
+│   ├── auth.ts            # Authentication
+│   └── users.ts           # User queries/mutations
+├── lib/                   # Utility libraries
+│   ├── ai.ts              # AI helper functions
+│   ├── analyzers/         # Audio analyzers
+│   ├── mappers/           # Coordinate mappers for visualizations
+│   ├── soundcloud.ts      # SoundCloud integration
+│   └── stripe.ts          # Stripe integration
+└── public/                # Static assets
+    └── assets/            # FFmpeg, SQLite, etc.
+```
+
+## Available Scripts
+
+- `bun dev` - Start development server with Turbopack
+- `bun build` - Build for production with Turbopack
+- `bun start` - Start production server
+
+## Key Features Explained
+
+### AI Chat Interface
+The application uses OpenAI's GPT-5-mini model to understand user music requests. The AI can:
+- Understand natural language music requests (e.g., "Play some angel core genre")
+- Search and select appropriate tracks from SoundCloud
+- Use tools to play tracks automatically
+
+### Audio Visualization
+Real-time audio analysis using FFT (Fast Fourier Transform) creates dynamic 3D visualizations:
+- **BaseDiffusedRing**: A ring visualization that reacts to audio frequencies
+- **Coordinate Mappers**: Map audio data to 3D coordinates
+- **FFT Analyzer**: Extracts frequency data from audio in real-time
+
+### Authentication & Credits
+- **Anonymous Users**: Limited trial messages
+- **Authenticated Users**: SoundCloud OAuth with token-based credits
+- **Payment System**: Stripe integration for purchasing additional credits
+
+## API Routes
+
+- `POST /api/chat` - AI chat endpoint
+- `GET /api/tracks/[id]` - Fetch track metadata
+- `GET /api/tracks/[id]/stream` - Stream track audio
+- `POST /api/audio/speech` - Text-to-speech
+- `POST /api/audio/transcriptions` - Speech-to-text
+- `POST /api/checkout_session` - Create Stripe checkout session
+
+## Development
+
+The project uses:
+- **Turbopack** for fast development builds
+- **TypeScript** for type safety
+- **Convex** for real-time backend functionality
+- **React Three Fiber** for 3D graphics
