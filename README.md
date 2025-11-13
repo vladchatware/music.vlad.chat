@@ -1,10 +1,10 @@
-# Music.Vlad.Chat - Virtual DJ
+# Agentic mp3 player
 
 An AI-powered virtual DJ application that uses OpenAI to curate and play music from SoundCloud, featuring immersive 3D visualizations powered by React Three Fiber.
 
 ## Overview
 
-Music.Vlad.Chat is a web application that combines AI music curation with real-time audio visualization. Users can interact with an AI DJ that selects and plays tracks from SoundCloud based on natural language requests. The application features stunning 3D visualizations that react to the audio in real-time.
+music.vlad.chat is a web application that combines AI music curation with real-time audio visualization. Users can interact with an AI DJ that selects and plays tracks from SoundCloud based on natural language requests. The application features stunning 3D visualizations that react to the audio in real-time.
 
 ## Features
 
