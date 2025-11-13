@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
   }
 
-  const url = process.env.SITE_URL
+  const url = process.env.NEXT_PUBLIC_SITE_URL
   const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`))
   const notion = await experimental_createMCPClient({
     // @ts-ignore TODO 
