@@ -130,9 +130,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       for (let i = 0; i < bars.length; i++) {
         coordinateMapper.data[i] = bars[i].value;
       }
-      const energy = analyzer.getEnergy();
-      audioEnergyRef.current =
-        audioEnergyRef.current * 0.8 + energy * 0.2;
+      audioEnergyRef.current = analyzer.getEnergy();
       rafRef.current = requestAnimationFrame(tick);
     };
 
