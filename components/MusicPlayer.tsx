@@ -55,6 +55,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const analyzerRef = useRef<FFTAnalyzer | null>(null);
+  const audioEnergyRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const playingHandlerRef = useRef<(() => void) | null>(null);
   const endedHandlerRef = useRef<((e: Event) => Promise<void>) | null>(null);
@@ -129,6 +130,9 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       for (let i = 0; i < bars.length; i++) {
         coordinateMapper.data[i] = bars[i].value;
       }
+      const energy = analyzer.getEnergy();
+      audioEnergyRef.current =
+        audioEnergyRef.current * 0.8 + energy * 0.2;
       rafRef.current = requestAnimationFrame(tick);
     };
 
@@ -305,7 +309,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           </Container>
         </Container>
       </Fullscreen>
-      <Rig />
+      <Rig audioLevelRef={audioEnergyRef} />
       <BaseDiffusedRing
         coordinateMapper={coordinateMapper}
         radius={2.8}
