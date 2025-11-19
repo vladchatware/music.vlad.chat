@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { useGLTF, Float, MeshTransmissionMaterial } from '@react-three/drei'
+import { useGLTF, Float } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { Physics, RigidBody, BallCollider, RapierRigidBody } from '@react-three/rapier'
 import { useMemo, useRef } from 'react'
@@ -9,24 +9,18 @@ export function Floating(props: any) {
   const { nodes, materials } = useGLTF('/smileys-transformed.glb')
   const material = useMemo(() => {
     return (
-      <MeshTransmissionMaterial
-        color="white"
-        metalness={0}
-        roughness={0.01}
-        ior={1.8}
-        thickness={0.45}
-        reflectivity={0.45}
-        chromaticAberration={0.1}
-        clearcoat={0.4}
-        resolution={1024}
-        clearcoatRoughness={0.05}
-        iridescence={0.9}
-        iridescenceIOR={0.1}
-        iridescenceThicknessRange={[0, 140]}
-        samples={4}
+      <meshPhysicalMaterial
+        transmission={1}
+        roughness={0}
+        thickness={1.5}
+        ior={1.5}
+        clearcoat={1}
+        attenuationDistance={10}
+        attenuationColor="#ffffff"
+        color="#ffffff"
       />
-    );
-  }, []);
+    )
+  }, [])
   return (
     <group {...props} dispose={null}>
       <Float>
@@ -53,7 +47,7 @@ export function Floating(props: any) {
           position={[3.722, 0.284, -1.553]}
           scale={0.245}
         >
-          <MeshTransmissionMaterial transmission={0.95} side={THREE.DoubleSide} />
+          {material}
         </mesh>
       </Float>
       <Float>
