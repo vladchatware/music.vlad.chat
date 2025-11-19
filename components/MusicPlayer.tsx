@@ -189,8 +189,8 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   }, [initialTrackId])
 
   useEffect(() => {
-    // Wait for authentication
-    if (!isAuthenticated) return
+    // Wait for authentication (explicitly skip while loading)
+    if (isAuthenticated !== true) return
 
     const main = async () => {
       await onFetchTrack()
@@ -198,12 +198,15 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     }
 
     main()
-  }, [initialTrackId, onFetchTrack])
+  }, [initialTrackId, onFetchTrack, isAuthenticated])
 
   const onRevibe = useCallback(async (e: Event | ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
 
-    if (!isAuthenticated) await signIn('anonymous')
+    if (isAuthenticated === false) {
+      await signIn('anonymous')
+      return
+    }
 
     if (status === 'streaming') return
 
@@ -212,7 +215,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     }
 
     sendMessage({ role: 'user', text: 'Deep dive into less known genres' })
-  }, [needsUserInteraction, status, togglePlay, sendMessage])
+  }, [isAuthenticated, needsUserInteraction, status, togglePlay, sendMessage, signIn])
 
   useEffect(() => {
     latestOnRevibeRef.current = onRevibe
