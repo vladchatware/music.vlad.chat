@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   const notionTools = await notion.tools() as ToolSet
   const result = streamText({
-    model: openai('gpt-5-mini'),
+    model: 'openai/gpt-5-mini',
     messages: convertToModelMessages(messages),
     tools: { ...tools, ...notionTools },
     stopWhen: stepCountIs(5),
