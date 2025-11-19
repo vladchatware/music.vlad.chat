@@ -59,6 +59,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const rafRef = useRef<number | null>(null);
   const playingHandlerRef = useRef<(() => void) | null>(null);
   const endedHandlerRef = useRef<((e: Event) => Promise<void>) | null>(null);
+  const latestOnRevibeRef = useRef<(e: Event | ThreeEvent<MouseEvent>) => Promise<void> | void>(null);
 
   const coordinateMapper = useMemo(() => new CoordinateMapper_Data(), []);
 
@@ -81,6 +82,9 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       window.obsstudio?.startRecording()
     }
     const handleEnded = async (e: Event) => {
+      if (latestOnRevibeRef.current) {
+        await latestOnRevibeRef.current(e);
+      }
       // @ts-ignore OBS
       window.obsstudio?.stopRecording()
     }
@@ -156,30 +160,6 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         audioRef.current.pause();
         setIsPlaying(false);
       } else {
-        // Ensure OBS recording listeners are attached before playing
-        // Re-attach listeners in case they were removed or audio source changed
-        if (playingHandlerRef.current && endedHandlerRef.current) {
-          audioRef.current.removeEventListener('playing', playingHandlerRef.current);
-          audioRef.current.removeEventListener('ended', endedHandlerRef.current);
-        }
-
-        const handlePlaying = () => {
-          setNeedsUserInteraction(false)
-          // @ts-ignore OBS
-          window.obsstudio?.startRecording()
-        }
-        const handleEnded = async (e: Event) => {
-          await onRevibe(e)
-          // @ts-ignore OBS
-          window.obsstudio?.stopRecording()
-        }
-
-        playingHandlerRef.current = handlePlaying;
-        endedHandlerRef.current = handleEnded;
-
-        audioRef.current.addEventListener('playing', handlePlaying)
-        audioRef.current.addEventListener('ended', handleEnded)
-
         await audioRef.current.play();
         setIsPlaying(true);
       }
@@ -212,16 +192,15 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     // Wait for authentication
     if (!isAuthenticated) return
 
-    console.log('init', isAuthenticated, initialTrackId)
     const main = async () => {
       await onFetchTrack()
       setLoading(false)
     }
 
     main()
-  }, [isAuthenticated, initialTrackId, onFetchTrack])
+  }, [initialTrackId, onFetchTrack])
 
-  const onRevibe = async (e: Event | ThreeEvent<MouseEvent>) => {
+  const onRevibe = useCallback(async (e: Event | ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
 
     if (!isAuthenticated) await signIn('anonymous')
@@ -232,8 +211,12 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       return togglePlay()
     }
 
-    sendMessage({ role: 'user', text: 'Play some angel core genre' })
-  }
+    sendMessage({ role: 'user', text: 'Deep dive into less known genres' })
+  }, [needsUserInteraction, status, togglePlay, sendMessage])
+
+  useEffect(() => {
+    latestOnRevibeRef.current = onRevibe
+  }, [onRevibe])
 
   const getLastMessage = (messages: UIMessage[]) => {
     const userMessages = messages.filter(m => m.role === 'user') // the next message

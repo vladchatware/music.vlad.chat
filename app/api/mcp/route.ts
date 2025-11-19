@@ -1,21 +1,31 @@
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
-import { getAccessToken, tracks, users, playlists } from "../../../soundcloud"
-import { NextResponse, NextRequest } from 'next/server'
+import { tracks, users, playlists } from "../../../soundcloud"
 
 const handler = createMcpHandler(
   (server) => {
     server.tool(
       'users',
       'List users',
-      { query: z.string() },
-      async ({ query }) => {
-        const res = await fetch('https://api.soundcloud.com/tracks?q=FrutigerAero')
-        const payload = await res.json()
-        console.log(payload)
-        return ({
-          content: [{ type: "text", text: "https://api.soundcloud.com/tracks/13692671" }]
-        })
+      {
+        q: z.string().optional(),
+        ids: z.string().optional(),
+        urns: z.string().optional(),
+        limit: z.string().optional(),
+      },
+      async (query) => {
+        const res = await users(query)
+        const list = Array.isArray(res) ? res : res?.collection ?? []
+        const payload = list
+          .map(({ id, username, full_name }) => `${full_name ?? username}:${id}:${username}`)
+          .join(',\n')
+
+        return {
+          content: [{
+            type: "text",
+            text: payload || 'No users found'
+          }]
+        }
       })
 
     server.tool(
@@ -39,12 +49,20 @@ const handler = createMcpHandler(
         }).optional()
       }, async (query) => {
         const res = await tracks({
-          q: query.q
+          q: query.q,
+          genres: query.genres,
+          tags: query.tags,
+          'bpm[from]': query.bpm?.from,
+          'bpm[to]': query.bpm?.to,
+          'duration[from]': query.duration?.from,
+          'duration[to]': query.duration?.to,
+          'created_at[from]': query.created_at?.from,
+          'created_at[to]': query.created_at?.to,
         })
 
-        const payload = res
-          .map(({ id, title, description, user }) => ({ id, title, description, user }))
-          .map(track => `${track.user.full_name}:${track.id}:${track.title}`)
+        const list = Array.isArray(res) ? res : res?.collection ?? []
+        const payload = list
+          .map(({ id, title, user }) => `${user?.full_name ?? user?.username}:${id}:${title}`)
           .join(',\n')
 
         return {
@@ -58,12 +76,18 @@ const handler = createMcpHandler(
     server.tool(
       'playlists',
       'List playlists',
-      { query: z.string() }, async ({ query }) => {
-        const res = await fetch('https://api.soundcloud.com/tracks?q=FrutigerAero')
-        const payload = await res.json()
-        console.log(payload)
+      {
+        q: z.string().optional(),
+        limit: z.string().optional(),
+      }, async (query) => {
+        const res = await playlists(query)
+        const list = Array.isArray(res) ? res : res?.collection ?? []
+        const payload = list
+          .map(({ id, title, user }) => `${user?.full_name ?? user?.username}:${id}:${title}`)
+          .join(',\n')
+
         return ({
-          content: [{ type: "text", text: "https://api.soundcloud.com/tracks/13692671" }]
+          content: [{ type: "text", text: payload || 'No playlists found' }]
         })
       })
 

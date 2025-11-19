@@ -6,6 +6,16 @@ const credentials: {
   expires_at?: number
 } = {}
 
+const buildQueryString = (query: Record<string, string | undefined>) => {
+  const params = new URLSearchParams()
+  Object.entries(query ?? {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      params.append(key, value)
+    }
+  })
+  return params.toString()
+}
+
 export type Track = {
   kind: string,
   id: number,
@@ -208,13 +218,16 @@ export const users = async (query: {
   limit?: string
 }) => {
   const access_token = await readAccessToken()
-  const res = await fetch('https://api.soundcloud.com/users', {
+  const params = buildQueryString(query)
+  const res = await fetch(`https://api.soundcloud.com/users${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
-      'Content-Type': 'application/json'
-    },
-    body: new URLSearchParams(query).toString()
+    }
   })
+
+  if (!res.ok) {
+    throw new Error(res.statusText)
+  }
   const payload = await res.json()
 
   return payload
@@ -262,12 +275,17 @@ export const tracks = async (query: {
   limit?: string
 }) => {
   const access_token = await readAccessToken()
-  const params = new URLSearchParams(query).toString()
-  const res = await fetch(`https://api.soundcloud.com/tracks?${params}`, {
+  const params = buildQueryString(query)
+  const res = await fetch(`https://api.soundcloud.com/tracks${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`
     }
   })
+
+  if (!res.ok) {
+    throw new Error(res.statusText)
+  }
+
   const payload = await res.json()
 
   return payload
@@ -278,13 +296,16 @@ export const playlists = async (query: {
   limit?: string
 }) => {
   const access_token = await readAccessToken()
-  const res = await fetch('https://api.soundcloud.com/users', {
+  const params = buildQueryString(query)
+  const res = await fetch(`https://api.soundcloud.com/playlists${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
-      'Content-Type': 'application/json'
-    },
-    body: new URLSearchParams(query).toString()
+    }
   })
+
+  if (!res.ok) {
+    throw new Error(res.statusText)
+  }
   const payload = await res.json()
 
   return payload

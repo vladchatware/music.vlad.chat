@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     stopWhen: stepCountIs(5),
     system: systemMessage,
     onFinish: async ({ usage, providerMetadata }) => {
-      console.log(usage)
+      // console.log(usage)
       if (user.isAnonymous) {
         await fetchMutation(api.users.messages, {}, { token: await convexAuthNextjsToken() })
       } else {
