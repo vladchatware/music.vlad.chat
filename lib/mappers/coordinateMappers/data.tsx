@@ -18,7 +18,7 @@ export class CoordinateMapper_Data extends CoordinateMapperBase {
     return {
       DEFAULT: {
         amplitude: 1.0,
-        size: 400,
+        size: 0,
       },
     };
   }
@@ -60,7 +60,7 @@ export class CoordinateMapper_Data extends CoordinateMapperBase {
   }
 
   public map_1D(xNorm: number, _ = 0.0): number {
-    return this.amplitude * this.interpolateValueForNormalizedCoord(xNorm);
+    return this.amplitude * this.interpolateValueForNormalizedCoord(xNorm * 0.75);
   }
 
   public map_2D(xNorm: number, yNorm: number, elapsedTimeSec = 0.0): number {
