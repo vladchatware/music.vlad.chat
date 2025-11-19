@@ -318,7 +318,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       />
       <Floating position={[0, 0, 7]} />
       <BackgroundImageCover />
-      <Environment preset="warehouse" environmentIntensity={0.25} />
+      <Environment preset="city" environmentIntensity={1} />
     </Defaults>
   </Canvas><audio ref={audioRef} src={streamTrack(track?.id)} /></>
 }
