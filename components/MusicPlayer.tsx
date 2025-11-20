@@ -5,7 +5,8 @@ import { Canvas, ThreeEvent } from '@react-three/fiber'
 import { Fullscreen, Container, Text, Image } from '@react-three/uikit'
 import { Defaults, Button } from '@react-three/uikit-default'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default"
-import { Environment } from '@react-three/drei'
+import { Environment, SoftShadows, CubeCamera } from '@react-three/drei'
+import { PhysicalGrid } from '@/components/PhysicalGrid'
 import { UIMessage, useChat } from '@ai-sdk/react';
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Floating } from './Simulation'
@@ -240,11 +241,21 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   }
 
   return <><Canvas
+    shadows
     camera={{ position: [0, 0, 18], fov: 32.5 }}
     style={{ position: "absolute", inset: "0", touchAction: "none" }}
     gl={{ localClippingEnabled: true }}>
     <ambientLight intensity={Math.PI} />
-    <spotLight decay={0} position={[0, 5, 10]} angle={0.25} penumbra={1} intensity={2} castShadow />
+    <spotLight
+      decay={0}
+      position={[0, 0, 18]}
+      angle={0.6}
+      penumbra={1}
+      intensity={2}
+      castShadow
+      shadow-bias={-0.0001}
+    />
+    <SoftShadows size={40} samples={16} />
     <Defaults>
       <Fullscreen
         overflow={initialTrackId ? "scroll" : "hidden"}
@@ -302,7 +313,10 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         pointSize={0.1}
         mirrorEffects={true}
       />
-      <Floating position={[0, 0, 7]} />
+      <CubeCamera position={[0, 0, 7]} resolution={256} frames={Infinity}>
+        {(texture) => <Floating envMap={texture} />}
+      </CubeCamera>
+      <PhysicalGrid position={[0, 0, 0]} size={100} />
       <BackgroundImageCover />
       <Environment preset="city" environmentIntensity={1} />
     </Defaults>

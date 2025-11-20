@@ -5,26 +5,31 @@ import { Physics, RigidBody, BallCollider, RapierRigidBody } from '@react-three/
 import { useMemo, useRef } from 'react'
 
 // Shapes by https://app.spline.design/library/a4eeaee4-be03-4df8-ab05-5a073eda2eb4
-export function Floating(props: any) {
+export function Floating({ envMap, ...props }: any) {
   const { nodes, materials } = useGLTF('/smileys-transformed.glb')
   const material = useMemo(() => {
     return (
       <meshPhysicalMaterial
         transmission={1}
-        roughness={0}
+        roughness={0.15}
         thickness={1.5}
         ior={1.5}
         clearcoat={1}
         attenuationDistance={10}
         attenuationColor="#ffffff"
         color="#ffffff"
+        transparent
+        envMap={envMap}
+        envMapIntensity={0.8}
       />
     )
-  }, [])
+  }, [envMap])
   return (
     <group {...props} dispose={null}>
       <Float>
         <mesh
+          castShadow
+          receiveShadow
           geometry={(nodes.hash as any).geometry}
           position={[-4.095, 1.891, -2.58]}
           scale={0.216}
@@ -34,6 +39,8 @@ export function Floating(props: any) {
       </Float>
       <Float>
         <mesh
+          castShadow
+          receiveShadow
           geometry={(nodes.star001 as any).geometry}
           position={[2.932, -2.747, -2.807]}
           scale={0.278}
@@ -43,6 +50,8 @@ export function Floating(props: any) {
       </Float>
       <Float>
         <mesh
+          castShadow
+          receiveShadow
           geometry={(nodes.play as any).geometry}
           position={[3.722, 0.284, -1.553]}
           scale={0.245}
@@ -52,6 +61,8 @@ export function Floating(props: any) {
       </Float>
       <Float>
         <mesh
+          castShadow
+          receiveShadow
           geometry={(nodes.points as any).geometry}
           position={[3, 2.621, -1.858]}
           scale={0.239}
@@ -61,6 +72,8 @@ export function Floating(props: any) {
       </Float>
       <Float>
         <mesh
+          castShadow
+          receiveShadow
           geometry={(nodes.Ellipse as any).geometry}
           position={[-3.275, -1, -3.389]}
           scale={0.317}
@@ -108,7 +121,7 @@ function RigidShape({ mesh, vec = new THREE.Vector3() }: { mesh: THREE.Mesh; vec
       friction={0.1}
       colliders="ball"
     >
-      <mesh geometry={mesh.geometry} material={mesh.material} />
+      <mesh castShadow receiveShadow geometry={mesh.geometry} material={mesh.material} />
     </RigidBody>
   )
 }
