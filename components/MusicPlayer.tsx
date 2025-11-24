@@ -44,24 +44,15 @@ function MotionControl() {
 
   return (
     // @ts-ignore
-    <Container
-      positionType="absolute"
-      positionTop={60}
-      positionLeft={32}
-      top={60}
-      left={32}
-      zIndexOffset={100}
+    <Button
+      onClick={requestPermission}
+      backgroundColor="white"
+      padding={12}
+      borderRadius={999}
+      cursor="pointer"
     >
-      <Button
-        onClick={requestPermission}
-        backgroundColor="white"
-        padding={12}
-        borderRadius={999}
-        cursor="pointer"
-      >
-        <Text color="black">Enable Motion</Text>
-      </Button>
-    </Container>
+      <Text color="black">Enable Motion</Text>
+    </Button>
   )
 }
 
@@ -113,6 +104,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const [isLoaded, setIsLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [needsUserInteraction, setNeedsUserInteraction] = useState(true);
+  const [enableCamera, setEnableCamera] = useState(false);
 
   const buttonLabel = needsUserInteraction ? 'Play' : 'Revibe'
 
@@ -313,7 +305,23 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         justifyContent="center"
         padding={32}
       >
-        <MotionControl />
+        <Container
+          display="flex"
+          positionType="absolute"
+          positionTop={60}
+          positionLeft={32}
+          zIndexOffset={100}
+        >
+          <MotionControl />
+          <Button
+            backgroundColor="white"
+            padding={12}
+            borderRadius={999}
+            cursor="pointer"
+            onClick={() => setEnableCamera(!enableCamera)}>
+            <Text>{enableCamera ? "Disable Camera" : "Enable Camera"}</Text>
+          </Button>
+        </Container>
         <Container display={isAuthenticated && track ? 'flex' : 'none'}>
           <Card maxWidth={460} width="100%" backgroundColor="rgb(4, 16, 22)">
             <CardContent gap={16} paddingTop={24}>
@@ -339,6 +347,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
             <Button onClick={onRevibe} disabled={status === "streaming"}>
               <Text>{buttonLabel}</Text>
             </Button>
+
           </Container>
           <Container flexDirection="column">
             {user?.isAnonymous && messages.length > 0 && <Authenticated>
@@ -364,9 +373,9 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         {(texture) => <Floating envMap={texture} />}
       </CubeCamera>
       <PhysicalGrid position={[0, 0, 0]} size={100} />
-      <BackgroundImageCover />
+      <BackgroundImageCover enableCamera={enableCamera} />
       <Environment preset="city" environmentIntensity={1} />
     </Defaults>
-  </Canvas><audio ref={audioRef} src={streamTrack(track?.id)} /></>
+  </Canvas > <audio ref={audioRef} src={streamTrack(track?.id)} /></>
 }
 
