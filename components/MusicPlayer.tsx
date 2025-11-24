@@ -18,6 +18,17 @@ import { Authenticated, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { Rig } from '@/components/Rig'
 import BackgroundImageCover from '@/components/BackgroundImage'
+import { Camera, CameraOff, Smartphone } from 'lucide-react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+const iconToDataUrl = (Icon: React.ElementType<{ size: number; color: string; strokeWidth: number }>) => {
+  const svgString = renderToStaticMarkup(<Icon size={24} color="black" strokeWidth={2} />)
+  return `data:image/svg+xml,${encodeURIComponent(svgString)}`
+}
+
+const MOTION_ICON = iconToDataUrl(Smartphone)
+const CAMERA_ICON = iconToDataUrl(Camera)
+const CAMERA_OFF_ICON = iconToDataUrl(CameraOff)
 
 function MotionControl() {
   const [showButton, setShowButton] = useState(false)
@@ -26,6 +37,15 @@ function MotionControl() {
     if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
       setShowButton(true)
+
+      const handler = (e: DeviceOrientationEvent) => {
+        if (e.alpha !== null) {
+          setShowButton(false)
+          window.removeEventListener('deviceorientation', handler)
+        }
+      }
+      window.addEventListener('deviceorientation', handler)
+      return () => window.removeEventListener('deviceorientation', handler)
     }
   }, [])
 
@@ -40,7 +60,7 @@ function MotionControl() {
     }
   }
 
-  if (!showButton) return null
+  // if (!showButton) return null
 
   return (
     // @ts-ignore
@@ -51,7 +71,7 @@ function MotionControl() {
       borderRadius={999}
       cursor="pointer"
     >
-      <Text color="black">Enable Motion</Text>
+      <Image src={MOTION_ICON} width={24} height={24} />
     </Badge>
   )
 }
@@ -320,7 +340,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
             borderRadius={999}
             cursor="pointer"
             onClick={() => setEnableCamera(!enableCamera)}>
-            <Text color="black">{enableCamera ? "Disable Camera" : "Enable Camera"}</Text>
+            <Image src={enableCamera ? CAMERA_OFF_ICON : CAMERA_ICON} width={24} height={24} />
           </Badge>
         </Container>
         <Container display={isAuthenticated && track ? 'flex' : 'none'}>

@@ -17,7 +17,13 @@ function CameraFeed() {
   useEffect(() => {
     if (!video) return;
     let stream: MediaStream | null = null;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    })
       .then((s) => {
         stream = s;
         video.srcObject = s;

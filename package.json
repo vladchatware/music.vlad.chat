@@ -32,6 +32,7 @@
     "http-proxy-middleware": "^3.0.5",
     "jose": "^6.1.0",
     "lamina": "^1.2.2",
+    "lucide-react": "^0.554.0",
     "maath": "^0.10.8",
     "mcp-handler": "^1.0.2",
     "multer": "^2.0.1",
