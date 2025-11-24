@@ -5,7 +5,7 @@ export default function BackgroundImageCover() {
   const viewport = useThree((state) => state.viewport);
   // Scale up to account for the background being further back than z=0
   // Camera is at z=18, Background at z=-1.6. Ratio approx 1.1 + extra for safety
-  const scaleFactor = 1.4; 
+  const scaleFactor = 2.5;
 
   return (
     <>

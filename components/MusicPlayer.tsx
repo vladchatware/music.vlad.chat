@@ -19,6 +19,52 @@ import { api } from '@/convex/_generated/api'
 import { Rig } from '@/components/Rig'
 import BackgroundImageCover from '@/components/BackgroundImage'
 
+function MotionControl() {
+  const [showButton, setShowButton] = useState(false)
+
+  useEffect(() => {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+      setShowButton(true)
+    }
+  }, [])
+
+  const requestPermission = async () => {
+    try {
+      const response = await (DeviceOrientationEvent as any).requestPermission()
+      if (response === 'granted') {
+        setShowButton(false)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  if (!showButton) return null
+
+  return (
+    // @ts-ignore
+    <Container
+      positionType="absolute"
+      positionTop={60}
+      positionLeft={32}
+      top={60}
+      left={32}
+      zIndexOffset={100}
+    >
+      <Button
+        onClick={requestPermission}
+        backgroundColor="white"
+        padding={12}
+        borderRadius={999}
+        cursor="pointer"
+      >
+        <Text color="black">Enable Motion</Text>
+      </Button>
+    </Container>
+  )
+}
+
 export default function MusicPlayer({ initialTrackId }: { initialTrackId: string | number }) {
   const user = useQuery(api.users.viewer)
   const isAuthenticated = useQuery(api.auth.isAuthenticated)
@@ -243,7 +289,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   return <><Canvas
     shadows
     camera={{ position: [0, 0, 18], fov: 32.5 }}
-    style={{ position: "absolute", inset: "0", touchAction: "none" }}
+    style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100dvh", touchAction: "none", zIndex: 0 }}
     gl={{ localClippingEnabled: true }}>
     <ambientLight intensity={Math.PI} />
     <spotLight
@@ -267,10 +313,11 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         justifyContent="center"
         padding={32}
       >
+        <MotionControl />
         <Container display={isAuthenticated && track ? 'flex' : 'none'}>
-          <Card width={460} backgroundColor="rgb(4, 16, 22)">
+          <Card maxWidth={460} width="100%" backgroundColor="rgb(4, 16, 22)">
             <CardContent gap={16} paddingTop={24}>
-              <Image src={track?.artwork_url} width={440} />
+              <Image src={track?.artwork_url} width="100%" aspectRatio={1} />
             </CardContent>
             <CardHeader>
               <CardTitle>
