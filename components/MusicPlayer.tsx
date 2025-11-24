@@ -60,7 +60,7 @@ function MotionControl() {
     }
   }
 
-  // if (!showButton) return null
+  if (!showButton) return null
 
   return (
     // @ts-ignore
