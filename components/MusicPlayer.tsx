@@ -307,10 +307,11 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       >
         <Container
           display="flex"
+          flexDirection="column"
           positionType="absolute"
           positionTop={60}
           positionLeft={32}
-          zIndexOffset={100}
+          gap={8}
         >
           <MotionControl />
           <Button
@@ -319,7 +320,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
             borderRadius={999}
             cursor="pointer"
             onClick={() => setEnableCamera(!enableCamera)}>
-            <Text>{enableCamera ? "Disable Camera" : "Enable Camera"}</Text>
+            <Text color="black">{enableCamera ? "Disable Camera" : "Enable Camera"}</Text>
           </Button>
         </Container>
         <Container display={isAuthenticated && track ? 'flex' : 'none'}>
@@ -372,7 +373,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       <CubeCamera position={[0, 0, 7]} resolution={256} frames={Infinity}>
         {(texture) => <Floating envMap={texture} />}
       </CubeCamera>
-      <PhysicalGrid position={[0, 0, 0]} size={100} />
+      {!enableCamera && <PhysicalGrid position={[0, 0, 0]} size={100} />}
       <BackgroundImageCover enableCamera={enableCamera} />
       <Environment preset="city" environmentIntensity={1} />
     </Defaults>
