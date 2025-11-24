@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, ThreeEvent } from '@react-three/fiber'
 import { Fullscreen, Container, Text, Image } from '@react-three/uikit'
-import { Defaults, Button } from '@react-three/uikit-default'
+import { Defaults, Button, Badge } from '@react-three/uikit-default'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default"
 import { Environment, SoftShadows, CubeCamera } from '@react-three/drei'
 import { PhysicalGrid } from '@/components/PhysicalGrid'
@@ -40,11 +40,11 @@ function MotionControl() {
     }
   }
 
-  if (!showButton) return null
+  // if (!showButton) return null
 
   return (
     // @ts-ignore
-    <Button
+    <Badge
       onClick={requestPermission}
       backgroundColor="white"
       padding={12}
@@ -52,7 +52,7 @@ function MotionControl() {
       cursor="pointer"
     >
       <Text color="black">Enable Motion</Text>
-    </Button>
+    </Badge>
   )
 }
 
@@ -314,14 +314,14 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           gap={8}
         >
           <MotionControl />
-          <Button
+          <Badge
             backgroundColor="white"
             padding={12}
             borderRadius={999}
             cursor="pointer"
             onClick={() => setEnableCamera(!enableCamera)}>
             <Text color="black">{enableCamera ? "Disable Camera" : "Enable Camera"}</Text>
-          </Button>
+          </Badge>
         </Container>
         <Container display={isAuthenticated && track ? 'flex' : 'none'}>
           <Card maxWidth={460} width="100%" backgroundColor="rgb(4, 16, 22)">

@@ -34,7 +34,7 @@ function CameraFeed() {
 
   if (!video) return null;
 
-  return <videoTexture attach="map" args={[video]} toneMapped={false} />;
+  return <videoTexture attach="map" args={[video]} />;
 }
 
 export default function BackgroundImageCover({ enableCamera }: { enableCamera?: boolean }) {
@@ -58,8 +58,8 @@ export default function BackgroundImageCover({ enableCamera }: { enableCamera?: 
 
       // Calculate frustum size at this distance to fit the screen exactly
       const dist = 19.6;
-      const vH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * dist;
-      const vW = vH * camera.aspect;
+      const vH = 2 * Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2) * dist;
+      const vW = vH * (camera as THREE.PerspectiveCamera).aspect;
 
       // Apply scale to fit frustum
       meshRef.current.scale.set(vW, vH, 1);
