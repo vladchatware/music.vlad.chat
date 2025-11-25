@@ -43,7 +43,7 @@ function CameraFeed() {
   return <videoTexture attach="map" args={[video]} />;
 }
 
-export default function BackgroundImageCover({ enableCamera }: { enableCamera?: boolean }) {
+export default function BackgroundImageCover() {
   const viewport = useThree((state) => state.viewport);
   const meshRef = useRef<THREE.Mesh>(null);
   // Scale up to account for the background being further back than z=0
@@ -53,28 +53,10 @@ export default function BackgroundImageCover({ enableCamera }: { enableCamera?: 
   useFrame((state) => {
     if (!meshRef.current) return;
 
-    if (enableCamera) {
-      const camera = state.camera;
-      // Lock to camera position and rotation
-      meshRef.current.position.copy(camera.position);
-      meshRef.current.quaternion.copy(camera.quaternion);
-      // Move to background depth relative to camera
-      // Camera is at z=18, background target is z=-1.6. Distance is 19.6.
-      meshRef.current.translateZ(-19.6);
-
-      // Calculate frustum size at this distance to fit the screen exactly
-      const dist = 19.6;
-      const vH = 2 * Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2) * dist;
-      const vW = vH * (camera as THREE.PerspectiveCamera).aspect;
-
-      // Apply scale to fit frustum
-      meshRef.current.scale.set(vW, vH, 1);
-    } else {
-      // Restore static world transform for gradient mode
-      meshRef.current.position.set(0, 0, -1.6);
-      meshRef.current.rotation.set(0, 0, -Math.PI / 2);
-      meshRef.current.scale.set(viewport.height * scaleFactor, viewport.width * scaleFactor, 1);
-    }
+    meshRef.current.position.set(0, 0, -1.6);
+    meshRef.current.rotation.set(0, 0, -Math.PI / 2);
+    meshRef.current.scale.set(viewport.height * scaleFactor, viewport.width * scaleFactor, 1);
+  
   });
 
   return (
@@ -87,14 +69,12 @@ export default function BackgroundImageCover({ enableCamera }: { enableCamera?: 
       >
         <planeGeometry />
         <meshBasicMaterial depthWrite={false} toneMapped={false}>
-          {enableCamera ? (
-            <CameraFeed />
-          ) : (
+
             <GradientTexture
               stops={[0, 1]}
               colors={["#353b45", "#c0c6ce"]}
             />
-          )}
+          
         </meshBasicMaterial>
       </mesh>
       <mesh

@@ -124,7 +124,6 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const [isLoaded, setIsLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [needsUserInteraction, setNeedsUserInteraction] = useState(true);
-  const [enableCamera, setEnableCamera] = useState(false);
 
   const buttonLabel = needsUserInteraction ? 'Play' : 'Revibe'
 
@@ -334,14 +333,6 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           gap={8}
         >
           <MotionControl />
-          <Badge
-            backgroundColor="white"
-            padding={12}
-            borderRadius={999}
-            cursor="pointer"
-            onClick={() => setEnableCamera(!enableCamera)}>
-            <Image src={enableCamera ? CAMERA_OFF_ICON : CAMERA_ICON} width={24} height={24} />
-          </Badge>
         </Container>
         <Container display={isAuthenticated && track ? 'flex' : 'none'}>
           <Card maxWidth={460} width="100%" backgroundColor="rgb(4, 16, 22)">
@@ -393,8 +384,8 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       <CubeCamera position={[0, 0, 7]} resolution={256} frames={Infinity}>
         {(texture) => <Floating envMap={texture} />}
       </CubeCamera>
-      {!enableCamera && <PhysicalGrid position={[0, 0, 0]} size={100} />}
-      <BackgroundImageCover enableCamera={enableCamera} />
+      <PhysicalGrid position={[0, 0, 0]} size={100} />
+      <BackgroundImageCover />
       <Environment preset="city" environmentIntensity={1} />
     </Defaults>
   </Canvas > <audio ref={audioRef} src={streamTrack(track?.id)} /></>
