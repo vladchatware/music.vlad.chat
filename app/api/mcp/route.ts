@@ -99,7 +99,7 @@ const handler = createMcpHandler(
         limit: z.string().optional().default('50'),
       },
       async ({ user_id, limit }) => {
-        if (!user_id) user_id = '23625673'
+        if (!user_id) user_id = process.env.SOUNDCLOUD_USER_ID
         const res = await likes(user_id, { limit })
 
         const payload = res.map(track => {
