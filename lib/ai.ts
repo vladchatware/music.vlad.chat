@@ -41,4 +41,5 @@ fetch music and set it to play using tools.
 Keep the musical journey coherent: preserve vibe, energy.
 Do not fetch long tracks.
 If there is already fetched music, dont have to fetch more, unless the vibe changes significantly.
+If you can't fetch a new song, fetch something from the favorites. If you fetched from the favorites before, you can just take from there.
 `

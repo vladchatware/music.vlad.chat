@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
-import { tracks, users, playlists } from "../../../soundcloud"
+import { tracks, users, playlists, likes, Track } from "../../../soundcloud"
 
 const handler = createMcpHandler(
   (server) => {
@@ -89,6 +89,31 @@ const handler = createMcpHandler(
         return ({
           content: [{ type: "text", text: payload || 'No playlists found' }]
         })
+      })
+
+    server.tool(
+      'likes',
+      'Pick a random song from user likes',
+      {
+        user_id: z.string().optional(),
+        limit: z.string().optional().default('50'),
+      },
+      async ({ user_id, limit }) => {
+        if (!user_id) user_id = '23625673'
+        const res = await likes(user_id, { limit })
+
+        const payload = res.map(track => {
+          const bpm = track.bpm ? `(${track.bpm} BPM)` : ''
+          const genre = track.genre ? `(${track.genre})` : ''
+          return `${track.id} ${track.title} ${genre} ${bpm}`
+        }).join('\n')
+
+        return {
+          content: [{
+            type: "text",
+            text: payload
+          }]
+        }
       })
 
   },

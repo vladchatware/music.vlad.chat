@@ -310,3 +310,21 @@ export const playlists = async (query: {
 
   return payload
 }
+
+export const likes = async (userId: string, query?: {
+  limit?: string
+}) => {
+  const access_token = await readAccessToken()
+  const params = buildQueryString(query)
+  const res = await fetch(`https://api.soundcloud.com/users/${userId}/likes/tracks${params ? `?${params}` : ''}`, {
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+    }
+  })
+
+  if (!res.ok) {
+    throw new Error(res.statusText)
+  }
+
+  return res.json() as Promise<Track[]>
+}
