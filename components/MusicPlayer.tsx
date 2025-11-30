@@ -5,7 +5,7 @@ import { Canvas, ThreeEvent } from '@react-three/fiber'
 import { Fullscreen, Container, Text, Image } from '@react-three/uikit'
 import { Defaults, Button, Badge } from '@react-three/uikit-default'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default"
-import { Environment, SoftShadows, CubeCamera } from '@react-three/drei'
+import { Environment, SoftShadows, CubeCamera, GizmoHelper, GizmoViewport } from '@react-three/drei'
 import { PhysicalGrid } from '@/components/PhysicalGrid'
 import { UIMessage, useChat } from '@ai-sdk/react';
 import { useAuthActions } from "@convex-dev/auth/react"
@@ -387,6 +387,9 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       <PhysicalGrid position={[0, 0, 0]} size={100} />
       <BackgroundImageCover />
       <Environment preset="city" environmentIntensity={1} />
+      <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
+        <GizmoViewport axisColors={['#9d4b4b', '#2f7f4f', '#3b5b9d']} labelColor="white" />
+      </GizmoHelper>
     </Defaults>
   </Canvas > <audio ref={audioRef} src={streamTrack(track?.id)} /></>
 }

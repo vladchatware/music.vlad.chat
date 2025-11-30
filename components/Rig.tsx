@@ -1,65 +1,92 @@
-import { useRef, useEffect, type MutableRefObject } from 'react';
+import { useEffect, useState, type MutableRefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { easing } from 'maath';
-import * as THREE from 'three';
+import { PointerLockControls } from '@react-three/drei';
 
 type RigProps = {
   audioLevelRef?: MutableRefObject<number>;
 };
 
-const smoothTowards = (current: number, target: number, delta: number) => {
-  const alpha = 1 - Math.exp(-delta * 6);
-  return THREE.MathUtils.lerp(current, target, alpha);
-};
-
 export const Rig = ({ audioLevelRef }: RigProps = {}) => {
-  const energyRef = useRef(0);
-  const orientationRef = useRef({ x: 0, y: 0 });
+  const [moveForward, setMoveForward] = useState(false);
+  const [moveBackward, setMoveBackward] = useState(false);
+  const [moveLeft, setMoveLeft] = useState(false);
+  const [moveRight, setMoveRight] = useState(false);
+  const [moveUp, setMoveUp] = useState(false);
+  const [moveDown, setMoveDown] = useState(false);
 
   useEffect(() => {
-    const handleOrientation = (event: DeviceOrientationEvent) => {
-      const gamma = event.gamma || 0;
-      const beta = event.beta || 0;
-
-      // Normalize gamma (-45 to 45 -> -1 to 1)
-      const x = THREE.MathUtils.clamp(gamma / 45, -1, 1);
-
-      // Normalize beta. Assuming holding phone at ~45deg is "center".
-      // 0 deg (flat) -> -1
-      // 90 deg (upright) -> 1
-      const y = THREE.MathUtils.clamp((beta - 45) / 45, -1, 1);
-
-      orientationRef.current = { x, y };
+    const onKeyDown = (event: KeyboardEvent) => {
+      switch (event.code) {
+        case 'ArrowUp':
+        case 'KeyW':
+          setMoveForward(true);
+          break;
+        case 'ArrowLeft':
+        case 'KeyA':
+          setMoveLeft(true);
+          break;
+        case 'ArrowDown':
+        case 'KeyS':
+          setMoveBackward(true);
+          break;
+        case 'ArrowRight':
+        case 'KeyD':
+          setMoveRight(true);
+          break;
+        case 'Space':
+          setMoveUp(true);
+          break;
+        case 'KeyC':
+          setMoveDown(true);
+          break;
+      }
     };
 
-    if (typeof window !== 'undefined' && window.DeviceOrientationEvent) {
-      window.addEventListener('deviceorientation', handleOrientation);
-    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      switch (event.code) {
+        case 'ArrowUp':
+        case 'KeyW':
+          setMoveForward(false);
+          break;
+        case 'ArrowLeft':
+        case 'KeyA':
+          setMoveLeft(false);
+          break;
+        case 'ArrowDown':
+        case 'KeyS':
+          setMoveBackward(false);
+          break;
+        case 'ArrowRight':
+        case 'KeyD':
+          setMoveRight(false);
+          break;
+        case 'Space':
+          setMoveUp(false);
+          break;
+        case 'KeyC':
+          setMoveDown(false);
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
 
     return () => {
-      if (typeof window !== 'undefined' && window.DeviceOrientationEvent) {
-        window.removeEventListener('deviceorientation', handleOrientation);
-      }
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keyup', onKeyUp);
     };
   }, []);
 
   useFrame((state, delta) => {
-    const targetEnergy = audioLevelRef?.current ?? 0;
-    energyRef.current = smoothTowards(energyRef.current, targetEnergy, delta);
-
-    const pointerScale = 1 + energyRef.current * 1.4;
-
-    // Combine mouse pointer and device orientation
-    // On desktop, orientation is 0. On mobile, pointer is 0 (untouched).
-    const targetX = (state.pointer.x + orientationRef.current.x) * 2 * pointerScale;
-    const targetY = (state.pointer.y + orientationRef.current.y) * 2 * pointerScale;
-
-    const pointerZ = 18 - energyRef.current * 4;
-
-    easing.damp3(state.camera.position, [targetX, targetY, pointerZ], 0.35, delta);
-    const lookAtZ = -10 - energyRef.current * 3;
-    state.camera.lookAt(0, 0, lookAtZ);
+    const speed = 10 * delta;
+    if (moveForward) state.camera.translateZ(-speed);
+    if (moveBackward) state.camera.translateZ(speed);
+    if (moveLeft) state.camera.translateX(-speed);
+    if (moveRight) state.camera.translateX(speed);
+    if (moveUp) state.camera.translateY(speed);
+    if (moveDown) state.camera.translateY(-speed);
   });
 
-  return null;
+  return <PointerLockControls />;
 };
