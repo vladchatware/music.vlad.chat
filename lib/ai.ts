@@ -50,4 +50,6 @@ Typical track durations:
 - Medium tracks (3-5 min): 180000-300000 ms  
 - Long tracks (5-7 min): 300000-420000 ms
 Example: For tracks around 3 minutes, use duration: { from: "150000", to: "210000" }
+
+Always finish with a call to player tool.
 `

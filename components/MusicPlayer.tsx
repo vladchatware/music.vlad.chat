@@ -14,6 +14,7 @@ import { fetchTrack, streamTrack } from '../lib/soundcloud'
 import BaseDiffusedRing from '@/components/Ring/base'
 import { CoordinateMapper_Data } from '@/lib/mappers/coordinateMappers/data'
 import FFTAnalyzer from '@/lib/analyzers/ftt'
+import { BPMDetector } from '@/lib/analyzers/bpm-detector'
 import { Authenticated, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { Rig } from '@/components/Rig'
@@ -104,7 +105,10 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         setLoading(true)
         const newTrack = await fetchTrack((ctx.toolCall.input as { id: number }).id)
 
-        if (isPlaying) {
+        console.log('isPlaying state:', isPlayingRef.current);
+
+        if (isPlayingRef.current) {
+          console.log('Cueing track on inactive deck...');
           // Load into inactive deck
           const isAActive = activeDeckRef.current === 'A';
           const targetSetter = isAActive ? setTrackB : setTrackA;
@@ -117,24 +121,57 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
           const onLoaded = () => {
             if (!targetDeck) return;
+
+            console.log('Target deck loaded, starting cue process...');
+            console.log('Target track:', newTrack?.title);
+
             targetDeck.muted = true;
-            targetDeck.playbackRate = 4.0; // Scan speed
+
+            // Don't use playbackRate for cueing - it breaks the analyzer
+            // Instead, just scan forward manually
+            targetDeck.currentTime = 0;
             targetDeck.play().catch(e => console.error("Cue play failed", e));
 
+            // Switch cue analyzer to the target deck
             if (cueAnalyzerRef.current && targetSource) {
+              console.log('Connecting cue analyzer to target deck');
               cueAnalyzerRef.current.disconnectInputs();
               cueAnalyzerRef.current.connectInput(targetSource);
             }
 
+            const startTime = performance.now();
+            const maxCueTime = 30000; // 30 seconds max to find a beat
+            let lastLogTime = 0;
+
             const checkBeat = () => {
-              if (!waitingForBeatRef.current) return; // Cancelled
-              if (cueAnalyzerRef.current?.getEnergy('bass') > 0.6) {
+              if (!waitingForBeatRef.current) {
+                console.log('Beat check cancelled');
                 targetDeck.pause();
-                targetDeck.playbackRate = 1.0;
+                return; // Cancelled
+              }
+
+              const elapsed = performance.now() - startTime;
+              const bassEnergy = cueAnalyzerRef.current?.getEnergy('bass') || 0;
+
+              // Log every 2 seconds
+              if (elapsed - lastLogTime > 2000) {
+                console.log(`Cueing... time: ${(elapsed / 1000).toFixed(1)}s, bass: ${bassEnergy.toFixed(2)}, position: ${targetDeck.currentTime.toFixed(1)}s`);
+                lastLogTime = elapsed;
+              }
+
+              if (bassEnergy > 0.6) {
+                targetDeck.pause();
                 targetDeck.currentTime = Math.max(0, targetDeck.currentTime - 0.05);
                 targetDeck.muted = false;
                 nextTrackReadyRef.current = true;
-                console.log('Next track cued and ready');
+                console.log('✓ Beat found! Cued at', targetDeck.currentTime.toFixed(2), 'seconds');
+              } else if (elapsed > maxCueTime) {
+                // Timeout - just use the beginning
+                console.warn('⚠ Cue timeout - starting from beginning');
+                targetDeck.pause();
+                targetDeck.currentTime = 0;
+                targetDeck.muted = false;
+                nextTrackReadyRef.current = true;
               } else {
                 requestAnimationFrame(checkBeat);
               }
@@ -145,6 +182,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           targetDeck?.addEventListener('loadeddata', onLoaded);
 
         } else {
+          console.log('Loading track immediately (not playing)');
           // Immediate play
           setTrackA(newTrack);
           setActiveTrack(newTrack);
@@ -170,6 +208,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
   const analyzerRef = useRef<FFTAnalyzer | null>(null);
   const cueAnalyzerRef = useRef<FFTAnalyzer | null>(null);
+  const bpmDetectorRef = useRef<BPMDetector | null>(null);
   const audioEnergyRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const playingHandlerRef = useRef<((e: Event) => void) | null>(null);
@@ -186,6 +225,18 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const [needsUserInteraction, setNeedsUserInteraction] = useState(true);
 
   const buttonLabel = needsUserInteraction ? 'Play' : 'Revibe'
+
+  // Use ref to avoid stale closure in callbacks
+  const activeTrackRef = useRef<any>(null);
+  const isPlayingRef = useRef(false);
+
+  useEffect(() => {
+    activeTrackRef.current = activeTrack;
+  }, [activeTrack]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   const togglePlay = useCallback(async () => {
     const audio = activeDeckRef.current === 'A' ? deckARef.current : deckBRef.current;
@@ -241,6 +292,9 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
     const cueAnalyzer = new FFTAnalyzer(sourceB, ctx); // Initially B
     cueAnalyzerRef.current = cueAnalyzer;
+
+    const bpmDetector = new BPMDetector();
+    bpmDetectorRef.current = bpmDetector;
 
     // Event Handlers
     const handlePlaying = (e: Event) => {
@@ -366,9 +420,14 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
       audioEnergyRef.current = analyzer.getEnergy();
 
+      // BPM Detection
+      if (bpmDetectorRef.current) {
+        bpmDetectorRef.current.detectBeat(analyzer.getEnergy('bass'));
+      }
+
       // Transition Logic
       if (waitingForBeatRef.current && nextTrackReadyRef.current && analyzer.getEnergy('bass') > 0.6) {
-        console.log('Switching on beat!');
+        console.log('=== SWITCHING ON BEAT ===');
         waitingForBeatRef.current = false;
         nextTrackReadyRef.current = false;
 
@@ -378,7 +437,15 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
         const nextTrack = isAActive ? trackB : trackA;
 
-        if (currentDeck && nextDeck && nextSource) {
+        console.log('Active deck:', isAActive ? 'A' : 'B');
+        console.log('Switching to deck:', isAActive ? 'B' : 'A');
+        console.log('Current track:', activeTrackRef.current?.title);
+        console.log('Next track:', nextTrack?.title);
+        console.log('Next track ID:', nextTrack?.id);
+        console.log('trackA:', trackA?.title, trackA?.id);
+        console.log('trackB:', trackB?.title, trackB?.id);
+
+        if (currentDeck && nextDeck && nextSource && nextTrack) {
           // Crossfade or hard switch? Hard switch for now as per request "on the beat"
           currentDeck.pause();
           nextDeck.play().catch(e => console.error("Switch play failed", e));
@@ -388,8 +455,23 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           analyzer.connectInput(nextSource);
 
           activeDeckRef.current = isAActive ? 'B' : 'A';
-          setActiveTrack(nextTrack);
+
+          // Update active track - force a re-render by creating a new object reference
+          setActiveTrack({ ...nextTrack });
           setIsPlaying(true);
+
+          console.log('Switch complete. New active deck:', activeDeckRef.current);
+          console.log('New active track set to:', nextTrack?.title);
+
+          // Reset BPM detector for new track
+          bpmDetectorRef.current?.reset();
+        } else {
+          console.error('Switch failed - missing elements:', {
+            currentDeck: !!currentDeck,
+            nextDeck: !!nextDeck,
+            nextSource: !!nextSource,
+            nextTrack: !!nextTrack
+          });
         }
       }
 
@@ -446,15 +528,40 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       return togglePlay()
     }
 
-    const bpm = activeTrack?.bpm
-    const prompt = bpm
-      ? `Play a track with similar BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`
-      : 'Deep dive into less known genres'
+    // Use ref to get the latest track data
+    const currentTrack = activeTrackRef.current;
+    console.log('Active track:', currentTrack);
+    console.log('Active track BPM:', currentTrack?.bpm);
+    console.log('Active track genre:', currentTrack?.genre);
 
-    console.log(prompt)
+    // Use track BPM if available, otherwise use detected BPM
+    let bpm = currentTrack?.bpm;
+    let bpmSource = 'metadata';
+
+    if (!bpm && bpmDetectorRef.current?.hasReliableBPM()) {
+      bpm = bpmDetectorRef.current.getBPM();
+      bpmSource = 'detected';
+      console.log('Using detected BPM:', bpm, 'confidence:', bpmDetectorRef.current.getConfidence());
+    }
+
+    const genre = currentTrack?.genre;
+
+    // Build prompt with available information
+    let prompt: string;
+    if (bpm && genre) {
+      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.title} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
+    } else if (bpm) {
+      prompt = `Play a track with similar mood to ${currentTrack?.title} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
+    } else if (genre) {
+      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.title}`;
+    } else {
+      prompt = 'Deep dive into less known genres';
+    }
+
+    console.log('Prompt:', prompt, `(BPM source: ${bpmSource})`)
 
     sendMessage({ role: 'user', text: prompt })
-  }, [isAuthenticated, needsUserInteraction, status, togglePlay, sendMessage, signIn, activeTrack])
+  }, [isAuthenticated, needsUserInteraction, status, togglePlay, sendMessage, signIn])
 
   useEffect(() => {
     latestOnRevibeRef.current = onRevibe
