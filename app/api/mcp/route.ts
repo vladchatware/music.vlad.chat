@@ -40,8 +40,8 @@ const handler = createMcpHandler(
           to: z.string().optional()
         }).optional(),
         duration: z.object({
-          from: z.string().optional(),
-          to: z.string().optional()
+          from: z.string().optional().describe("Minimum track duration in milliseconds (e.g., 120000 for 2 minutes)"),
+          to: z.string().optional().describe("Maximum track duration in milliseconds (e.g., 300000 for 5 minutes)")
         }).optional(),
         created_at: z.object({
           from: z.string().optional(),

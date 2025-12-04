@@ -95,7 +95,7 @@ export default class FFTAnalyzer implements TAnalyzerInputControl {
   }
 
   constructor(
-    source: HTMLAudioElement,
+    source: HTMLAudioElement | AudioNode,
     audioContext: AudioContext | undefined = undefined,
     volume = 1,
   ) {
@@ -116,7 +116,12 @@ export default class FFTAnalyzer implements TAnalyzerInputControl {
     this._output = this._audioCtx.createGain();
 
     this._sources = [];
-    this.connectInput(this._audioCtx.createMediaElementSource(source));
+
+    if (source instanceof HTMLAudioElement) {
+      this.connectInput(this._audioCtx.createMediaElementSource(source));
+    } else {
+      this.connectInput(source);
+    }
 
     this._input.connect(this._analyzer);
 
