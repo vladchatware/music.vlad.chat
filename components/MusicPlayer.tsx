@@ -549,11 +549,11 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     // Build prompt with available information
     let prompt: string;
     if (bpm && genre) {
-      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.title} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
+      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.tag_list} and ${currentTrack?.key_signature} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
     } else if (bpm) {
-      prompt = `Play a track with similar mood to ${currentTrack?.title} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
+      prompt = `Play a track with similar mood to ${currentTrack?.tag_list} and ${currentTrack?.key_signature} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
     } else if (genre) {
-      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.title}`;
+      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.tag_list} and ${currentTrack?.key_signature}`;
     } else {
       prompt = 'Deep dive into less known genres';
     }
