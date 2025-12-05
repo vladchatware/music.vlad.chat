@@ -71,8 +71,8 @@ export default function BackgroundImageCover() {
         <meshBasicMaterial depthWrite={false} toneMapped={false}>
 
             <GradientTexture
-              stops={[0, 1]}
-              colors={["#353b45", "#c0c6ce"]}
+              stops={[0, 0.4, 0.7, 1]}
+              colors={["#8B1A1A", "#FF4500", "#FF8C00", "#FFD700"]}
             />
           
         </meshBasicMaterial>
