@@ -60,15 +60,22 @@ const handler = createMcpHandler(
           'created_at[to]': query.created_at?.to,
         })
 
-        const list = Array.isArray(res) ? res : res?.collection ?? []
-        const payload = list
-          .map(({ id, title, user }) => `${user?.full_name ?? user?.username}:${id}:${title}`)
-          .join(',\n')
+        const list: Track[] = Array.isArray(res) ? res : res?.collection ?? []
+        const payload = list.map(track => {
+          const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
+          const hints: string[] = []
+          if (track.bpm) hints.push(`${track.bpm} BPM`)
+          if (track.genre) hints.push(track.genre)
+          if (track.key_signature) hints.push(`key: ${track.key_signature}`)
+          if (track.duration) hints.push(`${Math.round(track.duration / 1000)}s`)
+          const hintsStr = hints.length > 0 ? ` (${hints.join(', ')})` : ''
+          return `${track.id} ${artist} - ${track.title}${hintsStr}`
+        }).join('\n')
 
         return {
           content: [{
             type: "text",
-            text: payload
+            text: payload || 'No tracks found'
           }]
         }
       })
@@ -93,25 +100,37 @@ const handler = createMcpHandler(
 
     server.tool(
       'likes',
-      'Pick a random song from user likes',
+      'Get randomized list of liked songs with metadata for DJ mixing',
       {
         user_id: z.string().optional(),
         limit: z.string().optional().default('50'),
       },
       async ({ user_id, limit }) => {
         if (!user_id) user_id = process.env.SOUNDCLOUD_USER_ID
-        const res = await likes(user_id, { limit })
+        // Fetch all likes (up to 200) then shuffle and limit the output
+        const res = await likes(user_id, { limit: '200' })
 
-        const payload = res.map(track => {
-          const bpm = track.bpm ? `(${track.bpm} BPM)` : ''
-          const genre = track.genre ? `(${track.genre})` : ''
-          return `${track.id} ${track.title} ${genre} ${bpm}`
+        // Shuffle the results to avoid repetition
+        const shuffled = res
+          .map(value => ({ value, sort: Math.random() }))
+          .sort((a, b) => a.sort - b.sort)
+          .map(({ value }) => value)
+          .slice(0, parseInt(limit || '50', 10))
+
+        const payload = shuffled.map(track => {
+          const hints: string[] = []
+          if (track.bpm) hints.push(`${track.bpm} BPM`)
+          if (track.genre) hints.push(track.genre)
+          if (track.key_signature) hints.push(`key: ${track.key_signature}`)
+          if (track.duration) hints.push(`${Math.round(track.duration / 1000)}s`)
+          const hintsStr = hints.length > 0 ? ` (${hints.join(', ')})` : ''
+          return `${track.id} ${track.title}${hintsStr}`
         }).join('\n')
 
         return {
           content: [{
             type: "text",
-            text: payload
+            text: payload || 'No liked tracks found'
           }]
         }
       })

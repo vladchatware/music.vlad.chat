@@ -87,7 +87,10 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const deckBRef = useRef<HTMLAudioElement | null>(null);
   const deckASourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const deckBSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const deckAGainRef = useRef<GainNode | null>(null);
+  const deckBGainRef = useRef<GainNode | null>(null);
   const activeDeckRef = useRef<'A' | 'B'>('A');
+  const crossfadeInProgressRef = useRef(false);
 
   // State
   const [trackA, setTrackA] = useState<any>(null);
@@ -118,12 +121,17 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           targetSetter(newTrack);
           waitingForBeatRef.current = true;
           nextTrackReadyRef.current = false;
+          trackEndedWhileCueingRef.current = false;
 
           const onLoaded = () => {
             if (!targetDeck) return;
 
             console.log('Target deck loaded, starting cue process...');
             console.log('Target track:', newTrack?.title);
+
+            // Ensure target deck gain is 0 (it will fade in during crossfade)
+            const targetGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
+            if (targetGain) targetGain.gain.value = 0;
 
             targetDeck.muted = true;
 
@@ -217,6 +225,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const revibeTriggeredRef = useRef(false);
   const nextTrackReadyRef = useRef(false);
   const waitingForBeatRef = useRef(false);
+  const trackEndedWhileCueingRef = useRef(false);
 
   const coordinateMapper = useMemo(() => new CoordinateMapper_Data(), []);
 
@@ -226,9 +235,11 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
   const buttonLabel = needsUserInteraction ? 'Play' : 'Revibe'
 
-  // Use ref to avoid stale closure in callbacks
+  // Use refs to avoid stale closure in callbacks
   const activeTrackRef = useRef<any>(null);
   const isPlayingRef = useRef(false);
+  const trackARef = useRef<any>(null);
+  const trackBRef = useRef<any>(null);
 
   useEffect(() => {
     activeTrackRef.current = activeTrack;
@@ -237,6 +248,14 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
+
+  useEffect(() => {
+    trackARef.current = trackA;
+  }, [trackA]);
+
+  useEffect(() => {
+    trackBRef.current = trackB;
+  }, [trackB]);
 
   const togglePlay = useCallback(async () => {
     const audio = activeDeckRef.current === 'A' ? deckARef.current : deckBRef.current;
@@ -284,8 +303,22 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     const sourceA = ctx.createMediaElementSource(deckA);
     const sourceB = ctx.createMediaElementSource(deckB);
 
+    // Create gain nodes for crossfading
+    const gainA = ctx.createGain();
+    const gainB = ctx.createGain();
+    gainA.gain.value = 1; // Deck A starts active
+    gainB.gain.value = 0; // Deck B starts silent
+
+    // Connect sources through gain nodes to destination
+    sourceA.connect(gainA);
+    sourceB.connect(gainB);
+    gainA.connect(ctx.destination);
+    gainB.connect(ctx.destination);
+
     deckASourceRef.current = sourceA;
     deckBSourceRef.current = sourceB;
+    deckAGainRef.current = gainA;
+    deckBGainRef.current = gainB;
 
     const analyzer = new FFTAnalyzer(sourceA, ctx);
     analyzerRef.current = analyzer;
@@ -317,16 +350,22 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       const isAActive = activeDeckRef.current === 'A';
       const currentDeck = isAActive ? deckARef.current : deckBRef.current;
 
-      if (audio === currentDeck && nextTrackReadyRef.current) {
-        console.log('Active track ended, switching to cued track.');
-        waitingForBeatRef.current = false; // Cancel beat wait if it was active
+      if (audio === currentDeck && nextTrackReadyRef.current && !crossfadeInProgressRef.current) {
+        console.log('Active track ended, switching to cued track with quick crossfade.');
+        waitingForBeatRef.current = false;
         nextTrackReadyRef.current = false;
 
         const nextDeck = isAActive ? deckBRef.current : deckARef.current;
         const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
-        const nextTrack = isAActive ? trackB : trackA;
+        const currentGain = isAActive ? deckAGainRef.current : deckBGainRef.current;
+        const nextGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
+        const nextTrack = isAActive ? trackBRef.current : trackARef.current;
 
-        if (nextDeck && nextSource) {
+        if (nextDeck && nextSource && nextTrack && currentGain && nextGain) {
+          // Reset gains for immediate switch (current track already ended)
+          currentGain.gain.value = 0;
+          nextGain.gain.value = 1;
+          
           nextDeck.play().catch(err => console.error("Switch play failed on end:", err));
           analyzer.disconnectInputs();
           analyzer.connectInput(nextSource);
@@ -334,8 +373,13 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           setActiveTrack(nextTrack);
           setIsPlaying(true);
         }
-      } else if (audio === currentDeck) {
-        // No next track cued, or it was the cued track that ended (shouldn't happen if active)
+      } else if (audio === currentDeck && waitingForBeatRef.current) {
+        // Track ended while we're still finding the beat on the cued track
+        // Don't trigger revibe - mark that we should play immediately when beat is found
+        console.log('Active track ended while cueing next track, will play when beat is found');
+        trackEndedWhileCueingRef.current = true;
+      } else if (audio === currentDeck && !crossfadeInProgressRef.current) {
+        // No next track cued and not in crossfade, trigger revibe
         console.log('Active track ended naturally, triggering revibe.');
         if (latestOnRevibeRef.current) {
           await latestOnRevibeRef.current(e);
@@ -426,14 +470,25 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       }
 
       // Transition Logic
-      if (waitingForBeatRef.current && nextTrackReadyRef.current && analyzer.getEnergy('bass') > 0.6) {
-        console.log('=== SWITCHING ON BEAT ===');
+      // Switch when: beat found on cued track AND (bass beat on current track OR current track already ended)
+      // AND not already in a crossfade
+      const shouldSwitch = waitingForBeatRef.current && nextTrackReadyRef.current && 
+        !crossfadeInProgressRef.current &&
+        (analyzer.getEnergy('bass') > 0.6 || trackEndedWhileCueingRef.current);
+      
+      if (shouldSwitch) {
+        console.log('=== CROSSFADE STARTING', trackEndedWhileCueingRef.current ? 'IMMEDIATELY (track ended)' : 'ON BEAT', '===');
         waitingForBeatRef.current = false;
         nextTrackReadyRef.current = false;
+        const wasTrackEnded = trackEndedWhileCueingRef.current;
+        trackEndedWhileCueingRef.current = false;
+        crossfadeInProgressRef.current = true;
 
         const isAActive = activeDeckRef.current === 'A';
         const currentDeck = isAActive ? deckARef.current : deckBRef.current;
         const nextDeck = isAActive ? deckBRef.current : deckARef.current;
+        const currentGain = isAActive ? deckAGainRef.current : deckBGainRef.current;
+        const nextGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
         const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
         const nextTrack = isAActive ? trackB : trackA;
 
@@ -441,37 +496,67 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         console.log('Switching to deck:', isAActive ? 'B' : 'A');
         console.log('Current track:', activeTrackRef.current?.title);
         console.log('Next track:', nextTrack?.title);
-        console.log('Next track ID:', nextTrack?.id);
-        console.log('trackA:', trackA?.title, trackA?.id);
-        console.log('trackB:', trackB?.title, trackB?.id);
 
-        if (currentDeck && nextDeck && nextSource && nextTrack) {
-          // Crossfade or hard switch? Hard switch for now as per request "on the beat"
-          currentDeck.pause();
-          nextDeck.play().catch(e => console.error("Switch play failed", e));
+        if (currentDeck && nextDeck && nextSource && nextTrack && currentGain && nextGain) {
+          // Start playing the next deck (it will fade in)
+          nextDeck.play().catch(e => console.error("Crossfade play failed", e));
 
-          // Switch analyzer input
+          // Switch analyzer input to mix both during crossfade
           analyzer.disconnectInputs();
           analyzer.connectInput(nextSource);
 
+          // Update active deck reference immediately
           activeDeckRef.current = isAActive ? 'B' : 'A';
 
-          // Update active track - force a re-render by creating a new object reference
+          // Update active track - force a re-render
           setActiveTrack({ ...nextTrack });
           setIsPlaying(true);
 
-          console.log('Switch complete. New active deck:', activeDeckRef.current);
-          console.log('New active track set to:', nextTrack?.title);
+          // Crossfade duration in ms (shorter if track already ended)
+          const crossfadeDuration = wasTrackEnded ? 500 : 2000;
+          const startTime = performance.now();
+          const initialCurrentGain = currentGain.gain.value;
+          const initialNextGain = nextGain.gain.value;
 
-          // Reset BPM detector for new track
-          bpmDetectorRef.current?.reset();
+          const crossfade = () => {
+            const elapsed = performance.now() - startTime;
+            const progress = Math.min(elapsed / crossfadeDuration, 1);
+            
+            // Smooth easing (ease-in-out)
+            const eased = progress < 0.5 
+              ? 2 * progress * progress 
+              : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+            // Fade out current, fade in next
+            currentGain.gain.value = initialCurrentGain * (1 - eased);
+            nextGain.gain.value = initialNextGain + (1 - initialNextGain) * eased;
+
+            if (progress < 1) {
+              requestAnimationFrame(crossfade);
+            } else {
+              // Crossfade complete
+              console.log('=== CROSSFADE COMPLETE ===');
+              currentDeck.pause();
+              currentGain.gain.value = 0;
+              nextGain.gain.value = 1;
+              crossfadeInProgressRef.current = false;
+              
+              // Reset BPM detector for new track
+              bpmDetectorRef.current?.reset();
+            }
+          };
+
+          requestAnimationFrame(crossfade);
         } else {
-          console.error('Switch failed - missing elements:', {
+          console.error('Crossfade failed - missing elements:', {
             currentDeck: !!currentDeck,
             nextDeck: !!nextDeck,
+            currentGain: !!currentGain,
+            nextGain: !!nextGain,
             nextSource: !!nextSource,
             nextTrack: !!nextTrack
           });
+          crossfadeInProgressRef.current = false;
         }
       }
 
@@ -496,6 +581,10 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     // Initial load always to Deck A
     deckARef.current.pause();
     deckBRef.current?.pause();
+
+    // Reset gains for initial load (A active, B silent)
+    if (deckAGainRef.current) deckAGainRef.current.gain.value = 1;
+    if (deckBGainRef.current) deckBGainRef.current.gain.value = 0;
 
     setTrackA(_track);
     setActiveTrack(_track);
@@ -530,35 +619,33 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
     // Use ref to get the latest track data
     const currentTrack = activeTrackRef.current;
-    console.log('Active track:', currentTrack);
-    console.log('Active track BPM:', currentTrack?.bpm);
-    console.log('Active track genre:', currentTrack?.genre);
 
-    // Use track BPM if available, otherwise use detected BPM
+    // Build context with only available metadata
+    const hints: string[] = [];
+    
+    // BPM: prefer metadata, fallback to detected
     let bpm = currentTrack?.bpm;
-    let bpmSource = 'metadata';
-
     if (!bpm && bpmDetectorRef.current?.hasReliableBPM()) {
       bpm = bpmDetectorRef.current.getBPM();
-      bpmSource = 'detected';
-      console.log('Using detected BPM:', bpm, 'confidence:', bpmDetectorRef.current.getConfidence());
     }
+    if (bpm) hints.push(`~${Math.round(bpm)} BPM`);
+    if (currentTrack?.genre) hints.push(currentTrack.genre);
+    if (currentTrack?.key_signature) hints.push(currentTrack.key_signature);
 
-    const genre = currentTrack?.genre;
-
-    // Build prompt with available information
+    // Build concise user-facing prompt
     let prompt: string;
-    if (bpm && genre) {
-      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.tag_list} and ${currentTrack?.key_signature} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
-    } else if (bpm) {
-      prompt = `Play a track with similar mood to ${currentTrack?.tag_list} and ${currentTrack?.key_signature} or BPM to ${bpm} (approx ${Math.floor(bpm - 10)} to ${Math.floor(bpm + 10)})`;
-    } else if (genre) {
-      prompt = `Play a ${genre} genre with similar mood to ${currentTrack?.tag_list} and ${currentTrack?.key_signature}`;
+    if (hints.length > 0) {
+      prompt = `Something similar to the music I like and ${hints.join(', ')}`;
     } else {
-      prompt = 'Deep dive into less known genres';
+      prompt = 'Explore less known genres';
     }
 
-    console.log('Prompt:', prompt, `(BPM source: ${bpmSource})`)
+    // Append current track ID for the model to avoid
+    if (currentTrack?.id) {
+      prompt += ` [skip:${currentTrack.id}]`;
+    }
+
+    console.log('Revibe prompt:', prompt)
 
     sendMessage({ role: 'user', text: prompt })
   }, [isAuthenticated, needsUserInteraction, status, togglePlay, sendMessage, signIn])
