@@ -784,8 +784,8 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           </Card>
         </Container>
         <Container flexDirection="column" alignItems="center" gap={16}>
-          <Container>
-            <Text color="white" padding={16} backgroundColor="rgb(4, 16, 22)">
+          <Container backgroundColor="rgb(4, 16, 22)" borderRadius={8}>
+            <Text color="white" padding={16}>
               {getLastMessage(messages) || `Hello, I am a virtual DJ, let me play some music.`}
             </Text>
           </Container>
