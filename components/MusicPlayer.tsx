@@ -123,7 +123,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           nextTrackReadyRef.current = false;
           trackEndedWhileCueingRef.current = false;
 
-          const onLoaded = () => {
+          const onLoaded = async () => {
             if (!targetDeck) return;
 
             console.log('Target deck loaded, starting cue process...');
@@ -138,7 +138,22 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
             // Don't use playbackRate for cueing - it breaks the analyzer
             // Instead, just scan forward manually
             targetDeck.currentTime = 0;
-            targetDeck.play().catch(e => console.error("Cue play failed", e));
+
+            // Try to play for cueing - may fail on iOS Safari without user gesture
+            try {
+              await targetDeck.play();
+            } catch (e) {
+              console.warn("Cue play failed (likely iOS Safari autoplay restriction):", e);
+              // Fallback: mark track as ready at the beginning, skip beat detection
+              targetDeck.currentTime = 0;
+              targetDeck.muted = false;
+              nextTrackReadyRef.current = true;
+              waitingForBeatRef.current = false;
+              setLoading(false);
+              console.log('✓ Track cued at beginning (iOS fallback)');
+              targetDeck.removeEventListener('loadeddata', onLoaded);
+              return;
+            }
 
             // Switch cue analyzer to the target deck
             if (cueAnalyzerRef.current && targetSource) {
@@ -257,14 +272,63 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     trackBRef.current = trackB;
   }, [trackB]);
 
+  // Unlock both audio decks on iOS Safari (needs user gesture)
+  const unlockAudioRef = useRef(false);
+  const unlockAudio = useCallback(async () => {
+    if (unlockAudioRef.current) return;
+    unlockAudioRef.current = true;
+
+    // Resume AudioContext if suspended
+    if (analyzerRef.current?._audioCtx?.state === 'suspended') {
+      await analyzerRef.current._audioCtx.resume();
+    }
+
+    // Unlock both decks by briefly playing them (iOS Safari requirement)
+    const unlockDeck = async (deck: HTMLAudioElement | null) => {
+      if (!deck) return;
+      const originalSrc = deck.src;
+      const originalTime = deck.currentTime;
+      const originalMuted = deck.muted;
+      const originalVolume = deck.volume;
+
+      // If no src, use a tiny silent audio data URI to unlock
+      if (!deck.src) {
+        // Minimal valid MP3 (silent)
+        deck.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYkYpNsAAAAAAAAAAAAAAAAAAAA//tQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//tQZB8P8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+      }
+
+      deck.muted = true;
+      deck.volume = 0;
+
+      try {
+        await deck.play();
+        deck.pause();
+      } catch (e) {
+        console.log('Deck unlock skipped:', e);
+      }
+
+      // Restore original state
+      deck.src = originalSrc;
+      deck.currentTime = originalTime;
+      deck.muted = originalMuted;
+      deck.volume = originalVolume;
+    };
+
+    await Promise.all([
+      unlockDeck(deckARef.current),
+      unlockDeck(deckBRef.current),
+    ]);
+
+    console.log('Audio decks unlocked for iOS');
+  }, []);
+
   const togglePlay = useCallback(async () => {
     const audio = activeDeckRef.current === 'A' ? deckARef.current : deckBRef.current;
     if (!audio || !audio.src) return;
 
     try {
-      if (analyzerRef.current?._audioCtx?.state === 'suspended') {
-        await analyzerRef.current._audioCtx.resume();
-      }
+      // Unlock audio on first user interaction (iOS Safari requirement)
+      await unlockAudio();
 
       if (isPlaying) {
         audio.pause();
@@ -279,7 +343,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         alert('Please click the play button to start audio playback');
       }
     }
-  }, [isPlaying]);
+  }, [isPlaying, unlockAudio]);
 
   useEffect(() => {
     // Initialize Audio Context and Sources
@@ -721,7 +785,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         </Container>
         <Container flexDirection="column" alignItems="center" gap={16}>
           <Container>
-            <Text color="white" padding={16} backgroundColor="black">
+            <Text color="white" padding={16} backgroundColor="rgb(4, 16, 22)">
               {getLastMessage(messages) || `Hello, I am a virtual DJ, let me play some music.`}
             </Text>
           </Container>
