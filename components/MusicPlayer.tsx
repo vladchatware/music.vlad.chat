@@ -640,11 +640,6 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       prompt = 'Explore less known genres';
     }
 
-    // Append current track ID for the model to avoid
-    if (currentTrack?.id) {
-      prompt += ` [skip:${currentTrack.id}]`;
-    }
-
     console.log('Revibe prompt:', prompt)
 
     sendMessage({ role: 'user', text: prompt })

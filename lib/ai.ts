@@ -65,7 +65,7 @@ When given track hints (BPM, genre, key), craft an optimized search:
 - Prioritize vibe continuity ABOVE all else
 - Avoid using too much keywords or api will return no results.
 
-If a message contains [skip:ID], NEVER play that track ID - it's currently playing.
+Do not repeat tracks that have already been played in this session - check the conversation history for previous player tool calls.
 
 Always finish with a call to player tool.
 `
