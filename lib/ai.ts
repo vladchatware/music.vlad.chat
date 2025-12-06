@@ -63,9 +63,11 @@ When given track hints (BPM, genre, key), craft an optimized search:
 - Apply BPM filters with ±10 range for tempo matching
 - Explore CLOSELY less known related subgenres and moods - stay within the same energy level. For example if it is frutiger aero, you can explore various frutiger variations: frutiger metro, frutiger eco, dark aero, Aqua Aero, etc.
 - Prioritize vibe continuity ABOVE all else
-- Avoid using too much keywords or api will return no results.
-- Avoid using generic genres like "ambient","electronic", "dance", "house", "techno", "disco", etc.
-- Prioritize keeping a theme from original track.
+- Avoid using generic genres like "ambient", "chillwave", "electronic", "dance", "house", "techno", "disco", etc.
+- Prioritize keeping a theme from original track, treat a new instruction as a suggestion on where to steer the energy.
+- If you are not receiving any results, try to narrow down to just one
+
+Sometimes you receive bogus tracks, follow the nuance of the song to prevent jumping theme incoherently.
 
 Do not repeat tracks that have already been played in this session - check the conversation history for previous player tool calls.
 You can fetch the liked music first to get the idea of the user's music taste.

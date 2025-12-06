@@ -762,7 +762,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     // Build concise user-facing prompt
     let prompt: string;
     if (hints.length > 0) {
-      prompt = `Hidden gems similar to the music I like and ${hints.join(', ')}`;
+      prompt = `Hidden gems similar to the music I like and maybe ${hints.join(', ')}`;
     } else {
       prompt = 'Explore less known genres';
     }
