@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return new NextResponse('out of tokens', { status: 429 })
     }
   } else {
-    if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
+    // if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
   }
 
   const url = process.env.NEXT_PUBLIC_SITE_URL

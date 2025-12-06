@@ -135,22 +135,26 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
             targetDeck.muted = true;
 
-            // Don't use playbackRate for cueing - it breaks the analyzer
-            // Instead, just scan forward manually
-            targetDeck.currentTime = 0;
+            // Randomize start position to avoid always catching intros
+            // Pick a random spot between 15 seconds and 50% of track duration
+            const duration = targetDeck.duration || 180;
+            const minStart = Math.min(15, duration * 0.1); // At least 15s in, or 10% for short tracks
+            const maxStart = Math.min(duration * 0.5, duration - 60); // Up to 50%, but leave 60s at the end
+            const randomStart = minStart + Math.random() * Math.max(0, maxStart - minStart);
+            targetDeck.currentTime = randomStart;
+            console.log(`Starting cue scan at ${randomStart.toFixed(1)}s (track duration: ${duration.toFixed(0)}s)`);
 
             // Try to play for cueing - may fail on iOS Safari without user gesture
             try {
               await targetDeck.play();
             } catch (e) {
               console.warn("Cue play failed (likely iOS Safari autoplay restriction):", e);
-              // Fallback: mark track as ready at the beginning, skip beat detection
-              targetDeck.currentTime = 0;
+              // Fallback: keep the random start position, skip beat detection
               targetDeck.muted = false;
               nextTrackReadyRef.current = true;
               waitingForBeatRef.current = false;
               setLoading(false);
-              console.log('✓ Track cued at beginning (iOS fallback)');
+              console.log(`✓ Track cued at ${targetDeck.currentTime.toFixed(1)}s (iOS fallback)`);
               targetDeck.removeEventListener('loadeddata', onLoaded);
               return;
             }
@@ -163,43 +167,85 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
             }
 
             const startTime = performance.now();
-            const maxCueTime = 30000; // 30 seconds max to find a beat
+            const maxCueTime = 60000; // 60 seconds max to find a transient beat
             let lastLogTime = 0;
 
-            const checkBeat = () => {
+            // Track energy states for vibe-matching cue points
+            let currentStillStart: number | null = null;
+            let currentStillAudioTime = 0;
+            const stillThreshold = 0.2;
+            const minStillDuration = 500; // 500ms of quiet = valid still cue point
+            const beatThreshold = 0.6;
+            
+            // We'll accept EITHER a beat OR a still moment as a valid cue point
+            // This allows vibe-matching transitions
+
+            const checkCuePoint = () => {
               if (!waitingForBeatRef.current) {
-                console.log('Beat check cancelled');
+                console.log('Cue check cancelled');
                 targetDeck.pause();
-                return; // Cancelled
+                return;
               }
 
               const elapsed = performance.now() - startTime;
               const bassEnergy = cueAnalyzerRef.current?.getEnergy('bass') || 0;
 
+              // Track still periods
+              if (bassEnergy < stillThreshold) {
+                if (currentStillStart === null) {
+                  currentStillStart = performance.now();
+                  currentStillAudioTime = targetDeck.currentTime;
+                }
+                
+                const stillDuration = performance.now() - currentStillStart;
+                
+                // Found a significant still moment - this is a valid cue point!
+                if (stillDuration >= minStillDuration) {
+                  targetDeck.pause();
+                  targetDeck.currentTime = currentStillAudioTime;
+                  targetDeck.muted = false;
+                  nextTrackReadyRef.current = true;
+                  console.log(`✓ Still moment found! Cued at`, currentStillAudioTime.toFixed(3), `seconds (${(stillDuration / 1000).toFixed(1)}s of quiet)`);
+                  setLoading(false);
+                  return;
+                }
+              } else {
+                currentStillStart = null;
+                
+                // Check for beat (high energy moment)
+                if (bassEnergy > beatThreshold) {
+                  const cueTime = Math.max(0, targetDeck.currentTime - 0.05);
+                  targetDeck.pause();
+                  targetDeck.currentTime = cueTime;
+                  targetDeck.muted = false;
+                  nextTrackReadyRef.current = true;
+                  console.log(`✓ Beat found! Cued at`, cueTime.toFixed(3), `seconds (energy: ${bassEnergy.toFixed(2)})`);
+                  setLoading(false);
+                  return;
+                }
+              }
+
               // Log every 2 seconds
               if (elapsed - lastLogTime > 2000) {
-                console.log(`Cueing... time: ${(elapsed / 1000).toFixed(1)}s, bass: ${bassEnergy.toFixed(2)}, position: ${targetDeck.currentTime.toFixed(1)}s`);
+                const stillStatus = currentStillStart 
+                  ? ` (still for ${((performance.now() - currentStillStart) / 1000).toFixed(1)}s)` 
+                  : '';
+                console.log(`Cueing... time: ${(elapsed / 1000).toFixed(1)}s, bass: ${bassEnergy.toFixed(2)}, position: ${targetDeck.currentTime.toFixed(1)}s${stillStatus}`);
                 lastLogTime = elapsed;
               }
 
-              if (bassEnergy > 0.6) {
-                targetDeck.pause();
-                targetDeck.currentTime = Math.max(0, targetDeck.currentTime - 0.05);
-                targetDeck.muted = false;
-                nextTrackReadyRef.current = true;
-                console.log('✓ Beat found! Cued at', targetDeck.currentTime.toFixed(2), 'seconds');
-              } else if (elapsed > maxCueTime) {
-                // Timeout - just use the beginning
+              if (elapsed > maxCueTime) {
                 console.warn('⚠ Cue timeout - starting from beginning');
                 targetDeck.pause();
                 targetDeck.currentTime = 0;
                 targetDeck.muted = false;
                 nextTrackReadyRef.current = true;
+                setLoading(false);
               } else {
-                requestAnimationFrame(checkBeat);
+                requestAnimationFrame(checkCuePoint);
               }
             }
-            requestAnimationFrame(checkBeat);
+            requestAnimationFrame(checkCuePoint);
             targetDeck.removeEventListener('loadeddata', onLoaded);
           }
           targetDeck?.addEventListener('loadeddata', onLoaded);
@@ -528,20 +574,37 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
 
       audioEnergyRef.current = analyzer.getEnergy();
 
-      // BPM Detection
-      if (bpmDetectorRef.current) {
-        bpmDetectorRef.current.detectBeat(analyzer.getEnergy('bass'));
-      }
+      // BPM Detection - also returns true if a "drop" was detected
+      const bassEnergy = analyzer.getEnergy('bass');
+      const dropDetected = bpmDetectorRef.current?.detectBeat(bassEnergy) || false;
+      
+      // Check energy states for vibe matching
+      const isHighEnergy = bassEnergy > 0.6;
+      const isStillMoment = bpmDetectorRef.current?.isInStillPeriod() || false;
+      const stillDuration = bpmDetectorRef.current?.getCurrentStillDuration() || 0;
+      const isSignificantStill = stillDuration > 500; // 500ms+ of quiet
+      
+      // Vibe-matching transition logic:
+      // - High energy on current track → transition on beat
+      // - Still/melodic on current track → transition during still moment (preserves vibe)
+      const shouldTransitionOnBeat = isHighEnergy;
+      const shouldTransitionOnStill = isSignificantStill;
 
-      // Transition Logic
-      // Switch when: beat found on cued track AND (bass beat on current track OR current track already ended)
-      // AND not already in a crossfade
+      // Transition Logic - match the vibe!
+      // Switch when next track is ready AND (beat-to-beat OR still-to-still OR track ended)
       const shouldSwitch = waitingForBeatRef.current && nextTrackReadyRef.current && 
         !crossfadeInProgressRef.current &&
-        (analyzer.getEnergy('bass') > 0.6 || trackEndedWhileCueingRef.current);
+        (dropDetected || shouldTransitionOnBeat || shouldTransitionOnStill || trackEndedWhileCueingRef.current);
       
       if (shouldSwitch) {
-        console.log('=== CROSSFADE STARTING', trackEndedWhileCueingRef.current ? 'IMMEDIATELY (track ended)' : 'ON BEAT', '===');
+        const triggerReason = trackEndedWhileCueingRef.current 
+          ? 'IMMEDIATELY (track ended)' 
+          : dropDetected 
+            ? 'ON DROP (after still period)' 
+            : shouldTransitionOnStill
+              ? `ON STILL MOMENT (${(stillDuration / 1000).toFixed(1)}s of quiet - vibe preserved)`
+              : `ON BEAT (energy: ${bassEnergy.toFixed(2)})`;
+        console.log('=== CROSSFADE STARTING', triggerReason, '===');
         waitingForBeatRef.current = false;
         nextTrackReadyRef.current = false;
         const wasTrackEnded = trackEndedWhileCueingRef.current;
@@ -699,7 +762,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     // Build concise user-facing prompt
     let prompt: string;
     if (hints.length > 0) {
-      prompt = `Something similar to the music I like and ${hints.join(', ')}`;
+      prompt = `Hidden gems similar to the music I like and ${hints.join(', ')}`;
     } else {
       prompt = 'Explore less known genres';
     }

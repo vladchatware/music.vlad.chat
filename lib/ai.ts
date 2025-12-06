@@ -61,11 +61,13 @@ Example: For tracks around 3 minutes, use duration: { from: "150000", to: "21000
 When given track hints (BPM, genre, key), craft an optimized search:
 - Derive creative search keywords from the hints, don't copy literally
 - Apply BPM filters with ±10 range for tempo matching
-- Explore CLOSELY related subgenres and moods - stay within the same energy level
+- Explore CLOSELY less known related subgenres and moods - stay within the same energy level. For example if it is frutiger aero, you can explore various frutiger variations: frutiger metro, frutiger eco, dark aero, Aqua Aero, etc.
 - Prioritize vibe continuity ABOVE all else
 - Avoid using too much keywords or api will return no results.
+- Avoid using generic genres like "ambient","electronic", "dance", "house", "techno", "disco", etc.
+- Prioritize keeping a theme from original track.
 
 Do not repeat tracks that have already been played in this session - check the conversation history for previous player tool calls.
-
+You can fetch the liked music first to get the idea of the user's music taste.
 Always finish with a call to player tool.
 `
