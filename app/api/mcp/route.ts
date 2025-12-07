@@ -47,7 +47,7 @@ const handler = createMcpHandler(
 
     server.tool(
       'tracks',
-      'Search for tracks. IMPORTANT: Prefer using "likes" tool first to get quality tracks matching user taste. Only use this for specific searches.',
+      'Search for tracks. Returns shuffled results. Prefer using "likes" tool first to get quality tracks matching user taste. Only use this for specific searches.',
       {
         q: z.string(),
         genres: z.string().optional(),
