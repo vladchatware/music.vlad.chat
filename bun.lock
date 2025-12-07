@@ -4,6 +4,7 @@
     "": {
       "name": "music.vlad.chat",
       "dependencies": {
+        "@ai-sdk/mcp": "^0.0.11",
         "@ai-sdk/openai": "^2.0.50",
         "@ai-sdk/react": "^2.0.68",
         "@convex-dev/auth": "^0.0.90",
@@ -50,6 +51,8 @@
   },
   "packages": {
     "@ai-sdk/gateway": ["@ai-sdk/gateway@2.0.18", "", { "dependencies": { "@ai-sdk/provider": "2.0.0", "@ai-sdk/provider-utils": "3.0.18", "@vercel/oidc": "3.0.5" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-sDQcW+6ck2m0pTIHW6BPHD7S125WD3qNkx/B8sEzJp/hurocmJ5Cni0ybExg6sQMGo+fr/GWOwpHF1cmCdg5rQ=="],
+
+    "@ai-sdk/mcp": ["@ai-sdk/mcp@0.0.11", "", { "dependencies": { "@ai-sdk/provider": "2.0.0", "@ai-sdk/provider-utils": "3.0.18", "pkce-challenge": "^5.0.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-n0oZsxhPdMaXhAn6LrpMpxABufmeSatfhR3epbrCjJcLEHPOucKwQciwE8CTgIGgwBxHNy1FFLZmcFI77JmJfg=="],
 
     "@ai-sdk/openai": ["@ai-sdk/openai@2.0.77", "", { "dependencies": { "@ai-sdk/provider": "2.0.0", "@ai-sdk/provider-utils": "3.0.18" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-lEJ9vyWSU5VLo+6Msr6r32RnABf4SRxPSV3Hz1Yb5yt43bWYxbBzwaDNYGhJaDL6rCgfUVvcIf5TKiiEuVd4EQ=="],
 
