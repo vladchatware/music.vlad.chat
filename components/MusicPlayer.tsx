@@ -767,7 +767,8 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       prompt = 'Play hidden gems from my likes or dive into less known.';
     }
 
-    prompt += `\n current track id: ${currentTrack?.id}`
+    // lets make it thematic
+    prompt = `Play hidden gems from my likes or similar tracks, matching frutiger aero`
 
     console.log('Revibe prompt:', prompt)
 
