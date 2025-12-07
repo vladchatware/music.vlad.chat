@@ -74,7 +74,7 @@ When searching (as secondary option to likes):
 - Derive creative search keywords from the current vibe
 - Apply BPM filters with ±10 range for tempo matching
 - Explore CLOSELY related subgenres - stay within the same energy level
-- Avoid using generic genres like "ambient", "chillwave", "electronic", "dance", "house", "techno", "disco"
+- Avoid using generic genres like "ambient", "chillwave", "electronic", "dance", "house", "techno", "disco", "Drum & Bass"
 - If not receiving results, narrow down to just one keyword
 
 Do not repeat tracks that have already been played in this session - check conversation history for previous player tool calls.

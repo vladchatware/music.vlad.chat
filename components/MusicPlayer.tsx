@@ -767,6 +767,8 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       prompt = 'Play hidden gems from my likes or dive into less known.';
     }
 
+    prompt += `\n current track id: ${currentTrack?.id}`
+
     console.log('Revibe prompt:', prompt)
 
     sendMessage({ role: 'user', text: prompt })
