@@ -759,12 +759,12 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     if (currentTrack?.genre) hints.push(currentTrack.genre);
     if (currentTrack?.key_signature) hints.push(currentTrack.key_signature);
 
-    // Build concise user-facing prompt
+    // Build concise user-facing prompt - directs agent to use likes first
     let prompt: string;
     if (hints.length > 0) {
-      prompt = `Hidden gems similar to the music I like and maybe ${hints.join(', ')}`;
+      prompt = `Play hidden gems from my likes or similar tracks, matching ${hints.join(', ')}`;
     } else {
-      prompt = 'Explore less known genres';
+      prompt = 'Play hidden gems from my likes or dive into less known.';
     }
 
     console.log('Revibe prompt:', prompt)

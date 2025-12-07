@@ -30,7 +30,7 @@ const handler = createMcpHandler(
 
     server.tool(
       'tracks',
-      'List tracks',
+      'Search for tracks. IMPORTANT: Prefer using "likes" tool first to get quality tracks matching user taste. Only use this for specific searches.',
       {
         q: z.string(),
         genres: z.string().optional(),
@@ -65,13 +65,17 @@ const handler = createMcpHandler(
         const streamableTracks = list.filter(track => track.streamable === true)
         const payload = streamableTracks.map(track => {
           const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
+          const followers = track.user?.followers_count ?? 0
           const hints: string[] = []
           if (track.bpm) hints.push(`${track.bpm} BPM`)
           if (track.genre) hints.push(track.genre)
           if (track.key_signature) hints.push(`key: ${track.key_signature}`)
           if (track.duration) hints.push(`${Math.round(track.duration / 1000)}s`)
+          if (followers > 0) hints.push(`${followers} followers`)
           const hintsStr = hints.length > 0 ? ` (${hints.join(', ')})` : ''
-          return `${track.id} ${artist} - ${track.title}${hintsStr}`
+          // Include description snippet for quality assessment
+          const descSnippet = track.description ? ` | "${track.description.slice(0, 80).replace(/\n/g, ' ')}${track.description.length > 80 ? '...' : ''}"` : ''
+          return `${track.id} ${artist} - ${track.title}${hintsStr}${descSnippet}`
         }).join('\n')
 
         return {
@@ -102,7 +106,7 @@ const handler = createMcpHandler(
 
     server.tool(
       'likes',
-      'Get randomized list of liked songs with metadata for DJ mixing',
+      'PRIMARY SOURCE: Get user\'s liked tracks - these are pre-vetted quality tracks that match user taste. Use this FIRST before searching. Play directly from likes or use as reference for similar music.',
       {
         user_id: z.string().optional(),
         limit: z.string().optional().default('50'),
@@ -121,13 +125,14 @@ const handler = createMcpHandler(
           .slice(0, parseInt(limit || '50', 10))
 
         const payload = shuffled.map(track => {
+          const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
           const hints: string[] = []
           if (track.bpm) hints.push(`${track.bpm} BPM`)
           if (track.genre) hints.push(track.genre)
           if (track.key_signature) hints.push(`key: ${track.key_signature}`)
           if (track.duration) hints.push(`${Math.round(track.duration / 1000)}s`)
           const hintsStr = hints.length > 0 ? ` (${hints.join(', ')})` : ''
-          return `${track.id} ${track.title}${hintsStr}`
+          return `${track.id} ${artist} - ${track.title}${hintsStr}`
         }).join('\n')
 
         return {
