@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { streamText, UIMessage, convertToModelMessages, stepCountIs, smoothStream, ToolSet } from 'ai';
-import { experimental_createMCPClient as createMCPClient } from '@ai-sdk/mcp';
+import { experimental_createMCPClient } from '@ai-sdk/mcp';
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { openai } from '@ai-sdk/openai';
 import { getAccessToken } from '../../../soundcloud';
