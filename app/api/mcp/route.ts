@@ -61,7 +61,9 @@ const handler = createMcpHandler(
         })
 
         const list: Track[] = Array.isArray(res) ? res : res?.collection ?? []
-        const payload = list.map(track => {
+        // Filter to only include tracks that can be streamed
+        const streamableTracks = list.filter(track => track.streamable === true)
+        const payload = streamableTracks.map(track => {
           const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
           const hints: string[] = []
           if (track.bpm) hints.push(`${track.bpm} BPM`)
@@ -110,8 +112,9 @@ const handler = createMcpHandler(
         // Fetch all likes (up to 200) then shuffle and limit the output
         const res = await likes(user_id, { limit: '200' })
 
-        // Shuffle the results to avoid repetition
-        const shuffled = res
+        // Filter to only include tracks that can be streamed, then shuffle
+        const streamableTracks = res.filter(track => track.streamable === true)
+        const shuffled = streamableTracks
           .map(value => ({ value, sort: Math.random() }))
           .sort((a, b) => a.sort - b.sort)
           .map(({ value }) => value)
