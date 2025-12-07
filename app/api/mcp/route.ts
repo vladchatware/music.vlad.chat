@@ -1,6 +1,22 @@
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import { tracks, users, playlists, likes, Track } from "../../../soundcloud"
+import { fetchQuery } from "convex/nextjs"
+import { api } from "../../../convex/_generated/api"
+import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
+
+// Helper to get user's SoundCloud token if authenticated
+const getUserToken = async (): Promise<string | undefined> => {
+  try {
+    const token = await convexAuthNextjsToken()
+    if (token) {
+      return await fetchQuery(api.users.soundcloudToken, {}, { token }) ?? undefined
+    }
+  } catch {
+    // User not authenticated, will use server credentials
+  }
+  return undefined
+}
 
 const handler = createMcpHandler(
   (server) => {
@@ -14,7 +30,8 @@ const handler = createMcpHandler(
         limit: z.string().optional(),
       },
       async (query) => {
-        const res = await users(query)
+        const userToken = await getUserToken()
+        const res = await users(query, userToken)
         const list = Array.isArray(res) ? res : res?.collection ?? []
         const payload = list
           .map(({ id, username, full_name }) => `${full_name ?? username}:${id}:${username}`)
@@ -48,6 +65,7 @@ const handler = createMcpHandler(
           to: z.string().optional()
         }).optional()
       }, async (query) => {
+        const userToken = await getUserToken()
         const res = await tracks({
           q: query.q,
           genres: query.genres,
@@ -58,7 +76,7 @@ const handler = createMcpHandler(
           'duration[to]': query.duration?.to,
           'created_at[from]': query.created_at?.from,
           'created_at[to]': query.created_at?.to,
-        })
+        }, userToken)
 
         const list: Track[] = Array.isArray(res) ? res : res?.collection ?? []
         // Filter to only include tracks that can be streamed
@@ -93,7 +111,8 @@ const handler = createMcpHandler(
         q: z.string().optional(),
         limit: z.string().optional(),
       }, async (query) => {
-        const res = await playlists(query)
+        const userToken = await getUserToken()
+        const res = await playlists(query, userToken)
         const list = Array.isArray(res) ? res : res?.collection ?? []
         const payload = list
           .map(({ id, title, user }) => `${user?.full_name ?? user?.username}:${id}:${title}`)
@@ -112,9 +131,10 @@ const handler = createMcpHandler(
         limit: z.string().optional().default('50'),
       },
       async ({ user_id, limit }) => {
+        const userToken = await getUserToken()
         if (!user_id) user_id = process.env.SOUNDCLOUD_USER_ID
         // Fetch all likes (up to 200) then shuffle and limit the output
-        const res = await likes(user_id, { limit: '200' })
+        const res = await likes(user_id, { limit: '200' }, userToken)
 
         // Filter to only include tracks that can be streamed, then shuffle
         const streamableTracks = res.filter(track => track.streamable === true)

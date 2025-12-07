@@ -10,6 +10,22 @@ export const viewer = query({
   },
 });
 
+export const soundcloudToken = query({
+  args: {},
+  handler: async (ctx) => {
+    const sessionId = await getAuthSessionId(ctx);
+    if (sessionId === null) return null;
+
+    const session = await ctx.db.get(sessionId);
+    if (!session) return null;
+
+    // Check if this session has a SoundCloud access token (OAuth login)
+    // The token is stored on the authSessions table by @convex-dev/auth
+    // @ts-ignore - access_token is added by OAuth flow
+    return session.access_token ?? null;
+  },
+});
+
 export const connect = mutation({
   args: { stripeId: v.string() },
   handler: async (ctx, args) => {

@@ -216,8 +216,8 @@ export const users = async (query: {
   ids?: string,
   urns?: string,
   limit?: string
-}) => {
-  const access_token = await readAccessToken()
+}, userToken?: string) => {
+  const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
   const res = await fetch(`https://api.soundcloud.com/users${params ? `?${params}` : ''}`, {
     headers: {
@@ -233,8 +233,8 @@ export const users = async (query: {
   return payload
 }
 
-export const track = async (id: string | number) => {
-  const access_token = await getAccessToken()
+export const track = async (id: string | number, userToken?: string) => {
+  const access_token = userToken ?? await getAccessToken()
   const res = await fetch(`https://api.soundcloud.com/tracks/${id}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
@@ -245,12 +245,12 @@ export const track = async (id: string | number) => {
   }
 
   const track = await res.json()
-  track.artwork_url = track.artwork_url.replace('large', 't500x500')
+  track.artwork_url = track.artwork_url?.replace('large', 't500x500')
   return track
 }
 
-export const streamTrack = async (id: string | number) => {
-  const access_token = await getAccessToken()
+export const streamTrack = async (id: string | number, userToken?: string) => {
+  const access_token = userToken ?? await getAccessToken()
   const res = await fetch(`https://api.soundcloud.com/tracks/${id}/stream`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
@@ -273,8 +273,8 @@ export const tracks = async (query: {
   'created_at[from]'?: string,
   'created_at[to]'?: string,
   limit?: string
-}) => {
-  const access_token = await readAccessToken()
+}, userToken?: string) => {
+  const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
   const res = await fetch(`https://api.soundcloud.com/tracks${params ? `?${params}` : ''}`, {
     headers: {
@@ -294,8 +294,8 @@ export const tracks = async (query: {
 export const playlists = async (query: {
   q?: string,
   limit?: string
-}) => {
-  const access_token = await readAccessToken()
+}, userToken?: string) => {
+  const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
   const res = await fetch(`https://api.soundcloud.com/playlists${params ? `?${params}` : ''}`, {
     headers: {
@@ -313,8 +313,8 @@ export const playlists = async (query: {
 
 export const likes = async (userId: string, query?: {
   limit?: string
-}) => {
-  const access_token = await readAccessToken()
+}, userToken?: string) => {
+  const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
   const res = await fetch(`https://api.soundcloud.com/users/${userId}/likes/tracks${params ? `?${params}` : ''}`, {
     headers: {

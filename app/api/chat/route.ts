@@ -3,7 +3,6 @@ import { streamText, UIMessage, convertToModelMessages, stepCountIs, smoothStrea
 import { experimental_createMCPClient } from '@ai-sdk/mcp';
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { openai } from '@ai-sdk/openai';
-import { getAccessToken } from '../../../soundcloud';
 import { systemMessage } from '../../../lib/ai';
 import { fetchMutation, fetchQuery } from "convex/nextjs"
 import { api, internal } from '../../../convex/_generated/api';

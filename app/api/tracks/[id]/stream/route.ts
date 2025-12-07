@@ -1,5 +1,8 @@
 import { NextResponse, NextRequest } from 'next/server'
-import { getAccessToken, streamTrack } from '../../../../../soundcloud'
+import { streamTrack } from '../../../../../soundcloud'
+import { fetchQuery } from "convex/nextjs"
+import { api } from '../../../../../convex/_generated/api'
+import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
 
 export async function GET(req: NextRequest, { params }) {
   const { id } = await params
@@ -7,7 +10,18 @@ export async function GET(req: NextRequest, { params }) {
     return NextResponse.json({ error: 'Track ID is required' }, { status: 400 })
   }
   try {
-    const res = await streamTrack(id)
+    // Try to get the user's SoundCloud token if they're authenticated
+    let userToken: string | undefined
+    try {
+      const token = await convexAuthNextjsToken()
+      if (token) {
+        userToken = await fetchQuery(api.users.soundcloudToken, {}, { token }) ?? undefined
+      }
+    } catch {
+      // User not authenticated, will use server credentials
+    }
+
+    const res = await streamTrack(id, userToken)
 
     if (!res.ok) {
       return NextResponse.json({ error: 'Track not found' }, { status: res.status })
