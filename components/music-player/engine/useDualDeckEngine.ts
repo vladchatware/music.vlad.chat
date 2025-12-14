@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import FFTAnalyzer from "@/lib/analyzers/ftt";
 import { BPMDetector } from "@/lib/analyzers/bpm-detector";
 
 import { cueTrackOnDeck } from "./cueing";
 import { type SoundCloudTrack } from "../types";
-import { engineReducer, initialEngineState } from "./stateMachine";
+import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 
 export function useDualDeckEngine(opts: {
   isIOS: boolean;
@@ -37,34 +38,31 @@ export function useDualDeckEngine(opts: {
   const audioEnergyRef = useRef(0);
 
   // UI-ish state
-  const [trackA, setTrackA] = useState<SoundCloudTrack | null>(null);
-  const [trackB, setTrackB] = useState<SoundCloudTrack | null>(null);
-  const [activeTrack, setActiveTrack] = useState<SoundCloudTrack | null>(null);
-  const [ui, dispatch] = useReducer(engineReducer, initialEngineState);
-  const loading = ui.loading;
-  const needsUserInteraction = ui.phase === "needsGesture";
+  const { trackA, trackB, activeTrack, phase, loading, actions } = useMusicPlayerStore(
+    useShallow((s) => ({
+      trackA: s.trackA,
+      trackB: s.trackB,
+      activeTrack: s.activeTrack,
+      phase: s.phase,
+      loading: s.loading,
+      actions: s.actions,
+    })),
+  );
+
+  const needsUserInteraction = phase === "needsGesture";
   const isPlaying =
-    ui.phase === "playing" || ui.phase === "cueingNext" || ui.phase === "crossfading";
+    phase === "playing" || phase === "cueingNext" || phase === "crossfading";
 
   // Avoid stale closures
-  const activeTrackRef = useRef<SoundCloudTrack | null>(null);
-  const isPlayingRef = useRef(false);
-  const trackARef = useRef<SoundCloudTrack | null>(null);
-  const trackBRef = useRef<SoundCloudTrack | null>(null);
   const revibeTriggeredRef = useRef(false);
 
+  // Singleton store hygiene: clear UI state only when the last instance unmounts.
   useEffect(() => {
-    activeTrackRef.current = activeTrack;
-  }, [activeTrack]);
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-  useEffect(() => {
-    trackARef.current = trackA;
-  }, [trackA]);
-  useEffect(() => {
-    trackBRef.current = trackB;
-  }, [trackB]);
+    actions.acquire();
+    return () => {
+      actions.release();
+    };
+  }, [actions]);
 
   // Unlock both audio decks on iOS Safari (needs user gesture)
   const unlockAudioRef = useRef(false);
@@ -114,18 +112,20 @@ export function useDualDeckEngine(opts: {
 
   const playActiveDeck = useCallback(async () => {
     const audio = getActiveDeck();
-    if (!audio || !audio.src) return;
+    if (!audio || !audio.src) {
+      return;
+    }
     await unlockAudio();
     await audio.play();
-    dispatch({ type: "PLAYING" });
-  }, [getActiveDeck, unlockAudio]);
+    actions.dispatchEngine({ type: "PLAYING" });
+  }, [actions, getActiveDeck, unlockAudio]);
 
   const pauseActiveDeck = useCallback(() => {
     const audio = getActiveDeck();
     if (!audio) return;
     audio.pause();
-    dispatch({ type: "PAUSED" });
-  }, [getActiveDeck]);
+    actions.dispatchEngine({ type: "PAUSED" });
+  }, [actions, getActiveDeck]);
 
   const togglePlay = useCallback(async () => {
     const audio = getActiveDeck();
@@ -134,8 +134,9 @@ export function useDualDeckEngine(opts: {
     }
 
     try {
-      await unlockAudio();
-      if (isPlayingRef.current) {
+      // Decide based on the actual media element state, not store phase.
+      // (Store phase can transiently flip during unlockAudio() in dev.)
+      if (!audio.paused) {
         pauseActiveDeck();
       } else {
         await playActiveDeck();
@@ -160,7 +161,7 @@ export function useDualDeckEngine(opts: {
       const wasCueingEnded = trackEndedWhileCueingRef.current;
       trackEndedWhileCueingRef.current = false;
       crossfadeInProgressRef.current = true;
-      dispatch({ type: "CROSSFADE_START" });
+      actions.dispatchEngine({ type: "CROSSFADE_START" });
 
       const isAActive = activeDeckRef.current === "A";
       const currentDeck = isAActive ? deckARef.current : deckBRef.current;
@@ -168,7 +169,8 @@ export function useDualDeckEngine(opts: {
       const currentGain = isAActive ? deckAGainRef.current : deckBGainRef.current;
       const nextGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
       const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
-      const nextTrack = isAActive ? trackBRef.current : trackARef.current;
+      const { trackA, trackB } = useMusicPlayerStore.getState();
+      const nextTrack = isAActive ? trackB : trackA;
 
       if (!currentDeck || !nextDeck || !nextTrack) {
         crossfadeInProgressRef.current = false;
@@ -188,8 +190,8 @@ export function useDualDeckEngine(opts: {
       }
 
       activeDeckRef.current = isAActive ? "B" : "A";
-      setActiveTrack({ ...nextTrack });
-      dispatch({ type: "PLAYING" });
+      actions.setActiveTrack({ ...nextTrack });
+      actions.dispatchEngine({ type: "PLAYING" });
 
       if (!isIOS && nextSource && analyzerRef.current) {
         try {
@@ -239,13 +241,13 @@ export function useDualDeckEngine(opts: {
           }
           crossfadeInProgressRef.current = false;
           bpmDetectorRef.current?.reset();
-          dispatch({ type: "CROSSFADE_END" });
+          actions.dispatchEngine({ type: "CROSSFADE_END" });
         }
       };
 
       requestAnimationFrame(crossfade);
     },
-    [isIOS],
+    [actions, isIOS],
   );
 
   const loadInitialTrack = useCallback(async (track: SoundCloudTrack) => {
@@ -253,7 +255,7 @@ export function useDualDeckEngine(opts: {
     const deckB = deckBRef.current;
     if (!deckA) return;
 
-    dispatch({ type: "SET_LOADING", loading: true });
+    actions.dispatchEngine({ type: "SET_LOADING", loading: true });
     try {
       deckA.pause();
       deckB?.pause();
@@ -264,27 +266,27 @@ export function useDualDeckEngine(opts: {
     if (deckA) deckA.volume = 1;
     if (deckB) deckB.volume = 0;
 
-    setTrackA(track);
-    setActiveTrack(track);
+    actions.setTrackA(track);
+    actions.setActiveTrack(track);
     activeDeckRef.current = "A";
-    dispatch({ type: "NEEDS_GESTURE" });
-    dispatch({ type: "SET_LOADING", loading: false });
-  }, []);
+    actions.dispatchEngine({ type: "NEEDS_GESTURE" });
+    actions.dispatchEngine({ type: "SET_LOADING", loading: false });
+  }, [actions]);
 
   const cueTrackOnInactiveDeck = useCallback(
     async (track: SoundCloudTrack) => {
-      dispatch({ type: "SET_LOADING", loading: true });
+      actions.dispatchEngine({ type: "SET_LOADING", loading: true });
 
       const isAActive = activeDeckRef.current === "A";
-      const targetSetter = isAActive ? setTrackB : setTrackA;
       const targetDeck = isAActive ? deckBRef.current : deckARef.current;
       const targetSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
 
-      targetSetter(track);
+      if (isAActive) actions.setTrackB(track);
+      else actions.setTrackA(track);
       waitingForBeatRef.current = true;
       nextTrackReadyRef.current = false;
       trackEndedWhileCueingRef.current = false;
-      dispatch({ type: "CUEING_START" });
+      actions.dispatchEngine({ type: "CUEING_START" });
 
       const onLoaded = async () => {
         if (!targetDeck) return;
@@ -303,18 +305,18 @@ export function useDualDeckEngine(opts: {
           targetDeck,
           cueAnalyzer: cueAnalyzerRef.current,
           connectAnalyzerInput,
-          setLoading: (loading) => dispatch({ type: "SET_LOADING", loading }),
+          setLoading: (loading) => actions.dispatchEngine({ type: "SET_LOADING", loading }),
           waitingForBeatRef,
           nextTrackReadyRef,
         });
-        dispatch({ type: "CUE_READY" });
+        actions.dispatchEngine({ type: "CUE_READY" });
 
         targetDeck.removeEventListener("loadeddata", onLoaded);
       };
 
       targetDeck?.addEventListener("loadeddata", onLoaded);
     },
-    [],
+    [actions],
   );
 
   const loadActiveDeckAndAutoplay = useCallback(
@@ -322,20 +324,20 @@ export function useDualDeckEngine(opts: {
       const deckA = deckARef.current;
       if (!deckA) return;
 
-      dispatch({ type: "SET_LOADING", loading: true });
-      setTrackA(track);
-      setActiveTrack(track);
+      actions.dispatchEngine({ type: "SET_LOADING", loading: true });
+      actions.setTrackA(track);
+      actions.setActiveTrack(track);
       activeDeckRef.current = "A";
 
       const onLoaded = () => {
-        dispatch({ type: "SET_LOADING", loading: false });
+        actions.dispatchEngine({ type: "SET_LOADING", loading: false });
         void togglePlay();
         deckA.removeEventListener("loadeddata", onLoaded);
       };
 
       deckA.addEventListener("loadeddata", onLoaded);
     },
-    [togglePlay],
+    [actions, togglePlay],
   );
 
   // WebAudio + analyzer wiring
@@ -419,7 +421,7 @@ export function useDualDeckEngine(opts: {
       const isActiveDeck = playingDeck === (activeDeckRef.current === "A" ? deckA : deckB);
 
       if (isActiveDeck) {
-        dispatch({ type: "PLAYING" });
+        actions.dispatchEngine({ type: "PLAYING" });
         revibeTriggeredRef.current = false;
         // @ts-ignore OBS
         window.obsstudio?.startRecording();
@@ -496,7 +498,7 @@ export function useDualDeckEngine(opts: {
     isPlaying,
     needsUserInteraction,
     loading,
-    phase: ui.phase,
+    phase,
 
     // actions
     togglePlay,
