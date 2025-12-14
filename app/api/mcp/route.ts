@@ -132,9 +132,17 @@ const handler = createMcpHandler(
       },
       async ({ user_id, limit }) => {
         const userToken = await getUserToken()
-        if (!user_id) user_id = process.env.SOUNDCLOUD_USER_ID
+        const effectiveUserId = user_id ?? process.env.SOUNDCLOUD_USER_ID
+        if (!effectiveUserId) {
+          return {
+            content: [{
+              type: "text",
+              text: "Missing user_id (and SOUNDCLOUD_USER_ID is not set)."
+            }]
+          }
+        }
         // Fetch all likes (up to 200) then shuffle and limit the output
-        const res = await likes(user_id, { limit: '200' }, userToken)
+        const res = await likes(effectiveUserId, { limit: '200' }, userToken)
 
         // Filter to only include tracks that can be streamed, then shuffle
         const streamableTracks = res.filter(track => track.streamable === true)
