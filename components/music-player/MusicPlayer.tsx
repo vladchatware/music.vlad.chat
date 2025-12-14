@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { type ThreeEvent } from "@react-three/fiber";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
+import { useShallow } from "zustand/react/shallow";
 
 import { api } from "@/convex/_generated/api";
 import { fetchTrack, streamTrack } from "@/lib/soundcloud";
@@ -16,9 +17,17 @@ import { buildRevibePrompt } from "./chat/prompt";
 import { type SoundCloudTrack } from "./types";
 import { useDualDeckEngine } from "./engine/useDualDeckEngine";
 import { useAudioAnalysis } from "./engine/useAudioAnalysis";
+import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
 
 export default function MusicPlayer(props: { initialTrackId: string | number }) {
   const { initialTrackId } = props;
+
+  const { transition, playback } = useMusicPlayerStore(
+    useShallow((s) => ({
+      transition: s.transition,
+      playback: s.playback,
+    })),
+  );
 
   const user = useQuery(api.users.viewer);
   const isAuthenticated = useQuery(api.auth.isAuthenticated);
@@ -76,7 +85,6 @@ export default function MusicPlayer(props: { initialTrackId: string | number }) 
     nextTrackReadyRef,
     crossfadeInProgressRef,
     trackEndedWhileCueingRef,
-    onCrossfadeRequested: crossfadeToCuedTrack,
   });
 
   const onPlayerToolRequested = useCallback(
@@ -212,6 +220,15 @@ export default function MusicPlayer(props: { initialTrackId: string | number }) 
         initialTrackId={initialTrackId}
         coordinateMapper={coordinateMapper}
         audioEnergyRef={audioEnergyRef}
+        transitionHighlight={(() => {
+          if (!transition || transition.state === "none") return null;
+          if (transition.state === "planned") {
+            // A small marker (not time-mapped; consistent visualization)
+            return { start01: 0, end01: 0.01, intensity: 0.95 };
+          }
+          // Crossfade progress arc
+          return { start01: 0, end01: Math.max(0, Math.min(1, transition.progress01)), intensity: 0.95 };
+        })()}
       >
         <MusicPlayerOverlay
           isAuthenticated={isAuthenticated}

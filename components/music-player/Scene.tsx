@@ -17,9 +17,10 @@ export function MusicPlayerScene(props: {
   initialTrackId: string | number;
   coordinateMapper: CoordinateMapper_Data;
   audioEnergyRef: React.MutableRefObject<number>;
+  transitionHighlight?: { start01: number; end01: number; intensity?: number } | null;
   children: ReactNode;
 }) {
-  const { initialTrackId, coordinateMapper, audioEnergyRef, children } = props;
+  const { initialTrackId, coordinateMapper, audioEnergyRef, transitionHighlight, children } = props;
 
   return (
     <Canvas
@@ -68,6 +69,9 @@ export function MusicPlayerScene(props: {
           nPoints={10000}
           pointSize={0.1}
           mirrorEffects={true}
+          highlightStart01={transitionHighlight?.start01}
+          highlightEnd01={transitionHighlight?.end01}
+          highlightIntensity={transitionHighlight?.intensity ?? 0.9}
         />
         <CubeCamera position={[0, 0, 7]} resolution={256} frames={Infinity}>
           {(texture) => <Floating envMap={texture} />}

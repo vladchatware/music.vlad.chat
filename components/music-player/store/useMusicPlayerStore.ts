@@ -3,6 +3,10 @@ import { create } from "zustand";
 import { engineReducer, initialEngineState, type EngineAction } from "../engine/stateMachine";
 import type { SoundCloudTrack } from "../types";
 
+export type TrackSection = "unknown" | "intro" | "comeup" | "culmination" | "breakdown";
+export type BpmSource = "metadata" | "detector" | "fallback";
+export type TransitionState = "none" | "planned" | "crossfading";
+
 export type MusicPlayerStore = {
   // Engine UI state
   phase: typeof initialEngineState.phase;
@@ -17,11 +21,46 @@ export type MusicPlayerStore = {
   trackB: SoundCloudTrack | null;
   activeTrack: SoundCloudTrack | null;
 
+  // Lightweight analysis snapshot (updated frequently)
+  analysis: {
+    bpm: number | null;
+    bpmSource: BpmSource;
+    barDurationSec: number | null;
+    section: TrackSection;
+    overallEnergy: number;
+    bassEnergy: number;
+    stillDurationMs: number;
+    dropDetected: boolean;
+    transitionSignal: boolean;
+    transitionSignalReason: "drop" | "highEnergy" | "still" | "trackEndedWhileCueing" | "none";
+    lastTransitionSignalAtMs: number | null;
+  };
+
+  // Playback snapshot for visualization + planning
+  playback: {
+    currentTimeSec: number;
+    durationSec: number;
+    progress01: number;
+  };
+
+  // Transition planner state (for ring + scheduling/debug)
+  transition: {
+    state: TransitionState;
+    phraseBars: number; // 16 default, may vary by section
+    plannedStartSec: number | null;
+    durationSec: number | null;
+    progress01: number; // 0..1 (during crossfade)
+  };
+
   actions: {
     dispatchEngine: (action: EngineAction) => void;
     setTrackA: (track: SoundCloudTrack | null) => void;
     setTrackB: (track: SoundCloudTrack | null) => void;
     setActiveTrack: (track: SoundCloudTrack | null) => void;
+    setAnalysis: (patch: Partial<MusicPlayerStore["analysis"]>) => void;
+    setPlayback: (patch: Partial<MusicPlayerStore["playback"]>) => void;
+    setTransition: (patch: Partial<MusicPlayerStore["transition"]>) => void;
+    resetTransition: () => void;
     acquire: () => void;
     release: () => void;
     reset: () => void;
@@ -38,6 +77,34 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
   trackB: null,
   activeTrack: null,
 
+  analysis: {
+    bpm: null,
+    bpmSource: "fallback",
+    barDurationSec: null,
+    section: "unknown",
+    overallEnergy: 0,
+    bassEnergy: 0,
+    stillDurationMs: 0,
+    dropDetected: false,
+    transitionSignal: false,
+    transitionSignalReason: "none",
+    lastTransitionSignalAtMs: null,
+  },
+
+  playback: {
+    currentTimeSec: 0,
+    durationSec: 0,
+    progress01: 0,
+  },
+
+  transition: {
+    state: "none",
+    phraseBars: 16,
+    plannedStartSec: null,
+    durationSec: null,
+    progress01: 0,
+  },
+
   actions: {
     dispatchEngine: (action) =>
       set((state) => {
@@ -48,6 +115,32 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
     setTrackA: (track) => set({ trackA: track }),
     setTrackB: (track) => set({ trackB: track }),
     setActiveTrack: (track) => set({ activeTrack: track }),
+
+    setAnalysis: (patch) =>
+      set((state) => ({
+        analysis: { ...state.analysis, ...patch },
+      })),
+
+    setPlayback: (patch) =>
+      set((state) => ({
+        playback: { ...state.playback, ...patch },
+      })),
+
+    setTransition: (patch) =>
+      set((state) => ({
+        transition: { ...state.transition, ...patch },
+      })),
+
+    resetTransition: () =>
+      set(() => ({
+        transition: {
+          state: "none",
+          phraseBars: 16,
+          plannedStartSec: null,
+          durationSec: null,
+          progress01: 0,
+        },
+      })),
 
     acquire: () => {
       const timeoutId = get()._resetTimeoutId;
@@ -83,6 +176,31 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
           trackA: null,
           trackB: null,
           activeTrack: null,
+          analysis: {
+            bpm: null,
+            bpmSource: "fallback",
+            barDurationSec: null,
+            section: "unknown",
+            overallEnergy: 0,
+            bassEnergy: 0,
+            stillDurationMs: 0,
+            dropDetected: false,
+            transitionSignal: false,
+            transitionSignalReason: "none",
+            lastTransitionSignalAtMs: null,
+          },
+          playback: {
+            currentTimeSec: 0,
+            durationSec: 0,
+            progress01: 0,
+          },
+          transition: {
+            state: "none",
+            phraseBars: 16,
+            plannedStartSec: null,
+            durationSec: null,
+            progress01: 0,
+          },
         };
       }),
   },
