@@ -82,6 +82,17 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
   const isAuthenticated = useQuery(api.auth.isAuthenticated)
   const { signIn, signOut } = useAuthActions()
 
+  // iOS Safari tends to suspend WebAudio in background/lockscreen.
+  // We'll keep iOS playback on native <audio> output (volume-based mixing),
+  // and only use WebAudio routing on non-iOS.
+  const isIOS = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    // iPadOS 13+ reports as MacIntel with touch points.
+    const iPadOS = navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1;
+    const iOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    return iPadOS || iOSDevice;
+  }, []);
+
   // Decks
   const deckARef = useRef<HTMLAudioElement | null>(null);
   const deckBRef = useRef<HTMLAudioElement | null>(null);
@@ -368,8 +379,27 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
     console.log('Audio decks unlocked for iOS');
   }, []);
 
+  const getActiveDeck = useCallback(() => {
+    return activeDeckRef.current === 'A' ? deckARef.current : deckBRef.current;
+  }, []);
+
+  const playActiveDeck = useCallback(async () => {
+    const audio = getActiveDeck();
+    if (!audio || !audio.src) return;
+    await unlockAudio();
+    await audio.play();
+    setIsPlaying(true);
+  }, [getActiveDeck, unlockAudio]);
+
+  const pauseActiveDeck = useCallback(() => {
+    const audio = getActiveDeck();
+    if (!audio) return;
+    audio.pause();
+    setIsPlaying(false);
+  }, [getActiveDeck]);
+
   const togglePlay = useCallback(async () => {
-    const audio = activeDeckRef.current === 'A' ? deckARef.current : deckBRef.current;
+    const audio = getActiveDeck();
     if (!audio || !audio.src) return;
 
     try {
@@ -377,11 +407,9 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       await unlockAudio();
 
       if (isPlaying) {
-        audio.pause();
-        setIsPlaying(false);
+        pauseActiveDeck();
       } else {
-        await audio.play();
-        setIsPlaying(true);
+        await playActiveDeck();
       }
     } catch (err) {
       console.error("Playback error:", err);
@@ -389,55 +417,166 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         alert('Please click the play button to start audio playback');
       }
     }
-  }, [isPlaying, unlockAudio]);
+  }, [getActiveDeck, isPlaying, pauseActiveDeck, playActiveDeck, unlockAudio]);
 
   useEffect(() => {
-    // Initialize Audio Context and Sources
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = new AudioContext();
-
-    // Create analyzers sharing the context
-    // We pass a dummy element initially, but we will connect sources manually
-    // Actually FFTAnalyzer constructor requires an element to create source.
-    // But we modified it to accept AudioNode.
-    // So we can create sources first.
+    // Initialize WebAudio routing only on non-iOS.
+    // iOS background playback is much more reliable if audio stays on native <audio> output.
 
     const deckA = deckARef.current;
     const deckB = deckBRef.current;
 
     if (!deckA || !deckB) return;
 
-    deckA.crossOrigin = "anonymous";
-    deckB.crossOrigin = "anonymous";
+    // Ensure deterministic initial mix even without WebAudio.
+    deckA.volume = 1;
+    deckB.volume = 0;
 
-    const sourceA = ctx.createMediaElementSource(deckA);
-    const sourceB = ctx.createMediaElementSource(deckB);
+    if (!isIOS) {
+      // Initialize Audio Context and Sources
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioContextCtor();
 
-    // Create gain nodes for crossfading
-    const gainA = ctx.createGain();
-    const gainB = ctx.createGain();
-    gainA.gain.value = 1; // Deck A starts active
-    gainB.gain.value = 0; // Deck B starts silent
+      deckA.crossOrigin = "anonymous";
+      deckB.crossOrigin = "anonymous";
 
-    // Connect sources through gain nodes to destination
-    sourceA.connect(gainA);
-    sourceB.connect(gainB);
-    gainA.connect(ctx.destination);
-    gainB.connect(ctx.destination);
+      const sourceA = ctx.createMediaElementSource(deckA);
+      const sourceB = ctx.createMediaElementSource(deckB);
 
-    deckASourceRef.current = sourceA;
-    deckBSourceRef.current = sourceB;
-    deckAGainRef.current = gainA;
-    deckBGainRef.current = gainB;
+      // Create gain nodes for crossfading
+      const gainA = ctx.createGain();
+      const gainB = ctx.createGain();
+      gainA.gain.value = 1; // Deck A starts active
+      gainB.gain.value = 0; // Deck B starts silent
 
-    const analyzer = new FFTAnalyzer(sourceA, ctx);
-    analyzerRef.current = analyzer;
+      // Connect sources through gain nodes to destination
+      sourceA.connect(gainA);
+      sourceB.connect(gainB);
+      gainA.connect(ctx.destination);
+      gainB.connect(ctx.destination);
 
-    const cueAnalyzer = new FFTAnalyzer(sourceB, ctx); // Initially B
-    cueAnalyzerRef.current = cueAnalyzer;
+      deckASourceRef.current = sourceA;
+      deckBSourceRef.current = sourceB;
+      deckAGainRef.current = gainA;
+      deckBGainRef.current = gainB;
+
+      const analyzer = new FFTAnalyzer(sourceA, ctx);
+      analyzerRef.current = analyzer;
+
+      const cueAnalyzer = new FFTAnalyzer(sourceB, ctx); // Initially B
+      cueAnalyzerRef.current = cueAnalyzer;
+    } else {
+      // iOS mode: no WebAudio routing (better background playback).
+      deckASourceRef.current = null;
+      deckBSourceRef.current = null;
+      deckAGainRef.current = null;
+      deckBGainRef.current = null;
+      analyzerRef.current = null;
+      cueAnalyzerRef.current = null;
+    }
 
     const bpmDetector = new BPMDetector();
     bpmDetectorRef.current = bpmDetector;
+
+    const startCrossfadeToCuedTrack = async (opts?: { wasTrackEnded?: boolean }) => {
+      if (crossfadeInProgressRef.current) return;
+      if (!nextTrackReadyRef.current) return;
+
+      const wasTrackEnded = opts?.wasTrackEnded ?? false;
+
+      waitingForBeatRef.current = false;
+      nextTrackReadyRef.current = false;
+      const wasCueingEnded = trackEndedWhileCueingRef.current;
+      trackEndedWhileCueingRef.current = false;
+      crossfadeInProgressRef.current = true;
+
+      const isAActive = activeDeckRef.current === 'A';
+      const currentDeck = isAActive ? deckARef.current : deckBRef.current;
+      const nextDeck = isAActive ? deckBRef.current : deckARef.current;
+      const currentGain = isAActive ? deckAGainRef.current : deckBGainRef.current;
+      const nextGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
+      const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
+      const nextTrack = isAActive ? trackBRef.current : trackARef.current;
+
+      if (!currentDeck || !nextDeck || !nextTrack) {
+        crossfadeInProgressRef.current = false;
+        return;
+      }
+
+      // Ensure next deck is ready to start silent.
+      if (nextGain) nextGain.gain.value = 0;
+      else nextDeck.volume = 0;
+
+      try {
+        await nextDeck.play();
+      } catch (e) {
+        console.error("Crossfade play failed", e);
+        crossfadeInProgressRef.current = false;
+        // restore flags so we can try again later
+        nextTrackReadyRef.current = true;
+        return;
+      }
+
+      // Switch active deck reference immediately
+      activeDeckRef.current = isAActive ? 'B' : 'A';
+      setActiveTrack({ ...nextTrack });
+      setIsPlaying(true);
+
+      // On non-iOS, keep analyzer aligned to the now-active deck.
+      if (!isIOS && nextSource && analyzerRef.current) {
+        try {
+          analyzerRef.current.disconnectInputs();
+          analyzerRef.current.connectInput(nextSource);
+        } catch (e) {
+          console.warn('Analyzer rewire failed:', e);
+        }
+      }
+
+      // Crossfade duration in ms
+      const crossfadeDuration = wasTrackEnded || wasCueingEnded ? 500 : 2000;
+      const startTime = performance.now();
+      const initialCurrent = currentGain ? currentGain.gain.value : currentDeck.volume;
+      const initialNext = nextGain ? nextGain.gain.value : nextDeck.volume;
+
+      const crossfade = () => {
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(elapsed / crossfadeDuration, 1);
+
+        // Smooth easing (ease-in-out)
+        const eased = progress < 0.5
+          ? 2 * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+        const nextVal = initialNext + (1 - initialNext) * eased;
+        const currVal = initialCurrent * (1 - eased);
+
+        if (currentGain && nextGain) {
+          currentGain.gain.value = currVal;
+          nextGain.gain.value = nextVal;
+        } else {
+          currentDeck.volume = currVal;
+          nextDeck.volume = nextVal;
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(crossfade);
+        } else {
+          // Crossfade complete
+          try { currentDeck.pause(); } catch { }
+          if (currentGain && nextGain) {
+            currentGain.gain.value = 0;
+            nextGain.gain.value = 1;
+          } else {
+            currentDeck.volume = 0;
+            nextDeck.volume = 1;
+          }
+          crossfadeInProgressRef.current = false;
+          bpmDetectorRef.current?.reset();
+        }
+      };
+
+      requestAnimationFrame(crossfade);
+    };
 
     // Event Handlers
     const handlePlaying = (e: Event) => {
@@ -461,28 +600,8 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       const currentDeck = isAActive ? deckARef.current : deckBRef.current;
 
       if (audio === currentDeck && nextTrackReadyRef.current && !crossfadeInProgressRef.current) {
-        console.log('Active track ended, switching to cued track with quick crossfade.');
-        waitingForBeatRef.current = false;
-        nextTrackReadyRef.current = false;
-
-        const nextDeck = isAActive ? deckBRef.current : deckARef.current;
-        const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
-        const currentGain = isAActive ? deckAGainRef.current : deckBGainRef.current;
-        const nextGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
-        const nextTrack = isAActive ? trackBRef.current : trackARef.current;
-
-        if (nextDeck && nextSource && nextTrack && currentGain && nextGain) {
-          // Reset gains for immediate switch (current track already ended)
-          currentGain.gain.value = 0;
-          nextGain.gain.value = 1;
-          
-          nextDeck.play().catch(err => console.error("Switch play failed on end:", err));
-          analyzer.disconnectInputs();
-          analyzer.connectInput(nextSource);
-          activeDeckRef.current = isAActive ? 'B' : 'A';
-          setActiveTrack(nextTrack);
-          setIsPlaying(true);
-        }
+        console.log('Active track ended, switching to cued track.');
+        await startCrossfadeToCuedTrack({ wasTrackEnded: true });
       } else if (audio === currentDeck && waitingForBeatRef.current) {
         // Track ended while we're still finding the beat on the cued track
         // Don't trigger revibe - mark that we should play immediately when beat is found
@@ -522,6 +641,17 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
           await latestOnRevibeRef.current(e);
         }
       }
+
+      // iOS fallback transition: once the next track is ready, fade over in the last few seconds.
+      // (We avoid relying on WebAudio beat matching because it is often suspended in background.)
+      if (isIOS &&
+        nextTrackReadyRef.current &&
+        !crossfadeInProgressRef.current &&
+        audio.duration > 20 &&
+        audio.currentTime > virtualDuration - 3) {
+        console.log('iOS transition window reached, crossfading to next track.');
+        await startCrossfadeToCuedTrack();
+      }
     }
 
     playingHandlerRef.current = handlePlaying;
@@ -542,10 +672,16 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
         deck.removeEventListener('ended', handleEnded)
         deck.removeEventListener('timeupdate', handleTimeUpdate)
       });
-      analyzer.toggleAnalyzer(false);
-      analyzer.disconnectInputs();
-      cueAnalyzer.toggleAnalyzer(false);
-      cueAnalyzer.disconnectInputs();
+      const analyzer = analyzerRef.current;
+      if (analyzer) {
+        analyzer.toggleAnalyzer(false);
+        analyzer.disconnectInputs();
+      }
+      const cueAnalyzer = cueAnalyzerRef.current;
+      if (cueAnalyzer) {
+        cueAnalyzer.toggleAnalyzer(false);
+        cueAnalyzer.disconnectInputs();
+      }
       try {
         deckA.pause();
         deckB.pause();
@@ -553,7 +689,7 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       analyzerRef.current = null;
       cueAnalyzerRef.current = null;
     };
-  }, []);
+  }, [isIOS]);
 
   useEffect(() => {
     if (!analyzerRef.current) return;
@@ -695,6 +831,38 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [coordinateMapper, togglePlay, trackA, trackB]);
+
+  // Lock-screen / headset controls + metadata where supported.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    const ms = (navigator as any).mediaSession;
+    if (!ms) return;
+
+    try {
+      if (activeTrack?.title) {
+        ms.metadata = new (window as any).MediaMetadata({
+          title: activeTrack?.title,
+          artist: activeTrack?.user?.username || activeTrack?.user?.full_name || '',
+          album: activeTrack?.genre || '',
+          artwork: activeTrack?.artwork_url ? [{ src: activeTrack.artwork_url }] : undefined,
+        });
+      }
+      ms.playbackState = isPlaying ? 'playing' : 'paused';
+      ms.setActionHandler('play', () => { playActiveDeck().catch(() => { }); });
+      ms.setActionHandler('pause', () => { pauseActiveDeck(); });
+      ms.setActionHandler('stop', () => { pauseActiveDeck(); });
+      ms.setActionHandler('nexttrack', () => {
+        // Trigger the same "revibe" flow.
+        try { latestOnRevibeRef.current?.(new Event('nexttrack')); } catch { }
+      });
+      ms.setActionHandler('previoustrack', () => {
+        // No queue/history yet; noop for now.
+      });
+    } catch (e) {
+      // Some Safari versions throw on unsupported handlers.
+      console.warn('MediaSession setup failed:', e);
+    }
+  }, [activeTrack, isPlaying, pauseActiveDeck, playActiveDeck]);
 
   const onFetchTrack = useCallback(async () => {
     if (!deckARef.current) {
@@ -889,7 +1057,19 @@ export default function MusicPlayer({ initialTrackId }: { initialTrackId: string
       <Environment preset="city" environmentIntensity={1} />
     </Defaults>
   </Canvas >
-    <audio ref={deckARef} src={streamTrack(trackA?.id)} />
-    <audio ref={deckBRef} src={streamTrack(trackB?.id)} />
+    <audio
+      ref={deckARef}
+      src={streamTrack(trackA?.id)}
+      preload="auto"
+      playsInline
+      crossOrigin="anonymous"
+    />
+    <audio
+      ref={deckBRef}
+      src={streamTrack(trackB?.id)}
+      preload="auto"
+      playsInline
+      crossOrigin="anonymous"
+    />
   </>
 }
