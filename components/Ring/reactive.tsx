@@ -18,6 +18,10 @@ export const { useParams, useActions, usePresets } = createConfigStore<TConfig>(
       nPoints: 1000,
       pointSize: 0.2,
       mirrorEffects: false,
+      highlightStart01: 0,
+      highlightEnd01: 0,
+      highlightIntensity: 1,
+      highlightColor: [1, 0.82, 0.2],
     },
   },
 );
