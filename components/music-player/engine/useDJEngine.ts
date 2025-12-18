@@ -159,7 +159,9 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   const deckARef = useRef<HTMLAudioElement | null>(null);
   const deckBRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const analyzerRef = useRef<FFTAnalyzer | null>(null);
+  const analyzerARef = useRef<FFTAnalyzer | null>(null);
+  const analyzerBRef = useRef<FFTAnalyzer | null>(null);
+  const analyzerRef = useRef<FFTAnalyzer | null>(null); // Points to active deck's analyzer
   const bpmDetectorRef = useRef<BPMDetector | null>(null);
   const eqControllerARef = useRef<EQController | null>(null);
   const eqControllerBRef = useRef<EQController | null>(null);
@@ -218,14 +220,23 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       eqControllerARef.current = eqA;
       eqControllerBRef.current = eqB;
       
-      // Create analyzer connected to active deck
-      analyzerRef.current = new FFTAnalyzer(sourceA, ctx);
+      // Create separate analyzers for each deck with volume=0
+      // (the EQ path handles actual audio output, these are just for analysis)
+      const analyzerA = new FFTAnalyzer(sourceA, ctx, 0);
+      const analyzerB = new FFTAnalyzer(sourceB, ctx, 0);
+      
+      analyzerARef.current = analyzerA;
+      analyzerBRef.current = analyzerB;
+      
+      // Point analyzerRef to the initial active deck (A)
+      analyzerRef.current = analyzerA;
     }
     
     bpmDetectorRef.current = new BPMDetector();
     
     return () => {
-      analyzerRef.current?.toggleAnalyzer(false);
+      analyzerARef.current?.toggleAnalyzer(false);
+      analyzerBRef.current?.toggleAnalyzer(false);
       eqControllerARef.current?.dispose();
       eqControllerBRef.current?.dispose();
       audioContextRef.current?.close();
@@ -286,6 +297,18 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     return activeDeckRef.current === 'A' 
       ? eqControllerBRef.current 
       : eqControllerARef.current;
+  }, []);
+  
+  const getActiveAnalyzer = useCallback((): FFTAnalyzer | null => {
+    return activeDeckRef.current === 'A' 
+      ? analyzerARef.current 
+      : analyzerBRef.current;
+  }, []);
+  
+  const getInactiveAnalyzer = useCallback((): FFTAnalyzer | null => {
+    return activeDeckRef.current === 'A' 
+      ? analyzerBRef.current 
+      : analyzerARef.current;
   }, []);
   
   // ==========================================================================
@@ -455,6 +478,11 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     const newActiveDeck = activeDeckRef.current === 'A' ? 'B' : 'A';
     activeDeckRef.current = newActiveDeck;
     
+    // Switch analyzer to the new active deck
+    analyzerRef.current = newActiveDeck === 'A' 
+      ? analyzerARef.current 
+      : analyzerBRef.current;
+    
     // Update activeTrack in legacy store to the new deck's track
     const storeState = useMusicPlayerStore.getState();
     const newActiveTrack = newActiveDeck === 'A' ? storeState.trackA : storeState.trackB;
@@ -481,7 +509,6 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     let rafId: number | null = null;
     
     const analysisLoop = () => {
-      const analyzer = analyzerRef.current;
       const detector = bpmDetectorRef.current;
       const isCrossfading = engineState.djState.type === 'crossfading';
       
@@ -489,6 +516,10 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       const activeDeck = getActiveDeckElement();
       const incomingDeck = getInactiveDeckElement();
       const deckToCheck = isCrossfading ? incomingDeck : activeDeck;
+      
+      // Use the analyzer for the deck we're checking
+      // During crossfade, use the incoming deck's analyzer
+      const analyzer = isCrossfading ? getInactiveAnalyzer() : getActiveAnalyzer();
       
       if (analyzer && detector && deckToCheck && !deckToCheck.paused) {
         const bassEnergy = analyzer.getEnergy('bass');
@@ -632,8 +663,11 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   }, [
     engineState.djState,
     getActiveDeckElement,
+    getInactiveDeckElement,
     getActiveEQ,
     getInactiveEQ,
+    getActiveAnalyzer,
+    getInactiveAnalyzer,
     actions,
     completeCrossfade,
     startCrossfade,
