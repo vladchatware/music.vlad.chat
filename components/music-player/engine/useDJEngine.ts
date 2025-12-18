@@ -52,6 +52,10 @@ import type { SoundCloudTrack } from "../types";
 // Types
 // =============================================================================
 
+// Auto-revibe timing constants
+const AUTO_REVIBE_COOLDOWN_MS = 45000;
+const AUTO_REVIBE_MIN_PLAY_SEC = 30;
+
 interface UseDJEngineOptions {
   isIOS: boolean;
   onRequestNextTrack?: () => Promise<void>;
@@ -169,6 +173,10 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   const energyHistoryRef = useRef<number[]>([]);
   const energyHistoryStartTimeRef = useRef<number>(0);
   
+  // Auto-revibe tracking
+  const autoRevibeAtMsRef = useRef<number>(0);
+  const revibeTriggeredRef = useRef<boolean>(false);
+  
   // Connect to existing store for compatibility
   const { actions } = useMusicPlayerStore(
     useShallow((s) => ({
@@ -223,6 +231,38 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       audioContextRef.current?.close();
     };
   }, [isIOS]);
+  
+  // ==========================================================================
+  // Track Ended Handler
+  // ==========================================================================
+  
+  useEffect(() => {
+    const deckA = deckARef.current;
+    const deckB = deckBRef.current;
+    if (!deckA || !deckB) return;
+    
+    const handleEnded = async (e: Event) => {
+      const audio = e.target as HTMLAudioElement;
+      const isAActive = activeDeckRef.current === 'A';
+      const currentDeck = isAActive ? deckA : deckB;
+      
+      // Only handle if this is the active deck ending
+      if (audio === currentDeck) {
+        // Request next track via callback
+        if (onRequestNextTrack) {
+          await onRequestNextTrack();
+        }
+      }
+    };
+    
+    deckA.addEventListener('ended', handleEnded);
+    deckB.addEventListener('ended', handleEnded);
+    
+    return () => {
+      deckA.removeEventListener('ended', handleEnded);
+      deckB.removeEventListener('ended', handleEnded);
+    };
+  }, [onRequestNextTrack]);
   
   // ==========================================================================
   // Deck Helpers
@@ -326,6 +366,12 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   }, [loadTrack, actions]);
   
   const cueNextTrack = useCallback(async (track: SoundCloudTrack) => {
+    // CRITICAL: Don't cue during crossfade - it would disrupt the incoming deck!
+    const currentState = engineState.djState.type;
+    if (currentState === 'crossfading' || currentState === 'cueing' || currentState === 'planned') {
+      return;
+    }
+    
     const inactiveDeckId = activeDeckRef.current === 'A' ? 'B' : 'A';
     await loadTrack(track, inactiveDeckId);
     
@@ -336,7 +382,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     const deckSnapshot = createDeckSnapshot(inactiveDeckId, djTrack, 0, beatGrid, null);
     
     dispatch({ type: 'CUE_READY', deck: deckSnapshot });
-  }, [loadTrack]);
+  }, [loadTrack, engineState.djState.type]);
   
   // ==========================================================================
   // Transition Management
@@ -406,16 +452,26 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     incomingEQ?.reset();
     
     // Swap active deck
-    activeDeckRef.current = activeDeckRef.current === 'A' ? 'B' : 'A';
+    const newActiveDeck = activeDeckRef.current === 'A' ? 'B' : 'A';
+    activeDeckRef.current = newActiveDeck;
+    
+    // Update activeTrack in legacy store to the new deck's track
+    const storeState = useMusicPlayerStore.getState();
+    const newActiveTrack = newActiveDeck === 'A' ? storeState.trackA : storeState.trackB;
+    if (newActiveTrack) {
+      actions.setActiveTrack(newActiveTrack);
+    }
     
     // Reset transition state
     transitionPlanRef.current = null;
     crossfadeStartTimeRef.current = null;
     bpmDetectorRef.current?.reset();
     energyHistoryRef.current = [];
-    
+    revibeTriggeredRef.current = false; // Reset for next auto-revibe
+    autoRevibeAtMsRef.current = Date.now(); // Reset cooldown timer for new track
+
     dispatch({ type: 'CROSSFADE_COMPLETE' });
-  }, [getActiveDeckElement, getActiveEQ, getInactiveEQ]);
+  }, [getActiveDeckElement, getActiveEQ, getInactiveEQ, actions]);
   
   // ==========================================================================
   // Analysis Loop
@@ -427,9 +483,14 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     const analysisLoop = () => {
       const analyzer = analyzerRef.current;
       const detector = bpmDetectorRef.current;
-      const activeDeck = getActiveDeckElement();
+      const isCrossfading = engineState.djState.type === 'crossfading';
       
-      if (analyzer && detector && activeDeck && !activeDeck.paused) {
+      // During crossfade, check the incoming deck (which is playing), not outgoing
+      const activeDeck = getActiveDeckElement();
+      const incomingDeck = getInactiveDeckElement();
+      const deckToCheck = isCrossfading ? incomingDeck : activeDeck;
+      
+      if (analyzer && detector && deckToCheck && !deckToCheck.paused) {
         const bassEnergy = analyzer.getEnergy('bass');
         const overallEnergy = analyzer.getEnergy('overall');
         
@@ -487,14 +548,48 @@ export function useDJEngine(opts: UseDJEngineOptions) {
           dropDetected,
         });
         
-        // Handle crossfade progress
+        // Update playback info
+        actions.setPlayback({
+          currentTimeSec: deckToCheck.currentTime,
+          durationSec: deckToCheck.duration || 0,
+          progress01: deckToCheck.duration ? Math.min(1, deckToCheck.currentTime / deckToCheck.duration) : 0,
+        });
+        
+        // =======================================================================
+        // Auto-revibe logic: request next track at good DJ moments
+        // =======================================================================
         const state = engineState.djState;
-        if (state.type === 'crossfading' && crossfadeStartTimeRef.current !== null) {
-          const progress = calculateCrossfadeProgress(
-            crossfadeStartTimeRef.current,
-            activeDeck.currentTime,
-            state.plan.crossfadeDurationSec
-          );
+        const nowMs = Date.now();
+        const barDurationSec = bpm ? (60 / bpm) * 4 : 8; // default 8s if no BPM
+        
+        // Can we trigger auto-revibe?
+        const isNotTransitioning = state.type === 'playing';
+        const cooldownPassed = nowMs - autoRevibeAtMsRef.current > AUTO_REVIBE_COOLDOWN_MS;
+        const playedEnough = deckToCheck.currentTime > AUTO_REVIBE_MIN_PLAY_SEC;
+        const canAutoRevibe = isNotTransitioning && cooldownPassed && playedEnough && !revibeTriggeredRef.current;
+        
+        // Is this a good mix moment?
+        const isGoodMixMoment = 
+          section === 'breakdown' ||
+          (section === 'culmination' && bassEnergy > 0.55) ||
+          stillDuration > 900;
+        
+        // Near track end? Request early enough for a smooth crossfade
+        const crossfadeDurationSec = 16 * barDurationSec;
+        const requestLeadSec = Math.max(45, crossfadeDurationSec + 8);
+        const trackDuration = deckToCheck.duration || 0;
+        const nearTrackEnd = trackDuration > 20 && deckToCheck.currentTime > trackDuration - requestLeadSec;
+        
+        if (canAutoRevibe && (isGoodMixMoment || nearTrackEnd) && onRequestNextTrack) {
+          autoRevibeAtMsRef.current = nowMs;
+          revibeTriggeredRef.current = true;
+          void onRequestNextTrack();
+        }
+        
+        // Handle crossfade progress
+        if (state.type === 'crossfading' && incomingDeck) {
+          // Use incoming deck's currentTime directly as it starts at 0
+          const progress = Math.min(1, incomingDeck.currentTime / state.plan.crossfadeDurationSec);
           
           // Update EQ based on progress
           getActiveEQ()?.tick(progress, true);
@@ -512,6 +607,17 @@ export function useDJEngine(opts: UseDJEngineOptions) {
           if (isGoodTransitionMoment(activeDeck.currentTime, transitionPlanRef.current)) {
             void startCrossfade();
           }
+        }
+      }
+      
+      // FALLBACK: If we're in "planned" state but active deck has ended/paused, start immediately
+      // Only trigger once - check that we haven't already started crossfade
+      const stateForFallback = engineState.djState;
+      if (stateForFallback.type === 'planned' && activeDeck && (activeDeck.paused || activeDeck.ended)) {
+        // Prevent repeated calls by checking crossfadeStartTimeRef
+        if (crossfadeStartTimeRef.current === null) {
+          crossfadeStartTimeRef.current = 0; // Mark as started to prevent re-entry
+          void startCrossfade();
         }
       }
       
