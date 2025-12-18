@@ -77,6 +77,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     isTransitioning,
     activeDeck,
     transitionPlan,
+    trackEndedWhileCueing,
     analyzerRef,
     bpmDetectorRef,
     togglePlay,
@@ -108,7 +109,8 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     waitingForBeatRef.current = djState.type === 'cueing' || djState.type === 'planned';
     nextTrackReadyRef.current = djState.type === 'planned';
     crossfadeInProgressRef.current = djState.type === 'crossfading';
-  }, [djState.type]);
+    trackEndedWhileCueingRef.current = trackEndedWhileCueing;
+  }, [djState.type, trackEndedWhileCueing]);
 
   // Use existing audio analysis for visualization
   useAudioAnalysis({

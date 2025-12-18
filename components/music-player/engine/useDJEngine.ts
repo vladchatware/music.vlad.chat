@@ -179,6 +179,9 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   const autoRevibeAtMsRef = useRef<number>(0);
   const revibeTriggeredRef = useRef<boolean>(false);
   
+  // Track ended while cueing - enables immediate crossfade when cued track loads
+  const trackEndedWhileCueingRef = useRef<boolean>(false);
+  
   // Connect to existing store for compatibility
   const { actions } = useMusicPlayerStore(
     useShallow((s) => ({
@@ -247,6 +250,12 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   // Track Ended Handler
   // ==========================================================================
   
+  // Use ref to avoid stale closure in event handler
+  const djStateTypeRef = useRef<string>(engineState.djState.type);
+  useEffect(() => {
+    djStateTypeRef.current = engineState.djState.type;
+  }, [engineState.djState.type]);
+  
   useEffect(() => {
     const deckA = deckARef.current;
     const deckB = deckBRef.current;
@@ -256,13 +265,22 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       const audio = e.target as HTMLAudioElement;
       const isAActive = activeDeckRef.current === 'A';
       const currentDeck = isAActive ? deckA : deckB;
+      const stateType = djStateTypeRef.current;
       
       // Only handle if this is the active deck ending
-      if (audio === currentDeck) {
-        // Request next track via callback
-        if (onRequestNextTrack) {
-          await onRequestNextTrack();
-        }
+      if (audio !== currentDeck) return;
+      
+      // Don't trigger during crossfade - the outgoing deck ending is expected
+      if (stateType === 'crossfading') return;
+      
+      // If track ended while cueing, mark it so we start crossfade immediately when ready
+      if (stateType === 'cueing') {
+        trackEndedWhileCueingRef.current = true;
+      }
+      
+      // Request next track via callback (only if not already transitioning)
+      if (onRequestNextTrack && stateType !== 'planned') {
+        await onRequestNextTrack();
       }
     };
     
@@ -434,6 +452,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     crossfadeStartTimeRef.current = null;
     revibeTriggeredRef.current = false;
     autoRevibeAtMsRef.current = Date.now();
+    trackEndedWhileCueingRef.current = false;
   }, []);
   
   const cancelTransition = useCallback(() => {
@@ -732,6 +751,19 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   }, [engineState.djState.type, planTransition]);
   
   // ==========================================================================
+  // Immediate Crossfade When Track Ended While Cueing
+  // ==========================================================================
+  
+  useEffect(() => {
+    // If we enter 'planned' state and the track ended while we were cueing,
+    // start crossfade immediately instead of waiting for a beat boundary
+    if (engineState.djState.type === 'planned' && trackEndedWhileCueingRef.current) {
+      trackEndedWhileCueingRef.current = false; // Reset before starting
+      void startCrossfade();
+    }
+  }, [engineState.djState.type, startCrossfade]);
+  
+  // ==========================================================================
   // Sync Transition State to Store
   // ==========================================================================
   
@@ -797,6 +829,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     isTransitioning,
     activeDeck: activeDeckSnapshot,
     transitionPlan: transitionPlanRef.current,
+    trackEndedWhileCueing: trackEndedWhileCueingRef.current,
     
     // Analysis refs
     analyzerRef,
