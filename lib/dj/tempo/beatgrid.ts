@@ -188,7 +188,8 @@ export function getBarAtTime(grid: BeatGrid, timeSec: AudioTimeSec): {
 } {
   const beat = getBeatAtTime(grid, timeSec);
   const barIndex = Math.floor(beat.index / grid.beatsPerBar);
-  const beatInBar = beat.index % grid.beatsPerBar;
+  // Use non-negative modulo to handle negative beat indices correctly
+  const beatInBar = ((beat.index % grid.beatsPerBar) + grid.beatsPerBar) % grid.beatsPerBar;
   const barPhase = (beatInBar + beat.phase) / grid.beatsPerBar;
   
   return {

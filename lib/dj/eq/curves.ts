@@ -82,8 +82,14 @@ export function getEQAtProgress(keyframes: readonly EQKeyframe[], progress: Norm
     return prev.bands;
   }
   
+  // Guard against division by zero when keyframes have identical times
+  const dt = next.time - prev.time;
+  if (dt === 0) {
+    return prev.bands;
+  }
+  
   // Interpolate between keyframes
-  const segmentProgress = (progress - prev.time) / (next.time - prev.time);
+  const segmentProgress = (progress - prev.time) / dt;
   return interpolateBands(prev.bands, next.bands, Math.max(0, Math.min(1, segmentProgress)));
 }
 

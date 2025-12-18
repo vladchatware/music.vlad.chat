@@ -428,16 +428,53 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     dispatch({ type: 'PLAN_TRANSITION', plan });
   }, [engineState.djState, getActiveDeckElement]);
   
+  // Helper to reset all transition-related refs
+  const resetTransitionRefs = useCallback(() => {
+    transitionPlanRef.current = null;
+    crossfadeStartTimeRef.current = null;
+    revibeTriggeredRef.current = false;
+    autoRevibeAtMsRef.current = Date.now();
+  }, []);
+  
+  const cancelTransition = useCallback(() => {
+    // Reset transition refs to allow future auto-revibe
+    resetTransitionRefs();
+    
+    // Reset playback rate on inactive deck in case it was modified
+    const inactiveDeck = getInactiveDeckElement();
+    if (inactiveDeck) {
+      inactiveDeck.pause();
+      inactiveDeck.currentTime = 0;
+      inactiveDeck.playbackRate = 1.0;
+    }
+    
+    // Reset EQ on both decks
+    getActiveEQ()?.reset();
+    getInactiveEQ()?.reset();
+    
+    dispatch({ type: 'CANCEL_TRANSITION' });
+  }, [resetTransitionRefs, getInactiveDeckElement, getActiveEQ, getInactiveEQ]);
+  
   const startCrossfade = useCallback(async () => {
+    // Guard against re-entry - check and set atomically
+    if (crossfadeStartTimeRef.current !== null) return;
+    crossfadeStartTimeRef.current = 0; // Mark as starting immediately to prevent re-entry
+    
     const state = engineState.djState;
-    if (state.type !== 'planned') return;
+    if (state.type !== 'planned') {
+      crossfadeStartTimeRef.current = null; // Reset if state is not valid
+      return;
+    }
     
     const outgoingDeck = getActiveDeckElement();
     const incomingDeck = getInactiveDeckElement();
     const outgoingEQ = getActiveEQ();
     const incomingEQ = getInactiveEQ();
     
-    if (!outgoingDeck || !incomingDeck) return;
+    if (!outgoingDeck || !incomingDeck) {
+      crossfadeStartTimeRef.current = null; // Reset if decks not available
+      return;
+    }
     
     // Set up EQ curves
     const plan = state.plan;
@@ -461,13 +498,20 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   
   const completeCrossfade = useCallback(() => {
     const outgoingDeck = getActiveDeckElement();
+    const incomingDeck = getInactiveDeckElement();
     const outgoingEQ = getActiveEQ();
     const incomingEQ = getInactiveEQ();
     
-    // Stop outgoing deck
+    // Stop outgoing deck and reset its state
     if (outgoingDeck) {
       outgoingDeck.pause();
       outgoingDeck.currentTime = 0;
+      outgoingDeck.playbackRate = 1.0; // Reset playback rate
+    }
+    
+    // Reset incoming deck's playback rate (it's now the active deck)
+    if (incomingDeck) {
+      incomingDeck.playbackRate = 1.0;
     }
     
     // Reset EQ
@@ -499,7 +543,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     autoRevibeAtMsRef.current = Date.now(); // Reset cooldown timer for new track
 
     dispatch({ type: 'CROSSFADE_COMPLETE' });
-  }, [getActiveDeckElement, getActiveEQ, getInactiveEQ, actions]);
+  }, [getActiveDeckElement, getInactiveDeckElement, getActiveEQ, getInactiveEQ, actions]);
   
   // ==========================================================================
   // Analysis Loop
@@ -628,13 +672,20 @@ export function useDJEngine(opts: UseDJEngineOptions) {
           
           dispatch({ type: 'CROSSFADE_TICK', progress });
           
+          // Sync to store for UI visualization (transitionHighlight)
+          actions.setTransition({
+            state: 'crossfading',
+            progress01: progress,
+            durationSec: state.plan.crossfadeDurationSec,
+          });
+          
           if (progress >= 1) {
             completeCrossfade();
           }
         }
         
         // Check if we should start transition
-        if (state.type === 'planned' && transitionPlanRef.current) {
+        if (state.type === 'planned' && transitionPlanRef.current && activeDeck) {
           if (isGoodTransitionMoment(activeDeck.currentTime, transitionPlanRef.current)) {
             void startCrossfade();
           }
@@ -642,14 +693,10 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       }
       
       // FALLBACK: If we're in "planned" state but active deck has ended/paused, start immediately
-      // Only trigger once - check that we haven't already started crossfade
+      // The guard inside startCrossfade prevents re-entry
       const stateForFallback = engineState.djState;
       if (stateForFallback.type === 'planned' && activeDeck && (activeDeck.paused || activeDeck.ended)) {
-        // Prevent repeated calls by checking crossfadeStartTimeRef
-        if (crossfadeStartTimeRef.current === null) {
-          crossfadeStartTimeRef.current = 0; // Mark as started to prevent re-entry
-          void startCrossfade();
-        }
+        void startCrossfade();
       }
       
       rafId = requestAnimationFrame(analysisLoop);
@@ -683,6 +730,28 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       planTransition();
     }
   }, [engineState.djState.type, planTransition]);
+  
+  // ==========================================================================
+  // Sync Transition State to Store
+  // ==========================================================================
+  
+  useEffect(() => {
+    const stateType = engineState.djState.type;
+    
+    if (stateType === 'planned') {
+      // Sync planned state to store for UI visualization
+      const plan = (engineState.djState as { plan: { crossfadeDurationSec: number; startBoundary: { timeSec: number } } }).plan;
+      actions.setTransition({
+        state: 'planned',
+        progress01: 0,
+        durationSec: plan.crossfadeDurationSec,
+        plannedStartSec: plan.startBoundary.timeSec,
+      });
+    } else if (stateType === 'playing' || stateType === 'idle' || stateType === 'paused') {
+      // Reset transition state when not transitioning
+      actions.resetTransition();
+    }
+  }, [engineState.djState.type, engineState.djState, actions]);
   
   // ==========================================================================
   // Derived State
@@ -741,6 +810,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     cueNextTrack,
     planTransition,
     startCrossfade,
+    cancelTransition,
     
     // Dispatch for custom events
     dispatch,

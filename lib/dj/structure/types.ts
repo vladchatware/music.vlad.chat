@@ -34,7 +34,7 @@ export interface EnergyChange {
  */
 export interface StructureAnalysisOptions {
   /** Minimum phrase length in bars (default: 4) */
-  readonly minPhraseBarys?: number;
+  readonly minPhraseBars?: number;
   /** Maximum phrase length in bars (default: 32) */
   readonly maxPhraseBars?: number;
   /** Energy change threshold (default: 0.2) */

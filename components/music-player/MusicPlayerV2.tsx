@@ -287,14 +287,14 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
 
       <audio
         ref={deckARef}
-        src={streamTrack(trackA?.id) as any}
+        src={streamTrack(trackA?.id)}
         preload="auto"
         playsInline
         crossOrigin="anonymous"
       />
       <audio
         ref={deckBRef}
-        src={streamTrack(trackB?.id) as any}
+        src={streamTrack(trackB?.id)}
         preload="auto"
         playsInline
         crossOrigin="anonymous"

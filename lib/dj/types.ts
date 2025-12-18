@@ -174,7 +174,8 @@ export type HarmonicRelationship =
   | 'relative'    // Relative major/minor (0.85 compatibility)
   | 'parallel'    // Same root, different mode (0.75 compatibility)
   | 'adjacent'    // +/- 1 on Camelot wheel (0.70 compatibility)
-  | 'clash';      // Dissonant relationship (< 0.5 compatibility)
+  | 'clash'       // Dissonant relationship (< 0.5 compatibility)
+  | 'unknown';    // Key information unavailable (neutral compatibility)
 
 /**
  * Result of harmonic compatibility analysis

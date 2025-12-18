@@ -428,12 +428,24 @@ export function findBestTransitionPoints(
 /**
  * Create a simple energy curve from periodic energy samples.
  * Useful when you have data from an FFT analyzer.
+ * 
+ * @throws Error if duration is not a positive finite number
+ * @throws Error if samples array is empty
  */
 export function createEnergyCurveFromSamples(
   samples: number[],
   duration: DurationSec
 ): EnergyCurve {
+  if (!(duration > 0 && Number.isFinite(duration))) {
+    throw new Error(`Invalid duration: ${duration}. Must be a positive finite number.`);
+  }
+  if (samples.length === 0) {
+    throw new Error('Cannot create energy curve from empty samples array.');
+  }
   const sampleRate = samples.length / duration;
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+    throw new Error(`Invalid computed sampleRate: ${sampleRate}`);
+  }
   return analyzeEnergy(
     new Float32Array(samples),
     sampleRate,

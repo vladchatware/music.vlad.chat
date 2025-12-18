@@ -133,11 +133,12 @@ export class EQController {
   
   /**
    * Convert a normalized gain (0-1) to decibels.
-   * 0 = -Infinity (muted), 1 = 0dB, values > 1 = boost
+   * 0 = -96dB (effectively muted), 1 = 0dB (unity gain).
+   * Values > 1 are clamped to unity (no boost supported).
    */
   private normalizedToDb(normalized: Normalized): number {
     if (normalized <= 0) return -96; // Effectively muted
-    if (normalized >= 1) return 0;   // Unity gain
+    if (normalized >= 1) return 0;   // Unity gain (clamped, no boost)
     
     // Use a logarithmic curve for natural volume perception
     // -24dB at 0.1, -12dB at 0.25, -6dB at 0.5, 0dB at 1.0
@@ -212,6 +213,24 @@ export class EQController {
     const keyframes = isOutgoing ? this._curve.outgoing : this._curve.incoming;
     const duration = this._curve.durationSec;
     
+    // Establish anchor values at start time (required before linear ramps)
+    const firstKeyframe = keyframes[0];
+    if (firstKeyframe) {
+      this._nodes.lowFilter.gain.setValueAtTime(
+        this.normalizedToDb(firstKeyframe.bands.low),
+        startTime
+      );
+      this._nodes.midFilter.gain.setValueAtTime(
+        this.normalizedToDb(firstKeyframe.bands.mid),
+        startTime
+      );
+      this._nodes.highFilter.gain.setValueAtTime(
+        this.normalizedToDb(firstKeyframe.bands.high),
+        startTime
+      );
+    }
+    
+    // Schedule ramps to each keyframe
     for (const keyframe of keyframes) {
       const time = startTime + keyframe.time * duration;
       

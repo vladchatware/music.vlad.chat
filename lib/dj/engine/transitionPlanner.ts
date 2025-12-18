@@ -122,12 +122,12 @@ function calculateHarmonicScore(
     (incomingTrack.keySignature ? parseKey(incomingTrack.keySignature) : null);
   
   if (!outgoingKey || !incomingKey) {
-    // Unknown keys - assume neutral compatibility
+    // Unknown keys - neutral compatibility (neither recommended nor discouraged)
     return {
-      compatibility: 0.7,
-      relationship: 'clash',
+      compatibility: 0.5,
+      relationship: 'unknown',
       suggestedPitchShift: 0,
-      recommended: true,
+      recommended: false,
     };
   }
   
@@ -311,9 +311,19 @@ export function createTransitionPlan(
 /**
  * Check if it's a good time to start a transition.
  * 
+ * Returns true when the current position is within the tolerance window
+ * around the planned boundary. The tolerance is symmetric, meaning:
+ * - Positions up to `toleranceSec` BEFORE the boundary are accepted (early start)
+ * - Positions up to `toleranceSec` AFTER the boundary are accepted (late start)
+ * 
+ * For example, with toleranceSec=0.25 and boundary at 60s:
+ * - Returns true for positions 59.75s to 60.25s
+ * - Returns false for positions < 59.75s or > 60.25s
+ * 
  * @param currentTimeSec - Current playback position
- * @param plan - The transition plan
- * @param toleranceSec - How close to the boundary to accept
+ * @param plan - The transition plan containing the target boundary
+ * @param toleranceSec - Symmetric tolerance window around the boundary (default: 0.25s)
+ * @returns true if current position is within tolerance of the planned boundary
  */
 export function isGoodTransitionMoment(
   currentTimeSec: AudioTimeSec,

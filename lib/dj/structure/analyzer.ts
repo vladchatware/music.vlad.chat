@@ -20,7 +20,7 @@ import type {
   StructureAnalysisOptions, 
   PhraseBoundary 
 } from './types';
-import { getBeatDuration, getBarDuration, getBeatAtTime, getTimeAtBar } from '../tempo/beatgrid';
+import { getBeatDuration, getBarDuration, getBeatAtTime, getTimeAtBar, getBarAtTime } from '../tempo/beatgrid';
 
 // =============================================================================
 // Constants
@@ -149,7 +149,7 @@ function detectPhraseBoundaries(
 ): PhraseBoundary[] {
   const boundaries: PhraseBoundary[] = [];
   const barDuration = getBarDuration(grid);
-  const minPhraseLength = (options.minPhraseBarys ?? DEFAULT_MIN_PHRASE_BARS) * barDuration;
+  const minPhraseLength = (options.minPhraseBars ?? DEFAULT_MIN_PHRASE_BARS) * barDuration;
   const maxPhraseLength = (options.maxPhraseBars ?? DEFAULT_MAX_PHRASE_BARS) * barDuration;
   
   // Start with track beginning
@@ -201,11 +201,12 @@ function detectPhraseBoundaries(
       lastBoundaryTime = time;
     } else if (timeSinceLast >= maxPhraseLength) {
       // Force a boundary at 8 or 16 bar intervals
-      const barIndex = Math.round(time / barDuration);
-      if (barIndex % 8 === 0) { // Prefer 8-bar boundaries
+      // Use getBarAtTime to properly account for grid.firstDownbeat
+      const bar = getBarAtTime(grid, time);
+      if (bar.index % 8 === 0) { // Prefer 8-bar boundaries
         forcedBoundaries.push({
           time,
-          beatIndex: barIndex * grid.beatsPerBar,
+          beatIndex: bar.index * grid.beatsPerBar,
           confidence: 0.5,
           reason: 'forced',
         });

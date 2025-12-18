@@ -173,6 +173,10 @@ function handlePlayingEvent(
         [{ type: 'LOAD_AUDIO', trackId: event.trackId, deck: cueDeck }]
       );
     }
+    case 'CUE_FAILED':
+      // Cue failed while playing - log and stay in playing state
+      console.error('Cue failed:', event.error);
+      return noEffects(state);
     case 'CUE_READY':
       return noEffects({
         type: 'cueing',
@@ -369,10 +373,11 @@ export function djReducer(state: DJState, event: DJEvent): StateTransitionResult
       return handleCrossfadingEvent(state, event);
     case 'paused':
       return handlePausedEvent(state, event);
-    default:
+    default: {
       // Exhaustive check
       const _exhaustive: never = state;
       return noEffects(_exhaustive);
+    }
   }
 }
 
