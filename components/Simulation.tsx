@@ -5,27 +5,63 @@ import { Physics, RigidBody, BallCollider, RapierRigidBody } from '@react-three/
 import { useMemo, useRef } from 'react'
 
 // Shapes by https://app.spline.design/library/a4eeaee4-be03-4df8-ab05-5a073eda2eb4
-export function Floating({ envMap, ...props }: any) {
+export function Floating({
+  envMap,
+  audioEnergyRef,
+  transitionProgress = 0,
+  palette,
+  ...props
+}: {
+  envMap: any;
+  audioEnergyRef?: React.MutableRefObject<number>;
+  transitionProgress?: number;
+  palette?: THREE.Color[];
+} & any) {
   const { nodes, materials } = useGLTF('/smileys-transformed.glb')
+  const groupRef = useRef<THREE.Group>(null)
+
+  const materialRef = useRef<THREE.MeshPhysicalMaterial>(null)
+
+  useFrame((state, delta) => {
+    if (!materialRef.current || !groupRef.current) return
+    const energy = audioEnergyRef?.current ?? 0
+
+    // Scale pulse based on energy
+    const scalePulse = 1 + energy * 0.15
+    groupRef.current.scale.lerp(new THREE.Vector3(scalePulse, scalePulse, scalePulse), 0.1)
+
+    // Color shift: objects glow with background colors
+    const transitionCol = palette?.[1] || new THREE.Color("#FF4500")
+    materialRef.current.emissive.copy(transitionCol).multiplyScalar(energy * 0.3 + transitionProgress * 0.5)
+    materialRef.current.emissiveIntensity = 1
+
+    // Animate the base color to pick up the tint - more permanently tinted now
+    const baseColor = palette?.[2] || new THREE.Color("#FF8C00")
+    materialRef.current.color.lerp(baseColor.clone().lerp(transitionCol, transitionProgress * 0.4), 0.1)
+  })
+
   const material = useMemo(() => {
     return (
       <meshPhysicalMaterial
-        transmission={1}
-        roughness={0.15}
-        thickness={1.5}
-        ior={1.5}
+        ref={materialRef}
+        transmission={1.0}
+        roughness={0.02} // Very shiny/wet look
+        thickness={3} // Deep volume distortion
+        ior={1.4} // Jelly-like IOR
         clearcoat={1}
-        attenuationDistance={10}
-        attenuationColor="#ffffff"
-        color="#ffffff"
+        clearcoatRoughness={0}
+        attenuationDistance={2} // Shorter distance for richer internal color
+        attenuationColor={palette?.[1] || "#FF4500"} // Volumetric tint
+        color={palette?.[2] || "#FF8C00"}
         transparent
         envMap={envMap}
-        envMapIntensity={0.8}
+        envMapIntensity={3} // Bright specular highlights
       />
     )
-  }, [envMap])
+  }, [envMap, palette])
+
   return (
-    <group {...props} dispose={null}>
+    <group ref={groupRef} {...props} dispose={null}>
       <Float>
         <mesh
           castShadow

@@ -129,7 +129,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   const onPlayerToolRequested = useCallback(
     async (id: number) => {
       const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
-      
+
       if (isPlaying) {
         await cueNextTrack(newTrack);
       } else {
@@ -139,6 +139,25 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     },
     [cueNextTrack, isPlaying, loadInitialTrack, play],
   );
+
+  const { setPalette } = actions;
+
+  // Track color palette extraction
+  useEffect(() => {
+    if (!activeTrack?.artwork_url) return;
+
+    // SoundCloud artwork URLs are often 100x100 (large.jpg)
+    // We can swap it to t500x500 for better color extraction if needed
+    const artworkUrl = activeTrack.artwork_url.replace("large.jpg", "t500x500.jpg");
+
+    void import("@/lib/analyzers/colorPalette").then(({ extractPaletteFromUrl }) => {
+      extractPaletteFromUrl(artworkUrl).then((colors) => {
+        if (colors.length > 0) {
+          setPalette(colors);
+        }
+      });
+    });
+  }, [activeTrack?.artwork_url, setPalette]);
 
   const { messages, sendMessage, status } = useRevibeChat({ onPlayerToolRequested });
 
@@ -159,7 +178,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       }
       ms.playbackState = isPlaying ? "playing" : "paused";
       ms.setActionHandler("play", () => {
-        play().catch(() => {});
+        play().catch(() => { });
       });
       ms.setActionHandler("pause", () => {
         pause();
@@ -170,9 +189,9 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       ms.setActionHandler("nexttrack", () => {
         try {
           latestOnRevibeRef.current?.(new Event("nexttrack") as any);
-        } catch {}
+        } catch { }
       });
-      ms.setActionHandler("previoustrack", () => {});
+      ms.setActionHandler("previoustrack", () => { });
     } catch (e) {
       console.warn("MediaSession setup failed:", e);
     }
@@ -259,10 +278,10 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     if (transition.state === "planned") {
       return { start01: 0, end01: 0.01, intensity: 0.95 };
     }
-    return { 
-      start01: 0, 
-      end01: Math.max(0, Math.min(1, transition.progress01)), 
-      intensity: 0.95 
+    return {
+      start01: 0,
+      end01: Math.max(0, Math.min(1, transition.progress01)),
+      intensity: 0.95
     };
   }, [transition]);
 

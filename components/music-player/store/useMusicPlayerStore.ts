@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import * as THREE from "three";
 
 import { engineReducer, initialEngineState, type EngineAction } from "../engine/stateMachine";
 import type { SoundCloudTrack } from "../types";
@@ -52,6 +53,9 @@ export type MusicPlayerStore = {
     progress01: number; // 0..1 (during crossfade)
   };
 
+  // Palette for visualization
+  palette: THREE.Color[];
+
   actions: {
     dispatchEngine: (action: EngineAction) => void;
     setTrackA: (track: SoundCloudTrack | null) => void;
@@ -60,6 +64,7 @@ export type MusicPlayerStore = {
     setAnalysis: (patch: Partial<MusicPlayerStore["analysis"]>) => void;
     setPlayback: (patch: Partial<MusicPlayerStore["playback"]>) => void;
     setTransition: (patch: Partial<MusicPlayerStore["transition"]>) => void;
+    setPalette: (colors: THREE.Color[]) => void;
     resetTransition: () => void;
     acquire: () => void;
     release: () => void;
@@ -105,6 +110,13 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
     progress01: 0,
   },
 
+  palette: [
+    new THREE.Color("#8B1A1A"),
+    new THREE.Color("#FF4500"),
+    new THREE.Color("#FF8C00"),
+    new THREE.Color("#FFD700"),
+  ],
+
   actions: {
     dispatchEngine: (action) =>
       set((state) => {
@@ -130,6 +142,8 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
       set((state) => ({
         transition: { ...state.transition, ...patch },
       })),
+
+    setPalette: (colors) => set({ palette: colors }),
 
     resetTransition: () =>
       set(() => ({
@@ -176,6 +190,12 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
           trackA: null,
           trackB: null,
           activeTrack: null,
+          palette: [
+            new THREE.Color("#8B1A1A"),
+            new THREE.Color("#FF4500"),
+            new THREE.Color("#FF8C00"),
+            new THREE.Color("#FFD700"),
+          ],
           analysis: {
             bpm: null,
             bpmSource: "fallback",

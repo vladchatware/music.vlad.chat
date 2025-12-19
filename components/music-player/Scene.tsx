@@ -12,6 +12,8 @@ import BaseDiffusedRing from "@/components/Ring/base";
 import BackgroundImageCover from "@/components/BackgroundImage";
 import { Floating } from "@/components/Simulation";
 import { type CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
+import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
+import { useShallow } from "zustand/react/shallow";
 
 export function MusicPlayerScene(props: {
   initialTrackId: string | number;
@@ -21,6 +23,8 @@ export function MusicPlayerScene(props: {
   children: ReactNode;
 }) {
   const { initialTrackId, coordinateMapper, audioEnergyRef, transitionHighlight, children } = props;
+  const { palette } = useMusicPlayerStore(useShallow((s) => ({ palette: s.palette })));
+
 
   return (
     <Canvas
@@ -72,12 +76,30 @@ export function MusicPlayerScene(props: {
           highlightStart01={transitionHighlight?.start01}
           highlightEnd01={transitionHighlight?.end01}
           highlightIntensity={transitionHighlight?.intensity ?? 0.9}
+          highlightColor={[palette[1].r, palette[1].g, palette[1].b]}
         />
         <CubeCamera position={[0, 0, 7]} resolution={256} frames={Infinity}>
-          {(texture) => <Floating envMap={texture} />}
+          {(texture) => (
+            <Floating
+              envMap={texture}
+              audioEnergyRef={audioEnergyRef}
+              transitionProgress={transitionHighlight?.end01}
+              palette={palette}
+            />
+          )}
         </CubeCamera>
-        <PhysicalGrid position={[0, 0, 0]} size={100} />
-        <BackgroundImageCover />
+        <PhysicalGrid
+          position={[0, 0, 0]}
+          size={100}
+          audioEnergyRef={audioEnergyRef}
+          transitionProgress={transitionHighlight?.end01}
+          palette={palette}
+        />
+        <BackgroundImageCover
+          audioEnergyRef={audioEnergyRef}
+          transitionHighlight={transitionHighlight}
+          palette={palette}
+        />
         <Environment preset="city" environmentIntensity={1} />
       </Defaults>
     </Canvas>
