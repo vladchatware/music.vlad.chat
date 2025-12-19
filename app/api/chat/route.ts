@@ -15,20 +15,25 @@ export async function POST(req: NextRequest) {
 
   const user = await fetchQuery(api.users.viewer, {}, { token: await convexAuthNextjsToken() })
 
-  if (!user.isAnonymous) {
-    if (!user.stripeId) {
-      const customer = await stripe.customers.create(({
-        email: user.email
-      }))
-      await fetchMutation(api.users.connect, { stripeId: customer.id }, { token: await convexAuthNextjsToken() })
-      user.stripeId = customer.id
-    }
+  // Bypass limits in development
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  if (!isDev) {
+    if (!user.isAnonymous) {
+      if (!user.stripeId) {
+        const customer = await stripe.customers.create(({
+          email: user.email
+        }))
+        await fetchMutation(api.users.connect, { stripeId: customer.id }, { token: await convexAuthNextjsToken() })
+        user.stripeId = customer.id
+      }
 
-    if (user.trialTokens <= 0 && user.tokens <= 0) {
-      return new NextResponse('out of tokens', { status: 429 })
+      if (user.trialTokens <= 0 && user.tokens <= 0) {
+        return new NextResponse('out of tokens', { status: 429 })
+      }
+    } else {
+      if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
     }
-  } else {
-    if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
   }
 
   const url = process.env.NEXT_PUBLIC_SITE_URL

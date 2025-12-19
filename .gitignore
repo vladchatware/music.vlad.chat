@@ -9,3 +9,5 @@ soundcloud.json
 # Local Netlify folder
 .netlify
 .vercel
+
+coverage/

@@ -1,3 +1,3 @@
 "use client";
 
-export { default } from "./music-player/MusicPlayer";
+export { default } from "./music-player/MusicPlayerV2";
