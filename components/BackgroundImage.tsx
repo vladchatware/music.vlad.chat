@@ -132,11 +132,9 @@ const FluidMaterial = shaderMaterial(
 );
 
 // Declare the custom material for JSX
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      fluidMaterial: any;
-    }
+declare module "@react-three/fiber" {
+  interface ThreeElements {
+    fluidMaterial: ThreeElement<typeof FluidMaterial>;
   }
 }
 
