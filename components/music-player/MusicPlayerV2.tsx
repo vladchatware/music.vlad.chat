@@ -33,10 +33,11 @@ import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
 export default function MusicPlayerV2(props: { initialTrackId: string | number }) {
   const { initialTrackId } = props;
 
-  const { transition, playback } = useMusicPlayerStore(
+  const { transition, playback, analysis } = useMusicPlayerStore(
     useShallow((s) => ({
       transition: s.transition,
       playback: s.playback,
+      analysis: s.analysis,
     })),
   );
 
@@ -50,6 +51,14 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1;
     const iOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
     return iPadOS || iOSDevice;
+  }, []);
+
+  const [isPortrait, setIsPortrait] = React.useState(false);
+  useEffect(() => {
+    const handleResize = () => setIsPortrait(window.innerHeight > window.innerWidth);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const coordinateMapper = useMemo(() => new CoordinateMapper_Data(), []);
@@ -241,14 +250,10 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
 
       const currentTrack = activeTrack as SoundCloudTrack | null;
 
-      let detectedBpm = currentTrack?.bpm ?? null;
-      if (!detectedBpm && bpmDetectorRef.current?.hasReliableBPM()) {
-        detectedBpm = bpmDetectorRef.current.getBPM();
-      }
-
       const prompt = buildRevibePrompt({
         track: currentTrack,
-        detectedBpm,
+        analysis,
+        playback,
       });
 
       sendMessage({ role: "user", text: prompt });
@@ -272,6 +277,26 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   useEffect(() => {
     latestOnRevibeRef.current = onRevibe;
   }, [onRevibe]);
+
+  // Proactive sound adjustment on section change
+  const lastSectionRef = useRef(analysis.section);
+  const lastSectionChangeTriggerRef = useRef(0);
+  useEffect(() => {
+    if (!analysis.section || analysis.section === "unknown" || !isPlaying) return;
+
+    if (analysis.section !== lastSectionRef.current) {
+      const now = Date.now();
+      // Cooldown of 60 seconds between proactive sound checks
+      if (now - lastSectionChangeTriggerRef.current > 60000 && status === "ready") {
+        lastSectionRef.current = analysis.section;
+        lastSectionChangeTriggerRef.current = now;
+        console.log(`Proactive Section Check: ${analysis.section}`);
+        if (latestOnRevibeRef.current) {
+          latestOnRevibeRef.current(new Event("section-change"));
+        }
+      }
+    }
+  }, [analysis.section, status, isPlaying]);
 
   const checkout = async () => {
     const res = await fetch(`/api/checkout_session`, {
@@ -313,6 +338,8 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
           user={user}
           signIn={signIn}
           checkout={checkout}
+          isIOS={isIOS}
+          isPortrait={isPortrait}
         />
       </MusicPlayerScene>
 

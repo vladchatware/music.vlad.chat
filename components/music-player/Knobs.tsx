@@ -12,9 +12,10 @@ interface KnobProps {
     min?: number;
     max?: number;
     step?: number;
+    scale?: number;
 }
 
-const Knob = ({ label, value, onChange, min = 0, max = 1 }: KnobProps) => {
+const Knob = ({ label, value, onChange, min = 0, max = 1, scale = 1 }: KnobProps) => {
     const [isDragging, setIsDragging] = useState(false);
     const startY = useRef(0);
     const startValue = useRef(0);
@@ -45,19 +46,25 @@ const Knob = ({ label, value, onChange, min = 0, max = 1 }: KnobProps) => {
     };
 
     const rotation = (value - 0.5) * 270;
+    const size = 48 * scale;
+    const indicatorHeight = 14 * scale;
+    const indicatorWidth = 3 * scale;
+    const indicatorTop = 6 * scale;
+    const bulbSize = 4 * scale;
+    const bulbBottom = 6 * scale;
 
     return (
         <Container
             flexDirection="column"
             alignItems="center"
-            gap={8}
-            padding={4}
+            gap={4 * scale}
+            padding={2 * scale}
         >
             <Container
-                width={48}
-                height={48}
-                borderRadius={24}
-                backgroundColor={isDragging ? "white" : "white"}
+                width={size}
+                height={size}
+                borderRadius={size / 2}
+                backgroundColor="white"
                 backgroundOpacity={isDragging ? 0.15 : 0.08}
                 borderWidth={2}
                 borderColor="white"
@@ -69,35 +76,35 @@ const Knob = ({ label, value, onChange, min = 0, max = 1 }: KnobProps) => {
                 onPointerUp={handlePointerUp}
             >
                 <Container
-                    width={3}
-                    height={14}
+                    width={indicatorWidth}
+                    height={indicatorHeight}
                     backgroundColor="white"
                     backgroundOpacity={isDragging ? 1 : 0.8}
-                    borderRadius={1.5}
+                    borderRadius={indicatorWidth / 2}
                     transformRotateZ={rotation}
                     positionType="absolute"
-                    positionTop={6}
+                    positionTop={indicatorTop}
                 />
 
                 <Container
-                    width={4}
-                    height={4}
-                    borderRadius={2}
+                    width={bulbSize}
+                    height={bulbSize}
+                    borderRadius={bulbSize / 2}
                     backgroundColor="rgb(76, 201, 254)"
                     backgroundOpacity={value > 0.5 ? 1 : 0.3}
                     positionType="absolute"
-                    positionBottom={6}
+                    positionBottom={bulbBottom}
                 />
             </Container>
 
-            <Text fontSize={10} fontWeight="bold" color="white" opacity={0.6} letterSpacing={1}>
+            <Text fontSize={10 * scale} fontWeight="bold" color="white" opacity={0.6} letterSpacing={1 * scale}>
                 {label.toUpperCase()}
             </Text>
         </Container>
     );
 };
 
-export function KnobsPanel() {
+export function KnobsPanel({ mobile }: { mobile?: boolean }) {
     const { knobs, setKnobs } = useMusicPlayerStore(
         useShallow((s) => ({
             knobs: s.knobs,
@@ -105,14 +112,16 @@ export function KnobsPanel() {
         }))
     );
 
+    const scale = mobile ? 0.8 : 1;
+
     return (
         <Container
             flexDirection="row"
-            padding={16}
-            gap={10}
+            padding={12 * scale}
+            gap={8 * scale}
             backgroundColor="black"
             backgroundOpacity={0.6}
-            borderRadius={24}
+            borderRadius={20 * scale}
             borderWidth={1}
             borderColor="white"
             borderOpacity={0.1}
@@ -121,27 +130,32 @@ export function KnobsPanel() {
                 label="Low"
                 value={knobs.low}
                 onChange={(low) => setKnobs({ low })}
+                scale={scale}
             />
             <Knob
                 label="Mid"
                 value={knobs.mid}
                 onChange={(mid) => setKnobs({ mid })}
+                scale={scale}
             />
             <Knob
                 label="High"
                 value={knobs.high}
                 onChange={(high) => setKnobs({ high })}
+                scale={scale}
             />
             <Knob
                 label="Vibe"
                 value={knobs.resonance}
                 onChange={(resonance) => setKnobs({ resonance })}
+                scale={scale}
             />
-            <Container width={2} height={32} backgroundColor="white" backgroundOpacity={0.1} alignSelf="center" marginX={4} />
+            <Container width={2 * scale} height={24 * scale} backgroundColor="white" backgroundOpacity={0.1} alignSelf="center" marginX={2 * scale} />
             <Knob
                 label="Vol"
                 value={knobs.volume}
                 onChange={(volume) => setKnobs({ volume })}
+                scale={scale}
             />
         </Container>
     );

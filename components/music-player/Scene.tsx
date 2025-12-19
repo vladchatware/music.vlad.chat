@@ -53,16 +53,7 @@ export function MusicPlayerScene(props: {
       />
       <SoftShadows size={40} samples={16} />
       <Defaults>
-        <Fullscreen
-          overflow={initialTrackId ? "scroll" : "hidden"}
-          scrollbarColor="black"
-          flexDirection="column"
-          gap={32}
-          paddingX={initialTrackId ? 32 : undefined}
-          alignItems="center"
-          justifyContent="center"
-          padding={32}
-        >
+        <Fullscreen padding={32} flexDirection="column" justifyContent="space-between" alignItems="center">
           {children}
         </Fullscreen>
 
