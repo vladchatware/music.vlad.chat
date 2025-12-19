@@ -7,6 +7,7 @@ import { Authenticated } from "convex/react";
 import { type UIMessage } from "@ai-sdk/react";
 
 import { MotionControl } from "./MotionControl";
+import { KnobsPanel } from "./Knobs";
 
 function getLastMessage(messages: UIMessage[]) {
   const userMessages = messages.filter((m) => m.role === "user");
@@ -72,6 +73,15 @@ export function MusicPlayerOverlay(props: {
             </CardDescription>
           </CardHeader>
         </Card>
+      </Container>
+
+      <Container
+        display={isAuthenticated && activeTrack ? "flex" : "none"}
+        positionType="absolute"
+        positionBottom={32}
+        positionRight={32}
+      >
+        <KnobsPanel />
       </Container>
 
       <Container flexDirection="column" alignItems="center" gap={16}>

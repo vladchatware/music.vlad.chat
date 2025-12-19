@@ -56,6 +56,15 @@ export type MusicPlayerStore = {
   // Palette for visualization
   palette: THREE.Color[];
 
+  // Agentic Knobs
+  knobs: {
+    low: number;
+    mid: number;
+    high: number;
+    volume: number;
+    resonance: number;
+  };
+
   actions: {
     dispatchEngine: (action: EngineAction) => void;
     setTrackA: (track: SoundCloudTrack | null) => void;
@@ -65,6 +74,7 @@ export type MusicPlayerStore = {
     setPlayback: (patch: Partial<MusicPlayerStore["playback"]>) => void;
     setTransition: (patch: Partial<MusicPlayerStore["transition"]>) => void;
     setPalette: (colors: THREE.Color[]) => void;
+    setKnobs: (patch: Partial<MusicPlayerStore["knobs"]>) => void;
     resetTransition: () => void;
     acquire: () => void;
     release: () => void;
@@ -117,6 +127,14 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
     new THREE.Color("#FFD700"),
   ],
 
+  knobs: {
+    low: 0.5,
+    mid: 0.5,
+    high: 0.5,
+    volume: 0.8,
+    resonance: 0,
+  },
+
   actions: {
     dispatchEngine: (action) =>
       set((state) => {
@@ -144,6 +162,11 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
       })),
 
     setPalette: (colors) => set({ palette: colors }),
+
+    setKnobs: (patch) =>
+      set((state) => ({
+        knobs: { ...state.knobs, ...patch },
+      })),
 
     resetTransition: () =>
       set(() => ({
@@ -220,6 +243,13 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
             plannedStartSec: null,
             durationSec: null,
             progress01: 0,
+          },
+          knobs: {
+            low: 0.5,
+            mid: 0.5,
+            high: 0.5,
+            volume: 0.8,
+            resonance: 0,
           },
         };
       }),

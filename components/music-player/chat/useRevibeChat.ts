@@ -7,12 +7,15 @@ type PlayerToolInput = { id: number };
 
 export function useRevibeChat(opts: {
   onPlayerToolRequested: (id: number) => Promise<void>;
+  onKnobsToolRequested: (knobs: any) => Promise<void>;
 }) {
   const onPlayerToolRequestedRef = useRef(opts.onPlayerToolRequested);
+  const onKnobsToolRequestedRef = useRef(opts.onKnobsToolRequested);
 
   useEffect(() => {
     onPlayerToolRequestedRef.current = opts.onPlayerToolRequested;
-  }, [opts.onPlayerToolRequested]);
+    onKnobsToolRequestedRef.current = opts.onKnobsToolRequested;
+  }, [opts.onPlayerToolRequested, opts.onKnobsToolRequested]);
 
   const { messages, sendMessage, status, addToolResult } = useChat({
     onError: (error) => {
@@ -31,6 +34,17 @@ export function useRevibeChat(opts: {
           output: `Playing ${id}`,
         });
       }
+
+      if (ctx.toolCall.toolName === "knobs") {
+        await onKnobsToolRequestedRef.current(ctx.toolCall.input);
+        console.log("knobs tool executed:", ctx.toolCall.input);
+
+        addToolResult({
+          tool: ctx.toolCall.toolName,
+          toolCallId: ctx.toolCall.toolCallId,
+          output: `Adjusted knobs: ${JSON.stringify(ctx.toolCall.input)}. SUCCESS. REQUIRED: Now you MUST call the 'player' tool to keep the music playing.`,
+        });
+      }
     },
   });
 
@@ -40,4 +54,3 @@ export function useRevibeChat(opts: {
     status,
   };
 }
-

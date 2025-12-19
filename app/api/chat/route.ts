@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   // Bypass limits in development
   const isDev = process.env.NODE_ENV === 'development';
-  
+
   if (!isDev) {
     if (!user.isAnonymous) {
       if (!user.stripeId) {
@@ -49,6 +49,16 @@ export async function POST(req: NextRequest) {
       inputSchema: z.object({
         id: z.number().describe("The id of a song")
       })
+    },
+    knobs: {
+      description: "Adjust audio parameters (EQ, volume, vibe). You SHOULD call this ALONG WITH the 'player' tool to maintain music flow while adjusting sound.",
+      inputSchema: z.object({
+        low: z.number().min(0).max(1).optional().describe("Low frequencies (0..1)"),
+        mid: z.number().min(0).max(1).optional().describe("Mid frequencies (0..1)"),
+        high: z.number().min(0).max(1).optional().describe("High frequencies (0..1)"),
+        volume: z.number().min(0).max(1).optional().describe("Master volume (0..1)"),
+        resonance: z.number().min(0).max(1).optional().describe("Vibe/resonance (0..1)")
+      })
     }
   }
 
@@ -60,7 +70,6 @@ export async function POST(req: NextRequest) {
     stopWhen: stepCountIs(5),
     system: systemMessage,
     onFinish: async ({ usage, providerMetadata }) => {
-      // console.log(usage)
       if (user.isAnonymous) {
         await fetchMutation(api.users.messages, {}, { token: await convexAuthNextjsToken() })
       } else {

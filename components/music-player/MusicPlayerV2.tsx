@@ -159,7 +159,17 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     });
   }, [activeTrack?.artwork_url, setPalette]);
 
-  const { messages, sendMessage, status } = useRevibeChat({ onPlayerToolRequested });
+  const onKnobsToolRequested = useCallback(
+    async (knobs: any) => {
+      actions.setKnobs(knobs);
+    },
+    [actions],
+  );
+
+  const { messages, sendMessage, status } = useRevibeChat({
+    onPlayerToolRequested,
+    onKnobsToolRequested
+  });
 
   // Lock-screen / headset controls + metadata where supported.
   useEffect(() => {

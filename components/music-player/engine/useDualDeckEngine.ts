@@ -36,8 +36,16 @@ export function useDualDeckEngine(opts: {
   const deckBGainRef = useRef<GainNode | null>(null);
   const deckAHPFRef = useRef<BiquadFilterNode | null>(null);
   const deckALPFRef = useRef<BiquadFilterNode | null>(null);
+  const deckALowRef = useRef<BiquadFilterNode | null>(null);
+  const deckAMidRef = useRef<BiquadFilterNode | null>(null);
+  const deckAHighRef = useRef<BiquadFilterNode | null>(null);
+
   const deckBHPFRef = useRef<BiquadFilterNode | null>(null);
   const deckBLPFRef = useRef<BiquadFilterNode | null>(null);
+  const deckBLowRef = useRef<BiquadFilterNode | null>(null);
+  const deckBMidRef = useRef<BiquadFilterNode | null>(null);
+  const deckBHighRef = useRef<BiquadFilterNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
   const activeDeckRef = useRef<"A" | "B">("A");
 
   // Cue/crossfade state
@@ -53,13 +61,14 @@ export function useDualDeckEngine(opts: {
   const audioEnergyRef = useRef(0);
 
   // UI-ish state
-  const { trackA, trackB, activeTrack, phase, loading, actions } = useMusicPlayerStore(
+  const { trackA, trackB, activeTrack, phase, loading, knobs, actions } = useMusicPlayerStore(
     useShallow((s) => ({
       trackA: s.trackA,
       trackB: s.trackB,
       activeTrack: s.activeTrack,
       phase: s.phase,
       loading: s.loading,
+      knobs: s.knobs,
       actions: s.actions,
     })),
   );
@@ -573,25 +582,64 @@ export function useDualDeckEngine(opts: {
       lpfB.frequency.value = FILTER_MAX_LPF_HZ;
       lpfB.Q.value = FILTER_Q;
 
+      const lowA = ctx.createBiquadFilter();
+      lowA.type = "lowshelf";
+      lowA.frequency.value = 200;
+      const midA = ctx.createBiquadFilter();
+      midA.type = "peaking";
+      midA.frequency.value = 1000;
+      midA.Q.value = 1;
+      const highA = ctx.createBiquadFilter();
+      highA.type = "highshelf";
+      highA.frequency.value = 5000;
+
+      const lowB = ctx.createBiquadFilter();
+      lowB.type = "lowshelf";
+      lowB.frequency.value = 200;
+      const midB = ctx.createBiquadFilter();
+      midB.type = "peaking";
+      midB.frequency.value = 1000;
+      midB.Q.value = 1;
+      const highB = ctx.createBiquadFilter();
+      highB.type = "highshelf";
+      highB.frequency.value = 5000;
+
+      const masterGain = ctx.createGain();
+      masterGain.gain.value = knobs.volume;
+
       sourceA.connect(hpfA);
       hpfA.connect(lpfA);
-      lpfA.connect(gainA);
+      lpfA.connect(lowA);
+      lowA.connect(midA);
+      midA.connect(highA);
+      highA.connect(gainA);
 
       sourceB.connect(hpfB);
       hpfB.connect(lpfB);
-      lpfB.connect(gainB);
+      lpfB.connect(lowB);
+      lowB.connect(midB);
+      midB.connect(highB);
+      highB.connect(gainB);
 
-      gainA.connect(ctx.destination);
-      gainB.connect(ctx.destination);
+      gainA.connect(masterGain);
+      gainB.connect(masterGain);
+      masterGain.connect(ctx.destination);
 
       deckASourceRef.current = sourceA;
       deckBSourceRef.current = sourceB;
       deckAGainRef.current = gainA;
       deckBGainRef.current = gainB;
+      masterGainRef.current = masterGain;
       deckAHPFRef.current = hpfA;
       deckALPFRef.current = lpfA;
+      deckALowRef.current = lowA;
+      deckAMidRef.current = midA;
+      deckAHighRef.current = highA;
       deckBHPFRef.current = hpfB;
       deckBLPFRef.current = lpfB;
+      deckBLowRef.current = lowB;
+      deckBMidRef.current = midB;
+      deckBHighRef.current = highB;
 
       resetDeckFilters("A");
       resetDeckFilters("B");
@@ -637,12 +685,59 @@ export function useDualDeckEngine(opts: {
       deckBSourceRef.current = null;
       deckAGainRef.current = null;
       deckBGainRef.current = null;
+      masterGainRef.current = null;
       deckAHPFRef.current = null;
       deckALPFRef.current = null;
+      deckALowRef.current = null;
+      deckAMidRef.current = null;
+      deckAHighRef.current = null;
       deckBHPFRef.current = null;
       deckBLPFRef.current = null;
+      deckBLowRef.current = null;
+      deckBMidRef.current = null;
+      deckBHighRef.current = null;
     };
   }, [isIOS, resetDeckFilters]);
+
+  // Sync knobs with audio graph
+  useEffect(() => {
+    const mapKnobToGain = (val: number) => {
+      if (val <= 0.5) return (val / 0.5) * 40 - 40;
+      return ((val - 0.5) / 0.5) * 6;
+    };
+
+    const apply = (deck: "A" | "B") => {
+      const low = deck === "A" ? deckALowRef.current : deckBLowRef.current;
+      const mid = deck === "A" ? deckAMidRef.current : deckBMidRef.current;
+      const high = deck === "A" ? deckAHighRef.current : deckBHighRef.current;
+      const hpf = deck === "A" ? deckAHPFRef.current : deckBHPFRef.current;
+      const lpf = deck === "A" ? deckALPFRef.current : deckBLPFRef.current;
+      if (!low || !mid || !high) return;
+
+      const now = (low.context as AudioContext).currentTime;
+      low.gain.setTargetAtTime(mapKnobToGain(knobs.low), now, 0.05);
+      mid.gain.setTargetAtTime(mapKnobToGain(knobs.mid), now, 0.05);
+      high.gain.setTargetAtTime(mapKnobToGain(knobs.high), now, 0.05);
+
+      if (hpf && lpf) {
+        // Use resonance for filter Q
+        const baseQ = FILTER_Q;
+        const resonanceBonus = knobs.resonance * 10;
+        hpf.Q.setTargetAtTime(baseQ + resonanceBonus, now, 0.05);
+        lpf.Q.setTargetAtTime(baseQ + resonanceBonus, now, 0.05);
+      }
+    };
+
+    apply("A");
+    apply("B");
+
+    // Master volume
+    const master = masterGainRef.current;
+    if (master) {
+      const now = master.context.currentTime;
+      master.gain.setTargetAtTime(knobs.volume, now, 0.05);
+    }
+  }, [knobs]);
 
   // Playback event listeners + revibe scheduling
   useEffect(() => {
