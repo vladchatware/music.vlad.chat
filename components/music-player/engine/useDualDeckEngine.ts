@@ -185,6 +185,9 @@ export function useDualDeckEngine(opts: {
     await unlockAudio();
     await audio.play();
     actions.dispatchEngine({ type: "PLAYING" });
+
+    // @ts-ignore OBS
+    window.obsstudio?.startRecording();
   }, [actions, getActiveDeck, unlockAudio]);
 
   const pauseActiveDeck = useCallback(() => {
@@ -192,6 +195,9 @@ export function useDualDeckEngine(opts: {
     if (!audio) return;
     audio.pause();
     actions.dispatchEngine({ type: "PAUSED" });
+
+    // @ts-ignore OBS
+    window.obsstudio?.stopRecording();
   }, [actions, getActiveDeck]);
 
   const togglePlay = useCallback(async () => {
@@ -274,6 +280,9 @@ export function useDualDeckEngine(opts: {
         return;
       }
 
+      // @ts-ignore OBS
+      window.obsstudio?.startRecording();
+
       activeDeckRef.current = isAActive ? "B" : "A";
       actions.setActiveTrack({ ...nextTrack });
       actions.dispatchEngine({ type: "PLAYING" });
@@ -350,7 +359,7 @@ export function useDualDeckEngine(opts: {
         } else {
           try {
             currentDeck.pause();
-          } catch {}
+          } catch { }
           if (currentGain && nextGain) {
             currentGain.gain.value = 0;
             nextGain.gain.value = 1;
@@ -365,6 +374,11 @@ export function useDualDeckEngine(opts: {
           bpmDetectorRef.current?.reset();
           actions.dispatchEngine({ type: "CROSSFADE_END" });
           actions.resetTransition();
+
+          // @ts-ignore OBS
+          window.obsstudio?.stopRecording();
+          // @ts-ignore OBS
+          setTimeout(() => window.obsstudio?.startRecording(), 1000);
         }
       };
 
@@ -419,7 +433,7 @@ export function useDualDeckEngine(opts: {
     try {
       deckA.pause();
       deckB?.pause();
-    } catch {}
+    } catch { }
 
     if (deckAGainRef.current) deckAGainRef.current.gain.value = 1;
     if (deckBGainRef.current) deckBGainRef.current.gain.value = 0;
@@ -614,7 +628,7 @@ export function useDualDeckEngine(opts: {
       try {
         deckA.pause();
         deckB.pause();
-      } catch {}
+      } catch { }
 
       analyzerRef.current = null;
       cueAnalyzerRef.current = null;
@@ -654,15 +668,23 @@ export function useDualDeckEngine(opts: {
       const audio = e.target as HTMLAudioElement;
       const isAActive = activeDeckRef.current === "A";
       const currentDeck = isAActive ? deckARef.current : deckBRef.current;
-      if (audio === currentDeck && nextTrackReadyRef.current && !crossfadeInProgressRef.current) {
+
+      if (audio !== currentDeck) return;
+
+      const isTransitioning = crossfadeInProgressRef.current || (nextTrackReadyRef.current && waitingForBeatRef.current);
+
+      if (nextTrackReadyRef.current && !crossfadeInProgressRef.current) {
         await crossfadeToCuedTrack({ wasTrackEnded: true });
-      } else if (audio === currentDeck && waitingForBeatRef.current) {
+      } else if (waitingForBeatRef.current) {
         trackEndedWhileCueingRef.current = true;
-      } else if (audio === currentDeck && !crossfadeInProgressRef.current) {
+      } else if (!crossfadeInProgressRef.current) {
         if (onRevibeRef.current) await onRevibeRef.current(e);
       }
-      // @ts-ignore OBS
-      window.obsstudio?.stopRecording();
+
+      if (!isTransitioning) {
+        // @ts-ignore OBS
+        window.obsstudio?.stopRecording();
+      }
     };
 
     const handleTimeUpdate = async (e: Event) => {
