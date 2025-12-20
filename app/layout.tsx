@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ConvexAuthNextjsServerProvider>
-      <html lang="en" style={{ height: '100%', width: '100%', overflow: 'hidden' }}>
+      <html lang="en" suppressHydrationWarning style={{ height: '100%', width: '100%', overflow: 'hidden' }}>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
           <meta name="apple-mobile-web-app-capable" content="yes" />

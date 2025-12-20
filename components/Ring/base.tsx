@@ -9,6 +9,8 @@ import {
 } from "@/lib/mappers/coordinateMappers/common";
 import { useFrame } from "@react-three/fiber";
 import { type Points } from "three";
+import { useMusicPlayerStore } from "../music-player/store/useMusicPlayerStore";
+import { useShallow } from "zustand/react/shallow";
 
 const BaseDiffusedRing = ({
   coordinateMapper,
@@ -34,12 +36,27 @@ const BaseDiffusedRing = ({
   const noise = Array.from({ length: nPoints }).map(gaussianRandom);
   const refPoints = useRef<Points>(null!);
 
+  const { section, overallEnergy } = useMusicPlayerStore(
+    useShallow((s) => ({
+      section: s.analysis.section,
+      overallEnergy: s.analysis.overallEnergy,
+    }))
+  );
+
   useFrame(({ clock }) => {
     //in ms
     const elapsedTimeSec = clock.getElapsedTime();
     let effectiveRadius, normIdx, angRad;
     const positionsBuffer = refPoints.current.geometry.attributes.position;
     const colorsBuffer = refPoints.current.geometry.attributes.color;
+
+    const intensity = section === 'culmination' ? 1.4 : section === 'comeup' ? 1.2 : 1.0;
+    const dynamicRadius = radius * intensity;
+
+    // Pulse point size based on energy
+    if (refPoints.current.material) {
+      (refPoints.current.material as any).size = pointSize * (1 + overallEnergy * 0.5 * intensity);
+    }
 
     const hasHighlight =
       Number.isFinite(highlightStart01) &&
@@ -65,7 +82,7 @@ const BaseDiffusedRing = ({
     for (let i = 0; i < nPoints; i++) {
       normIdx = i / (nPoints - 1);
       effectiveRadius =
-        radius *
+        dynamicRadius *
         (1 +
           noise[i] *
           coordinateMapper.map(
@@ -74,7 +91,7 @@ const BaseDiffusedRing = ({
             0,
             0,
             elapsedTimeSec,
-          ));
+          ) * intensity);
 
       angRad = normIdx * TWO_PI;
       positionsBuffer.setXYZ(
@@ -98,7 +115,14 @@ const BaseDiffusedRing = ({
             baseB * (1 - a) + highlightColor[2] * a,
           );
         } else {
-          colorsBuffer.setXYZ(i, baseR, baseG, baseB);
+          // Add subtle color based on energy
+          const energyBoost = overallEnergy * 0.2 * (section === 'culmination' ? 1.5 : 1.0);
+          colorsBuffer.setXYZ(
+            i,
+            baseR,
+            baseG - energyBoost,
+            baseB - energyBoost
+          ); // Slightly redder when energetic
         }
       }
     }

@@ -148,21 +148,22 @@ export function useAudioAnalysis(opts: {
         isStill: isStillNow || isSignificantStill,
       });
 
-      // Publish to store at a modest cadence (avoid hammering React with per-frame updates)
-      if (now - lastPublishRef.current > 150) {
-        lastPublishRef.current = now;
-        const actions = useMusicPlayerStore.getState().actions;
-        actions.setAnalysis({
-          overallEnergy: audioEnergyRef.current,
-          bassEnergy,
-          stillDurationMs: stillDuration,
-          dropDetected,
-          transitionSignal,
-          transitionSignalReason,
-          section,
-          lastTransitionSignalAtMs: transitionSignal ? now : useMusicPlayerStore.getState().analysis.lastTransitionSignalAtMs,
-        });
-      } else if (section !== lastSectionRef.current) {
+      // Publish to store on every frame for smooth rhythmic visuals
+      const actions = useMusicPlayerStore.getState().actions;
+      actions.setAnalysis({
+        overallEnergy: audioEnergyRef.current,
+        bassEnergy,
+        beatPhase: bpmDetectorRef.current?.getBeatPhase() || 0,
+        bpm: bpmDetectorRef.current?.getBPM() || null,
+        stillDurationMs: stillDuration,
+        dropDetected,
+        transitionSignal,
+        transitionSignalReason,
+        section,
+        lastTransitionSignalAtMs: transitionSignal ? now : useMusicPlayerStore.getState().analysis.lastTransitionSignalAtMs,
+      });
+
+      if (section !== lastSectionRef.current) {
         lastSectionRef.current = section;
       }
 

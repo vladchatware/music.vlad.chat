@@ -30,6 +30,7 @@ export type MusicPlayerStore = {
     section: TrackSection;
     overallEnergy: number;
     bassEnergy: number;
+    beatPhase: number;
     stillDurationMs: number;
     dropDetected: boolean;
     transitionSignal: boolean;
@@ -99,6 +100,7 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
     section: "unknown",
     overallEnergy: 0,
     bassEnergy: 0,
+    beatPhase: 0,
     stillDurationMs: 0,
     dropDetected: false,
     transitionSignal: false,
@@ -226,6 +228,7 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
             section: "unknown",
             overallEnergy: 0,
             bassEnergy: 0,
+            beatPhase: 0,
             stillDurationMs: 0,
             dropDetected: false,
             transitionSignal: false,

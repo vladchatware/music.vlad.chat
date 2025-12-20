@@ -2,6 +2,7 @@ import { shaderMaterial } from "@react-three/drei";
 import { useThree, useFrame, extend, type ThreeElement } from "@react-three/fiber";
 import { useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
+import { useMusicPlayerStore } from "./music-player/store/useMusicPlayerStore";
 
 
 /**
@@ -19,6 +20,7 @@ const FluidMaterial = shaderMaterial(
     uColor2: new THREE.Color("#FF4500"),
     uColor3: new THREE.Color("#FF8C00"),
     uColor4: new THREE.Color("#FFD700"),
+    uBeatPhase: 0,
   },
   // Vertex Shader
   `
@@ -38,6 +40,7 @@ const FluidMaterial = shaderMaterial(
   uniform vec3 uColor2;
   uniform vec3 uColor3;
   uniform vec3 uColor4;
+  uniform float uBeatPhase;
   varying vec2 vUv;
 
   // Simple noise function
@@ -116,6 +119,10 @@ const FluidMaterial = shaderMaterial(
     // Audio energy pulse - subtle glow
     color += uAudioEnergy * 0.1 * uColor4;
 
+    // Rhythmic thump on the beat
+    float thump = exp(-uBeatPhase * 4.0) * 0.15;
+    color += thump * uColor2;
+
     // Enhanced movement indication: streaks become more chaotic and faster during transition
     float flowSpeed = 2.0 + uAudioEnergy * 6.0 + uTransitionProgress * 10.0;
     float streakChaos = 60.0 + uTransitionProgress * 100.0;
@@ -170,6 +177,9 @@ export default function BackgroundImageCover({
       materialRef.current.uColor3.copy(palette[2]);
       materialRef.current.uColor4.copy(palette[3]);
     }
+
+    const beatPhase = useMusicPlayerStore.getState().analysis.beatPhase;
+    materialRef.current.uBeatPhase = beatPhase;
 
     meshRef.current.position.set(0, 0, -10);
     meshRef.current.rotation.set(0, 0, -Math.PI / 2);
