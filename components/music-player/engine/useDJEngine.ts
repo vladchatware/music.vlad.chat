@@ -698,7 +698,6 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     if (onTrackAnalyzed) {
       onTrackAnalyzed(compatibility);
     }
-    
     return compatibility;
   }, [getActiveDeckElement, getInactiveDeckElement, getActiveAnalyzer, getInactiveAnalyzer, getInactiveEQ, onTrackAnalyzed]);
 

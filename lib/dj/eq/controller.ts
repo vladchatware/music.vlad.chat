@@ -137,6 +137,8 @@ export class EQController {
    * Values > 1 are clamped to unity (no boost supported).
    */
   private normalizedToDb(normalized: Normalized): number {
+    // Guard against undefined, NaN, or non-finite values
+    if (normalized == null || !Number.isFinite(normalized)) return 0;
     if (normalized <= 0) return -96; // Effectively muted
     if (normalized >= 1) return 0;   // Unity gain (clamped, no boost)
     
@@ -147,14 +149,20 @@ export class EQController {
   
   /**
    * Set the EQ band values directly.
+   * Merges with current values for any undefined fields.
    */
-  setBand(band: EQBand): void {
-    this._currentBand = band;
+  setBand(band: Partial<EQBand>): void {
+    // Merge with current band to handle partial updates
+    this._currentBand = {
+      low: band.low ?? this._currentBand.low,
+      mid: band.mid ?? this._currentBand.mid,
+      high: band.high ?? this._currentBand.high,
+    };
     
     // Convert normalized values to dB for filters
-    const lowDb = this.normalizedToDb(band.low);
-    const midDb = this.normalizedToDb(band.mid);
-    const highDb = this.normalizedToDb(band.high);
+    const lowDb = this.normalizedToDb(this._currentBand.low);
+    const midDb = this.normalizedToDb(this._currentBand.mid);
+    const highDb = this.normalizedToDb(this._currentBand.high);
     
     // Apply to filters
     const now = this._audioContext.currentTime;
