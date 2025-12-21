@@ -4,7 +4,7 @@ import React, { type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Fullscreen } from "@react-three/uikit";
 import { Defaults } from "@react-three/uikit-default";
-import { CubeCamera, Environment, SoftShadows } from "@react-three/drei";
+import { CubeCamera, Environment, SoftShadows, Text } from "@react-three/drei";
 
 import { PhysicalGrid } from "@/components/PhysicalGrid";
 import { Rig } from "@/components/Rig";
@@ -20,9 +20,10 @@ export function MusicPlayerScene(props: {
   coordinateMapper: CoordinateMapper_Data;
   audioEnergyRef: React.MutableRefObject<number>;
   transitionHighlight?: { start01: number; end01: number; intensity?: number } | null;
+  backgroundPrompt?: string;
   children: ReactNode;
 }) {
-  const { initialTrackId, coordinateMapper, audioEnergyRef, transitionHighlight, children } = props;
+  const { initialTrackId, coordinateMapper, audioEnergyRef, transitionHighlight, backgroundPrompt, children } = props;
   const { palette } = useMusicPlayerStore(useShallow((s) => ({ palette: s.palette })));
 
 
@@ -67,6 +68,30 @@ export function MusicPlayerScene(props: {
         </Fullscreen>
 
         <Rig audioLevelRef={audioEnergyRef} />
+
+        {/* Background DJ Context Text */}
+        {backgroundPrompt && (
+          <Text
+            position={[-12, -4, -2]}
+            rotation={[-Math.PI / 6, Math.PI / 8, 0]} // Perspectival tilt
+            fontSize={0.6}
+            maxWidth={10}
+            lineHeight={1.4}
+            textAlign="left"
+            anchorX="left"
+            anchorY="bottom"
+          >
+            {backgroundPrompt}
+            <meshStandardMaterial
+              color="white"
+              emissive="white"
+              emissiveIntensity={2.5}
+              transparent
+              opacity={0.6}
+            />
+          </Text>
+        )}
+
         <BaseDiffusedRing
           coordinateMapper={coordinateMapper}
           radius={2.8}

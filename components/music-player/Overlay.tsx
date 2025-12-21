@@ -8,7 +8,7 @@ import { type UIMessage } from "@ai-sdk/react";
 
 import { MotionControl } from "./MotionControl";
 
-function getLastMessage(messages: UIMessage[]) {
+export function getLastMessage(messages: UIMessage[]) {
   const userMessages = messages.filter((m) => m.role === "user");
   const lastMessage = userMessages[userMessages.length - 1];
   if (!lastMessage) return "";
@@ -75,13 +75,6 @@ export function MusicPlayerOverlay(props: {
       </Container>
 
       <Container flexDirection="column" alignItems="center" gap={16}>
-        <Container backgroundColor="rgb(4, 16, 22)" borderRadius={8}>
-          <Text color="white" padding={16}>
-            {getLastMessage(messages) ||
-              `Hello, I am a virtual DJ, let me play some music.`}
-          </Text>
-        </Container>
-
         <Container gap={16}>
           <Button onClick={onRevibe} disabled={status === "streaming"}>
             <Text>{buttonLabel}</Text>

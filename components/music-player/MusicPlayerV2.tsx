@@ -22,7 +22,7 @@ import { fetchTrack, streamTrack } from "@/lib/soundcloud";
 import { CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
 
 import { MusicPlayerScene } from "./Scene";
-import { MusicPlayerOverlay } from "./Overlay";
+import { MusicPlayerOverlay, getLastMessage } from "./Overlay";
 import { useRevibeChat } from "./chat/useRevibeChat";
 import { buildRevibePrompt } from "./chat/prompt";
 import { type SoundCloudTrack } from "./types";
@@ -48,7 +48,7 @@ function buildDJStatePrompt(opts: {
   harmonicMode: string;
 }): string {
   const lines: string[] = [];
-  
+
   // Current track info
   if (opts.track) {
     lines.push(`CURRENT TRACK: "${opts.track.title}" by ${opts.track.user?.username || opts.track.user?.full_name || 'Unknown'}`);
@@ -59,26 +59,26 @@ function buildDJStatePrompt(opts: {
   } else {
     lines.push("CURRENT TRACK: None loaded");
   }
-  
+
   lines.push('');
-  
+
   // Real-time analysis
   lines.push(`ANALYSIS:`);
   lines.push(`  Section: ${opts.section}`);
   lines.push(`  Energy: ${opts.overallEnergy}%`);
   lines.push(`  Bass Energy: ${opts.bassEnergy}%`);
-  
+
   lines.push('');
-  
+
   // Current settings
   lines.push(`CURRENT SETTINGS:`);
   lines.push(`  Vibe: ${opts.vibe}`);
   lines.push(`  Mix Intensity: ${opts.mixIntensity}`);
   lines.push(`  Harmonic Mode: ${opts.harmonicMode}`);
-  
+
   lines.push('');
   lines.push('Select the next track and schedule the transition using scheduleActions.');
-  
+
   return lines.join('\n');
 }
 
@@ -109,10 +109,10 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   const latestOnRevibeRef = useRef<
     ((e: Event | ThreeEvent<MouseEvent>) => Promise<void> | void) | null
   >(null);
-  
+
   // Revibe lock to prevent race conditions
   const revibeInProgressRef = useRef(false);
-  
+
   // Track compatibility state for two-phase workflow
   const pendingCompatibilityRef = useRef<{
     trackId: number;
@@ -130,8 +130,8 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     onTrackAnalyzed: (compatibility) => {
       // Store compatibility for use in the second AI message
       const storeState = useMusicPlayerStore.getState();
-      const incomingTrack = engine.djState.type === 'cueing' 
-        ? (storeState.trackB?.id || storeState.trackA?.id) 
+      const incomingTrack = engine.djState.type === 'cueing'
+        ? (storeState.trackB?.id || storeState.trackA?.id)
         : null;
       if (incomingTrack) {
         pendingCompatibilityRef.current = {
@@ -139,7 +139,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
           compatibility,
         };
       }
-      console.log('[DJ] Track analyzed:', compatibility.isGoodMatch ? 'GOOD MATCH' : 'POOR MATCH', 
+      console.log('[DJ] Track analyzed:', compatibility.isGoodMatch ? 'GOOD MATCH' : 'POOR MATCH',
         `score=${(compatibility.score * 100).toFixed(0)}%`);
     },
   });
@@ -205,7 +205,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   const onPlayerToolRequested = useCallback(
     async (id: number, startAtSec?: number): Promise<string> => {
       const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
-      
+
       // Store start position for the incoming track (will be used when crossfade starts)
       if (startAtSec && startAtSec > 0) {
         (newTrack as any)._startAtSec = startAtSec;
@@ -213,22 +213,22 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
 
       if (isPlaying) {
         await cueNextTrack(newTrack);
-        
+
         // Wait for track analysis to complete (up to 4 seconds)
         await new Promise(resolve => setTimeout(resolve, 4000));
-        
+
         // Check compatibility and build report as tool result (NOT a separate message)
         const compatibility = engine.getTrackCompatibility?.();
-        
+
         // Build compatibility report for tool result
         const playback = useMusicPlayerStore.getState().playback;
         const currentTime = playback.currentTimeSec;
         const duration = playback.durationSec;
-        
+
         const lines: string[] = [];
         lines.push(`Track cued: "${newTrack.title}" by ${newTrack.user?.username || 'Unknown'}`);
         lines.push(`BPM: ${newTrack.bpm || 'unknown'}, Key: ${(newTrack as any).key_signature || 'unknown'}`);
-        
+
         if (compatibility) {
           lines.push('');
           lines.push('=== TRACK ANALYSIS COMPLETE ===');
@@ -236,20 +236,20 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
           lines.push(`  - Harmonic: ${(compatibility.harmonicScore * 100).toFixed(0)}%`);
           lines.push(`  - Tempo: ${(compatibility.tempoScore * 100).toFixed(0)}%`);
           lines.push(`  - Energy: ${(compatibility.energyScore * 100).toFixed(0)}%`);
-          
+
           if (compatibility.issues.length > 0) {
             lines.push('');
             lines.push('ISSUES:');
             compatibility.issues.forEach(issue => lines.push(`  ⚠ ${issue}`));
           }
-          
+
           lines.push('');
           lines.push('RECOMMENDED TRANSITION:');
           lines.push(`  Exit current track at: ${compatibility.optimalTransitionPoint.toFixed(1)}s`);
           lines.push(`  Start incoming track at: ${compatibility.analyzedStartPosition.toFixed(1)}s`);
           lines.push(`  Current position: ${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s`);
           lines.push(`  Time until transition: ${(compatibility.optimalTransitionPoint - currentTime).toFixed(1)}s`);
-          
+
           if (!compatibility.isGoodMatch) {
             lines.push('');
             lines.push('⚠ POOR MATCH - Consider rejectTrack for a different selection, or use longer crossfade with aggressive EQ.');
@@ -258,14 +258,14 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
             lines.push('✓ GOOD MATCH - Use scheduleActions to plan the transition.');
           }
         }
-        
+
         // Fallback: If AI didn't schedule actions within a reasonable time, create default
         setTimeout(() => {
           const playback = useMusicPlayerStore.getState().playback;
           const currentTime = playback.currentTimeSec;
           const duration = playback.durationSec;
           const timeLeft = duration - currentTime;
-          
+
           // Check if AI has scheduled anything
           if (timeLeft > 15 && timeLeft < 60 && engine.scheduleActions) {
             const crossfadeStart = Math.max(currentTime + 5, duration - 20);
@@ -275,15 +275,15 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
             ]);
           }
         }, 30000); // Give AI 30 seconds to respond
-        
+
         // Clear revibe lock after track loads
         revibeInProgressRef.current = false;
-        
+
         return lines.join('\n');
       } else {
         await loadInitialTrack(newTrack);
         await play();
-        
+
         // Clear revibe lock after track loads
         revibeInProgressRef.current = false;
         return `Playing ${newTrack.title}`;
@@ -291,7 +291,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     },
     [cueNextTrack, isPlaying, loadInitialTrack, play, engine],
   );
-  
+
   // Handle scheduled actions from AI
   const onScheduleActions = useCallback((actions: Array<{ atSec: number; action: string; params?: Record<string, any> }>) => {
     // Pass to DJ engine for scheduled execution
@@ -329,11 +329,15 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     }
   }, [engine]);
 
-  const { messages, sendMessage, status } = useRevibeChat({ 
+  const { messages, sendMessage, status } = useRevibeChat({
     onPlayerToolRequested,
     onScheduleActions,
     onRejectTrack,
   });
+
+  const backgroundPrompt = useMemo(() => {
+    return getLastMessage(messages) || "Hello, I am a virtual DJ, let me play some music.";
+  }, [messages]);
 
   // Lock-screen / headset controls + metadata where supported.
   useEffect(() => {
@@ -423,7 +427,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       const agentSettings = useAgentDJStore.getState().settings;
       const analysis = playerState.analysis;
       const playbackState = playerState.playback;
-      
+
       const stateContext = buildDJStatePrompt({
         track: currentTrack,
         detectedBpm,
@@ -489,6 +493,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
         coordinateMapper={coordinateMapper}
         audioEnergyRef={audioEnergyRef}
         transitionHighlight={transitionHighlight}
+        backgroundPrompt={backgroundPrompt}
       >
         <MusicPlayerOverlay
           isAuthenticated={isAuthenticated}
