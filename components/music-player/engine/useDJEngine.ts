@@ -27,6 +27,7 @@ import {
   type AnalysisSnapshot,
   type BeatGrid,
   type EnergyCurve,
+  type CamelotKey,
   djReducer,
   getInitialDJState,
   isTrackPlaying,
@@ -40,6 +41,17 @@ import {
   EQController,
   createBassSwapCurve,
   DEFAULT_ANALYSIS_SNAPSHOT,
+  // Harmonic & tempo matching
+  parseKey,
+  getCompatibility,
+  isTempoMatchFeasible,
+  // Agent controls
+  useAgentDJStore,
+  type AgentDJSettings,
+  type VibeDirection,
+  type MixIntensity,
+  mapAgentSettingsToTransitionOptions,
+  isGoodTransitionMomentForVibe,
 } from "@/lib/dj";
 
 // Existing infrastructure imports
@@ -56,9 +68,38 @@ import type { SoundCloudTrack } from "../types";
 const AUTO_REVIBE_COOLDOWN_MS = 45000;
 const AUTO_REVIBE_MIN_PLAY_SEC = 30;
 
+// Scheduled action from AI
+interface ScheduledAction {
+  atSec: number;
+  action: string;
+  params?: Record<string, any>;
+  executed: boolean;
+}
+
+// Compatibility analysis result for incoming track
+export interface TrackCompatibility {
+  isGoodMatch: boolean;
+  score: number; // 0-1, higher is better
+  issues: string[]; // Human-readable issues
+  suggestions: string[]; // Suggestions for AI
+  harmonicScore: number;
+  tempoScore: number;
+  energyScore: number;
+  optimalTransitionPoint: number; // Suggested exit point on current track (seconds)
+  analyzedStartPosition: number; // Optimal start position on incoming track
+}
+
 interface UseDJEngineOptions {
   isIOS: boolean;
   onRequestNextTrack?: () => Promise<void>;
+  onTrackAnalyzed?: (compatibility: TrackCompatibility) => void;
+}
+
+// Track info passed to analyzeIncomingTrack for accurate compatibility
+interface TrackInfo {
+  bpm?: number;
+  key_signature?: string;
+  title?: string;
 }
 
 interface DJEngineState {
@@ -145,12 +186,15 @@ function sectionToAnalysis(
 // =============================================================================
 
 export function useDJEngine(opts: UseDJEngineOptions) {
-  const { isIOS, onRequestNextTrack } = opts;
+  const { isIOS, onRequestNextTrack, onTrackAnalyzed } = opts;
   // Initialize state with reducer
   const [engineState, dispatch] = useReducer(djEngineReducer, {
     djState: getInitialDJState(),
     isIOS,
   });
+  
+  // Track compatibility state for cued track
+  const trackCompatibilityRef = useRef<TrackCompatibility | null>(null);
   // Refs for audio elements and Web Audio nodes
   const deckARef = useRef<HTMLAudioElement | null>(null);
   const deckBRef = useRef<HTMLAudioElement | null>(null);
@@ -176,6 +220,12 @@ export function useDJEngine(opts: UseDJEngineOptions) {
 
   // Track ended while cueing - enables immediate crossfade when cued track loads
   const trackEndedWhileCueingRef = useRef<boolean>(false);
+
+  // Scheduled actions from AI for precise timestamp-based execution
+  const scheduledActionsRef = useRef<ScheduledAction[]>([]);
+
+  // Ref to hold startCrossfade function (to avoid circular dependency)
+  const startCrossfadeRef = useRef<(() => Promise<void>) | null>(null);
 
   // Connect to existing store for compatibility
   const { actions } = useMusicPlayerStore(
@@ -328,6 +378,49 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   }, []);
 
   // ==========================================================================
+  // Agent DJ Controls Integration
+  // ==========================================================================
+
+  useEffect(() => {
+    // Subscribe to agent DJ settings changes and apply them to the engine
+    const unsubscribe = useAgentDJStore.subscribe((state) => {
+      const settings = state.settings;
+      
+      // Apply EQ settings to deck controllers
+      const eqA = eqControllerARef.current;
+      const eqB = eqControllerBRef.current;
+      
+      if (eqA) {
+        eqA.setBand({
+          low: settings.eq.deckA.low,
+          mid: settings.eq.deckA.mid,
+          high: settings.eq.deckA.high,
+        });
+      }
+      
+      if (eqB) {
+        eqB.setBand({
+          low: settings.eq.deckB.low,
+          mid: settings.eq.deckB.mid,
+          high: settings.eq.deckB.high,
+        });
+      }
+      
+      // Apply tempo adjustment to active deck
+      const activeDeck = activeDeckRef.current === 'A' ? deckARef.current : deckBRef.current;
+      if (activeDeck && settings.tempoAdjustment !== 0) {
+        // Tempo adjustment is stored as -0.08 to +0.08, apply as playback rate multiplier
+        const newRate = 1 + settings.tempoAdjustment;
+        activeDeck.playbackRate = newRate;
+      }
+    });
+    
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // ==========================================================================
   // Playback Controls
   // ==========================================================================
 
@@ -409,6 +502,206 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     actions.setActiveTrack(track);
   }, [loadTrack, actions]);
 
+  // Ref to store analyzed start position for incoming track
+  const analyzedStartPositionRef = useRef<number>(0);
+  
+  // Analyze the incoming track for compatibility and find optimal positions
+  // Now accepts explicit track info to avoid store timing issues
+  const analyzeIncomingTrack = useCallback(async (incomingTrackInfo?: TrackInfo): Promise<TrackCompatibility> => {
+    const activeDeck = getActiveDeckElement();
+    const inactiveDeck = getInactiveDeckElement();
+    const activeAnalyzer = getActiveAnalyzer();
+    const inactiveAnalyzer = getInactiveAnalyzer();
+    const inactiveEQ = getInactiveEQ();
+    
+    const storeState = useMusicPlayerStore.getState();
+    const activeTrackData = activeDeckRef.current === 'A' ? storeState.trackA : storeState.trackB;
+    // Use explicit track info if provided, otherwise fall back to store
+    const incomingTrackData = incomingTrackInfo || (activeDeckRef.current === 'A' ? storeState.trackB : storeState.trackA);
+    
+    const issues: string[] = [];
+    const suggestions: string[] = [];
+    let harmonicScore = 0.5;
+    let tempoScore = 0.5;
+    let energyScore = 0.5;
+    let optimalStart = 0;
+    let optimalTransitionPoint = activeDeck?.duration ? activeDeck.duration * 0.8 : 180; // Default: 80% of track
+    
+    // 1. Harmonic compatibility check
+    const activeKey = (activeTrackData as any)?.key_signature;
+    const incomingKey = incomingTrackInfo?.key_signature || (incomingTrackData as any)?.key_signature;
+    
+    if (activeKey && incomingKey) {
+      const activeCamelot = parseKey(activeKey);
+      const incomingCamelot = parseKey(incomingKey);
+      
+      if (activeCamelot && incomingCamelot) {
+        const harmonic = getCompatibility(activeCamelot, incomingCamelot);
+        harmonicScore = harmonic.compatibility;
+        
+        if (!harmonic.recommended) {
+          issues.push(`Key clash: ${activeKey} → ${incomingKey} (${harmonic.relationship})`);
+          if (harmonic.suggestedPitchShift !== 0) {
+            suggestions.push(`Consider pitch shift of ${harmonic.suggestedPitchShift} semitones`);
+          }
+          suggestions.push('Consider picking a track in a compatible key');
+        }
+      }
+    } else {
+      suggestions.push('Key information missing - harmonic compatibility unknown');
+    }
+    
+    // 2. Tempo compatibility check
+    const activeBpm = (activeTrackData as any)?.bpm || bpmDetectorRef.current?.getBPM();
+    const incomingBpm = incomingTrackInfo?.bpm || (incomingTrackData as any)?.bpm;
+    
+    if (activeBpm && incomingBpm) {
+      const tempoFeasible = isTempoMatchFeasible(activeBpm, incomingBpm);
+      const bpmDiff = Math.abs(activeBpm - incomingBpm);
+      const bpmRatio = Math.min(activeBpm, incomingBpm) / Math.max(activeBpm, incomingBpm);
+      
+      // Score based on how close the BPMs are (within ±8% is great)
+      tempoScore = tempoFeasible ? Math.max(0.3, 1 - (bpmDiff / activeBpm) * 2) : 0.2;
+      
+      if (!tempoFeasible) {
+        issues.push(`Large tempo gap: ${activeBpm} → ${incomingBpm} BPM (${bpmDiff.toFixed(0)} difference)`);
+        suggestions.push('Consider a track with similar BPM');
+      } else if (bpmDiff > 10) {
+        issues.push(`Tempo adjustment needed: ${bpmDiff.toFixed(1)} BPM difference`);
+      }
+    }
+    
+    // 3. Analyze incoming track for optimal start position (find end of intro)
+    if (inactiveDeck && inactiveAnalyzer && inactiveDeck.duration) {
+      // Mute during analysis
+      if (inactiveEQ) {
+        inactiveEQ.setBand({ low: 0, mid: 0, high: 0 });
+      }
+      
+      inactiveDeck.playbackRate = 4.0;
+      inactiveDeck.currentTime = 0;
+      
+      try {
+        await inactiveDeck.play();
+        
+        // Analyze for up to 3 seconds real-time (= 12 seconds of audio at 4x)
+        let foundEnergy = false;
+        const analysisStartTime = performance.now();
+        const maxAnalysisMs = 3000;
+        
+        await new Promise<void>((resolve) => {
+          const analyzeFrame = () => {
+            const elapsed = performance.now() - analysisStartTime;
+            const energy = inactiveAnalyzer.getEnergy('overall');
+            const bassEnergy = inactiveAnalyzer.getEnergy('bass');
+            
+            // Store energy for comparison
+            energyScore = Math.max(energyScore, energy);
+            
+            // Find end of intro (first high-energy section)
+            if (!foundEnergy && (energy > 0.3 || bassEnergy > 0.4)) {
+              foundEnergy = true;
+              optimalStart = Math.max(0, inactiveDeck.currentTime - 2);
+            }
+            
+            if (elapsed < maxAnalysisMs && inactiveDeck.currentTime < 60) {
+              requestAnimationFrame(analyzeFrame);
+            } else {
+              resolve();
+            }
+          };
+          requestAnimationFrame(analyzeFrame);
+        });
+        
+        // Cleanup
+        inactiveDeck.pause();
+        inactiveDeck.currentTime = 0;
+        inactiveDeck.playbackRate = 1.0;
+        if (inactiveEQ) inactiveEQ.reset();
+        
+        if (!foundEnergy && inactiveDeck.duration > 60) {
+          // Long intro, suggest skipping
+          optimalStart = 30;
+          suggestions.push(`Long intro detected - will skip to ${optimalStart}s`);
+        }
+        
+      } catch (err) {
+        console.warn('[DJ Engine] Track analysis failed:', err);
+        inactiveDeck.pause();
+        inactiveDeck.currentTime = 0;
+        inactiveDeck.playbackRate = 1.0;
+        if (inactiveEQ) inactiveEQ.reset();
+      }
+    }
+    
+    // 4. Calculate optimal transition point on current track
+    // Find phrase boundaries before the outro
+    if (activeDeck && activeDeck.duration && activeBpm) {
+      const barDuration = (60 / activeBpm) * 4;
+      const trackDuration = activeDeck.duration;
+      const currentTime = activeDeck.currentTime;
+      
+      // Find next 8-bar or 16-bar boundary
+      const barsPlayed = currentTime / barDuration;
+      const next8Bar = Math.ceil(barsPlayed / 8) * 8 * barDuration;
+      const next16Bar = Math.ceil(barsPlayed / 16) * 16 * barDuration;
+      
+      // Prefer transitioning around 75-85% of track, on a phrase boundary
+      const idealTransitionZone = { start: trackDuration * 0.7, end: trackDuration * 0.9 };
+      
+      if (next16Bar >= idealTransitionZone.start && next16Bar <= idealTransitionZone.end) {
+        optimalTransitionPoint = next16Bar;
+      } else if (next8Bar >= idealTransitionZone.start && next8Bar <= idealTransitionZone.end) {
+        optimalTransitionPoint = next8Bar;
+      } else {
+        // Just use 80% of track
+        optimalTransitionPoint = trackDuration * 0.8;
+      }
+      
+      // Make sure we have enough time (at least 20 seconds from now)
+      if (optimalTransitionPoint - currentTime < 20) {
+        const nextBoundary = next16Bar > currentTime + 20 ? next16Bar : next8Bar + 16 * barDuration;
+        optimalTransitionPoint = Math.min(nextBoundary, trackDuration * 0.9);
+      }
+    }
+    
+    analyzedStartPositionRef.current = optimalStart;
+    
+    // 5. Calculate overall score
+    const overallScore = (harmonicScore * 0.4) + (tempoScore * 0.4) + (energyScore * 0.2);
+    const isGoodMatch = overallScore >= 0.5 && issues.length <= 1;
+    
+    if (!isGoodMatch) {
+      suggestions.push('This track may not mix well - consider an alternative');
+    }
+    
+    const compatibility: TrackCompatibility = {
+      isGoodMatch,
+      score: overallScore,
+      issues,
+      suggestions,
+      harmonicScore,
+      tempoScore,
+      energyScore,
+      optimalTransitionPoint,
+      analyzedStartPosition: optimalStart,
+    };
+    
+    trackCompatibilityRef.current = compatibility;
+    
+    console.log(`[DJ Engine] Track compatibility: score=${(overallScore * 100).toFixed(0)}%, ` +
+      `harmonic=${(harmonicScore * 100).toFixed(0)}%, tempo=${(tempoScore * 100).toFixed(0)}%, ` +
+      `start=${optimalStart.toFixed(1)}s, transition=${optimalTransitionPoint.toFixed(1)}s`);
+    if (issues.length > 0) console.log(`[DJ Engine] Issues:`, issues);
+    
+    // Notify callback
+    if (onTrackAnalyzed) {
+      onTrackAnalyzed(compatibility);
+    }
+    
+    return compatibility;
+  }, [getActiveDeckElement, getInactiveDeckElement, getActiveAnalyzer, getInactiveAnalyzer, getInactiveEQ, onTrackAnalyzed]);
+
   const cueNextTrack = useCallback(async (track: SoundCloudTrack) => {
     // CRITICAL: Don't cue during crossfade - it would disrupt the incoming deck!
     const currentState = engineState.djState.type;
@@ -426,7 +719,15 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     const deckSnapshot = createDeckSnapshot(inactiveDeckId, djTrack, 0, beatGrid, null);
 
     dispatch({ type: 'CUE_READY', deck: deckSnapshot });
-  }, [loadTrack, engineState.djState.type]);
+    
+    // Start analyzing the incoming track to find optimal start position
+    // Pass the track info directly to avoid store timing issues
+    void analyzeIncomingTrack({
+      bpm: (track as any).bpm,
+      key_signature: (track as any).key_signature,
+      title: (track as any).title,
+    });
+  }, [loadTrack, engineState.djState.type, analyzeIncomingTrack]);
 
   // ==========================================================================
   // Transition Management
@@ -437,13 +738,20 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     if (state.type !== 'cueing') return;
 
     const currentTime = getActiveDeckElement()?.currentTime ?? 0;
+    
+    // Get agent settings and map to transition options
+    const agentSettings = useAgentDJStore.getState().settings;
+    const transitionOptions = mapAgentSettingsToTransitionOptions(agentSettings);
 
-    const plan = createTransitionPlan({
-      outgoingDeck: state.activeDeck,
-      incomingDeck: state.cueDeck,
-      currentTimeSec: currentTime,
-      analysis: state.analysis,
-    });
+    const plan = createTransitionPlan(
+      {
+        outgoingDeck: state.activeDeck,
+        incomingDeck: state.cueDeck,
+        currentTimeSec: currentTime,
+        analysis: state.analysis,
+      },
+      transitionOptions
+    );
 
     transitionPlanRef.current = plan;
     dispatch({ type: 'PLAN_TRANSITION', plan });
@@ -477,6 +785,108 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     dispatch({ type: 'CANCEL_TRANSITION' });
   }, [resetTransitionRefs, getInactiveDeckElement, getActiveEQ, getInactiveEQ]);
 
+  // ==========================================================================
+  // Scheduled Actions from AI
+  // ==========================================================================
+
+  const scheduleActions = useCallback((actions: Array<{ atSec: number; action: string; params?: Record<string, any> }>) => {
+    // Add new actions with executed flag
+    const newActions: ScheduledAction[] = actions.map(a => ({
+      ...a,
+      executed: false,
+    }));
+    // Merge with existing scheduled actions (in case AI adds more during transition)
+    scheduledActionsRef.current = [...scheduledActionsRef.current, ...newActions];
+    console.log(`[DJ Engine] Scheduled ${actions.length} actions`);
+  }, []);
+
+  const executeScheduledAction = useCallback((action: ScheduledAction) => {
+    console.log(`[DJ Engine] Executing scheduled action: ${action.action} at ${action.atSec}s`, action.params);
+    const agentActions = useAgentDJStore.getState().actions;
+    
+    switch (action.action) {
+      case 'player':
+        // This will be handled by the AI calling the player tool separately
+        // The scheduler just tracks timing
+        break;
+        
+      case 'startCrossfade':
+        if (engineState.djState.type === 'planned' && startCrossfadeRef.current) {
+          void startCrossfadeRef.current();
+        }
+        break;
+        
+      case 'setEQ': {
+        const params = action.params || {};
+        const deck = params.deck === 'cued' ? 'cued' : 'active';
+        agentActions.setEQ(deck, {
+          low: params.low,
+          mid: params.mid,
+          high: params.high,
+        });
+        break;
+      }
+        
+      case 'setFilter': {
+        const params = action.params || {};
+        const deck = params.deck === 'cued' ? 'cued' : 'active';
+        agentActions.setFilter(deck, {
+          type: params.filterType || 'lowpass',
+          frequency: params.frequency || 1000,
+          resonance: params.resonance || 1,
+          enabled: true,
+        });
+        break;
+      }
+        
+      case 'setTempo':
+        if (action.params?.tempoAdjust !== undefined) {
+          agentActions.setTempoAdjustment(action.params.tempoAdjust);
+        }
+        break;
+        
+      case 'setVibe':
+        if (action.params?.vibe) {
+          agentActions.setVibe(action.params.vibe);
+        }
+        break;
+        
+      case 'setMixIntensity':
+        if (action.params?.intensity) {
+          agentActions.setMixIntensity(action.params.intensity);
+        }
+        break;
+        
+      case 'swapBass': {
+        // Quick bass swap - cut bass on active, boost on incoming
+        const activeEQ = getActiveEQ();
+        const inactiveEQ = getInactiveEQ();
+        if (activeEQ && inactiveEQ) {
+          activeEQ.setBand({ low: 0 });
+          inactiveEQ.setBand({ low: 1 });
+        }
+        break;
+      }
+      
+      case 'cutTrack': {
+        // Hard cut - immediately stop and mute the outgoing track
+        const outgoingDeck = getActiveDeckElement();
+        const outgoingEQ = getActiveEQ();
+        if (outgoingDeck) {
+          outgoingDeck.pause();
+          outgoingDeck.currentTime = 0;
+        }
+        if (outgoingEQ) {
+          outgoingEQ.setBand({ low: 0, mid: 0, high: 0 });
+        }
+        break;
+      }
+        
+      default:
+        console.warn(`[DJ Engine] Unknown scheduled action: ${action.action}`);
+    }
+  }, [engineState.djState.type, getActiveEQ, getInactiveEQ]);
+
   const startCrossfade = useCallback(async () => {
     // Guard against re-entry - check and set atomically
     if (crossfadeStartTimeRef.current !== null) return;
@@ -505,8 +915,15 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       incomingDeck.playbackRate = plan.tempoAdjustment.targetPlaybackRate;
     }
 
-    // Start incoming deck
-    incomingDeck.currentTime = 0;
+    // Determine start position: AI override > analyzed position > 0
+    const storeState = useMusicPlayerStore.getState();
+    const incomingTrack = activeDeckRef.current === 'A' ? storeState.trackB : storeState.trackA;
+    const aiStartAtSec = (incomingTrack as any)?._startAtSec;
+    const analyzedStart = analyzedStartPositionRef.current;
+    const startAtSec = aiStartAtSec ?? analyzedStart ?? 0;
+    
+    console.log(`[DJ Engine] Starting incoming track at ${startAtSec.toFixed(1)}s (AI: ${aiStartAtSec}, analyzed: ${analyzedStart})`);
+    incomingDeck.currentTime = startAtSec;
     await incomingDeck.play();
 
     crossfadeStartTimeRef.current = outgoingDeck.currentTime;
@@ -515,6 +932,11 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     // @ts-ignore OBS
     window.obsstudio?.startRecording();
   }, [engineState.djState, getActiveDeckElement, getInactiveDeckElement, getActiveEQ, getInactiveEQ]);
+
+  // Keep ref updated for scheduled actions to use
+  useEffect(() => {
+    startCrossfadeRef.current = startCrossfade;
+  }, [startCrossfade]);
 
   const completeCrossfade = useCallback(() => {
     const outgoingDeck = getActiveDeckElement();
@@ -558,6 +980,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     energyHistoryRef.current = [];
     revibeTriggeredRef.current = false; // Reset for next auto-revibe
     autoRevibeAtMsRef.current = Date.now(); // Reset cooldown timer for new track
+    scheduledActionsRef.current = []; // Clear scheduled actions for new track
 
     dispatch({ type: 'CROSSFADE_COMPLETE' });
 
@@ -659,22 +1082,50 @@ export function useDJEngine(opts: UseDJEngineOptions) {
         const playedEnough = deckToCheck.currentTime > AUTO_REVIBE_MIN_PLAY_SEC;
         const canAutoRevibe = isNotTransitioning && cooldownPassed && playedEnough && !revibeTriggeredRef.current;
 
-        // Is this a good mix moment?
-        const isGoodMixMoment =
-          section === 'breakdown' ||
-          (section === 'culmination' && bassEnergy > 0.55) ||
-          stillDuration > 900;
+        // Is this a good mix moment? Use agent settings for vibe-aware detection
+        const agentSettings = useAgentDJStore.getState().settings;
+        const isGoodMixMoment = isGoodTransitionMomentForVibe(
+          overallEnergy,
+          bassEnergy,
+          section,
+          dropDetected,
+          agentSettings
+        );
 
         // Near track end? Request early enough for a smooth crossfade
-        const crossfadeDurationSec = 16 * barDurationSec;
-        const requestLeadSec = Math.max(45, crossfadeDurationSec + 8);
+        // Early trigger to allow: cue → analyze → validate → (reject?) → plan → execute
+        // We need at least 2-3 minutes of lead time for the full workflow
         const trackDuration = deckToCheck.duration || 0;
+        
+        // Trigger at 30-35% into the track to give maximum time for analysis and potential rejection
+        const earlyTriggerPoint = trackDuration > 120 && deckToCheck.currentTime > trackDuration * 0.30;
+        
+        // Also trigger if we're running out of time (backup)
+        const intensityMultiplier = agentSettings.intensity === 'aggressive' ? 0.5 :
+                                    agentSettings.intensity === 'smooth' ? 2 : 1;
+        const crossfadeDurationSec = 16 * barDurationSec * intensityMultiplier;
+        const aiLatencyBuffer = 45;
+        const requestLeadSec = Math.max(90, crossfadeDurationSec + aiLatencyBuffer + 20);
         const nearTrackEnd = trackDuration > 20 && deckToCheck.currentTime > trackDuration - requestLeadSec;
-        if (canAutoRevibe && (isGoodMixMoment || nearTrackEnd) && onRequestNextTrack) {
+        
+        const shouldTrigger = earlyTriggerPoint || nearTrackEnd;
+        if (canAutoRevibe && (isGoodMixMoment || shouldTrigger) && onRequestNextTrack) {
           autoRevibeAtMsRef.current = nowMs;
           revibeTriggeredRef.current = true;
           void onRequestNextTrack();
         }
+        
+        // =======================================================================
+        // Execute scheduled actions at precise timestamps
+        // =======================================================================
+        const currentTimeSec = deckToCheck.currentTime;
+        for (const scheduledAction of scheduledActionsRef.current) {
+          if (!scheduledAction.executed && currentTimeSec >= scheduledAction.atSec) {
+            executeScheduledAction(scheduledAction);
+            scheduledAction.executed = true;
+          }
+        }
+        
         // Handle crossfade progress
         if (state.type === 'crossfading' && incomingDeck) {
           // Use incoming deck's currentTime directly as it starts at 0
@@ -729,6 +1180,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     actions,
     completeCrossfade,
     startCrossfade,
+    executeScheduledAction,
   ]);
 
   // ==========================================================================
@@ -809,6 +1261,11 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   // Return Value
   // ==========================================================================
 
+  // Getter for current track compatibility
+  const getTrackCompatibility = useCallback(() => {
+    return trackCompatibilityRef.current;
+  }, []);
+
   return {
     // Element refs
     deckARef,
@@ -821,6 +1278,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     activeDeck: activeDeckSnapshot,
     transitionPlan: transitionPlanRef.current,
     trackEndedWhileCueing: trackEndedWhileCueingRef.current,
+    trackCompatibility: trackCompatibilityRef.current,
 
     // Analysis refs
     analyzerRef,
@@ -835,6 +1293,8 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     planTransition,
     startCrossfade,
     cancelTransition,
+    scheduleActions,
+    getTrackCompatibility,
     // Dispatch for custom events
     dispatch,
   };

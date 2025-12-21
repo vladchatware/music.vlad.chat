@@ -24,3 +24,6 @@ export * from './eq';
 
 // Engine (state machine + planner)
 export * from './engine';
+
+// Agent controls (AI-controlled DJ settings)
+export * from './agent';
