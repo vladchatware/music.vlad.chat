@@ -5,9 +5,8 @@ import * as THREE from "three";
 
 
 /**
- * FluidMaterial
- * A custom shader material that implements domain warping for a fluid effect,
- * responds to audio energy, and adds grain noise.
+ * FluidMaterial - HIGH FIDELITY SPHERE
+ * Restored for smooth lava lamp motion. Removed grain 'dots'.
  */
 const FluidMaterial = shaderMaterial(
   {
@@ -23,8 +22,10 @@ const FluidMaterial = shaderMaterial(
   // Vertex Shader
   `
   varying vec2 vUv;
+  varying vec3 vNormal;
   void main() {
     vUv = uv;
+    vNormal = normalize(normal);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
   `,
@@ -39,13 +40,16 @@ const FluidMaterial = shaderMaterial(
   uniform vec3 uColor3;
   uniform vec3 uColor4;
   varying vec2 vUv;
+  varying vec3 vNormal;
 
-  // Simple noise function
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
   }
 
-  // Value noise
+  float hash1(float n) {
+    return fract(sin(n) * 43758.5453);
+  }
+
   float vnoise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
@@ -57,7 +61,6 @@ const FluidMaterial = shaderMaterial(
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
 
-  // Fractional Brownian Motion
   float fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
@@ -70,68 +73,73 @@ const FluidMaterial = shaderMaterial(
   }
 
   void main() {
-    vec2 uv = vUv;
+    // For a sphere environment, we use spherical coordinates for seamlessness
+    vec2 uv = vec2(atan(vNormal.z, vNormal.x) / (2.0 * 3.14159) + 0.5, acos(vNormal.y) / 3.14159);
+    vec2 fluidUv = uv * 2.0; 
     
-    // Domain warping for fluid effect
-    // Vortex intensity increases with transition progress
-    float vortex = uTransitionProgress * 2.5;
-    vec2 centeredUv = uv - 0.5;
-    float dist = length(centeredUv);
-    float angle = atan(centeredUv.y, centeredUv.x);
-    vec2 vortexUv = uv + vec2(cos(angle + dist * vortex), sin(angle + dist * vortex)) * dist * vortex * 0.2;
+    float energy = clamp(uAudioEnergy, 0.0, 1.0);
+    float transition = clamp(uTransitionProgress, 0.0, 1.0);
+    
+    // Movement speeds for the 'Elevator' effect
+    float lavaSpeed = uTime * 0.1;
+    float elevatorSpeed = uTime * (5.0 + energy * 15.0 + transition * 20.0);
+    float verticalShift = mix(lavaSpeed, elevatorSpeed, energy * 0.7 + transition * 0.3);
 
-    // uTime * 0.1 is base speed
-    // uAudioEnergy adds responsiveness to the beat
-    // uTransitionProgress adds chaos during transitions
-    float time = uTime * 0.15 + uAudioEnergy * 0.12 + uTransitionProgress * 0.8;
-    
-    // Warping step 1 (using vortex distorted Uvs)
+    // Domain warping - High fluidity
+    float warpingIntensity = mix(3.0, 1.5, energy);
+    float flowTime = uTime * 0.08 + energy * 0.1;
+
     vec2 q = vec2(
-        fbm(vortexUv + vec2(0.0, 0.0) + time * 0.5),
-        fbm(vortexUv + vec2(5.2, 1.3) + time * 0.3)
+        fbm(fluidUv + vec2(0.0, 0.0) + flowTime * 0.4),
+        fbm(fluidUv + vec2(5.2, 1.3) + flowTime * 0.2)
     );
     
-    // Warping step 2
     vec2 r = vec2(
-        fbm(vortexUv + 4.0 * q + vec2(1.7, 9.2) + time * 0.4),
-        fbm(vortexUv + 4.0 * q + vec2(8.3, 2.8) + time * 0.2)
+        fbm(fluidUv + warpingIntensity * q + vec2(1.7, 9.2) + flowTime * 0.3),
+        fbm(fluidUv + warpingIntensity * q + vec2(8.3, 2.8) + flowTime * 0.1)
     );
     
-    // Final noise value
-    float f = fbm(vortexUv + 4.0 * r);
+    float f = fbm(fluidUv + warpingIntensity * r);
     
-    // Base color mixing based on warping
-    vec3 color = mix(uColor1, uColor2, clamp((f*f)*4.0, 0.0, 1.0));
-    color = mix(color, uColor3, clamp(length(q), 0.0, 1.0));
-    color = mix(color, uColor4, clamp(length(r.x), 0.0, 1.0));
+    // Richer palette mixing
+    vec3 mixColor1 = mix(uColor1, uColor2, energy * 0.3);
+    vec3 mixColor2 = mix(uColor2, uColor3, transition * 0.3);
+    vec3 mixColor3 = mix(uColor3, uColor4, (energy + transition) * 0.25);
+
+    vec3 color = mix(mixColor1, mixColor2, clamp((f*f)*3.2, 0.0, 1.0));
+    color = mix(color, mixColor3, clamp(length(q), 0.0, 0.8));
+    color = mix(color, uColor4 * 0.85, clamp(length(r.x), 0.0, 1.0));
+
+    // --- Horizontal Elevator Light Smears ---
+    float streakVisibility = smoothstep(0.1, 0.4, energy + transition * 0.5);
+    for(int i = 0; i < 3; i++) {
+        float streakSeed = hash1(float(i) * 21.4 + 4.56);
+        float sSpeed = 1.0 + streakSeed * 2.0;
+        float sPos = fract(uv.y - verticalShift * 0.01 * sSpeed + streakSeed * 15.0);
+        
+        float smearWidth = 0.02 + streakSeed * 0.05;
+        float smear = smoothstep(0.0, smearWidth * 0.5, sPos) * smoothstep(smearWidth, smearWidth * 0.5, sPos);
+        
+        float xRange = smoothstep(0.1, 0.5, hash1(floor(uv.x * (5.0 + streakSeed * 8.0)) + streakSeed));
+        float luminosity = 0.2 + energy * 2.0 + hash1(uTime * 2.0 + streakSeed) * 0.5;
+        
+        color += smear * xRange * luminosity * uColor4 * 0.4 * streakVisibility;
+    }
+
+    // --- Mechanical "Floors" ---
+    float floorFreq = 12.0;
+    float floorPos = fract(uv.y - verticalShift * 0.01);
+    float floorBlock = step(0.99, hash1(floor(uv.x * 20.0) + floor(uv.y * floorFreq - verticalShift * 0.01)));
+    color += floorBlock * uColor3 * (0.2 + energy * 0.8) * streakVisibility;
+
+    // --- Transition "Heat" ---
+    color = mix(color, color * 1.5 + vec3(0.1), transition);
     
-    // Expressive transition: shift to bright gold/white and add 'heat'
-    vec3 transitionPeakColor = vec3(1.0, 0.9, 0.5); // Bright gold/white
-    color = mix(color, color * 1.8 + transitionPeakColor * 0.4, uTransitionProgress);
-    
-    // Flare pulse at the peak of transition
-    float flare = pow(uTransitionProgress, 3.0) * 0.5;
-    color += flare * transitionPeakColor;
-
-    // Audio energy pulse - subtle glow
-    color += uAudioEnergy * 0.1 * uColor4;
-
-    // Enhanced movement indication: streaks become more chaotic and faster during transition
-    float flowSpeed = 2.0 + uAudioEnergy * 6.0 + uTransitionProgress * 10.0;
-    float streakChaos = 60.0 + uTransitionProgress * 100.0;
-    float streaks = sin(uv.y * streakChaos + uTime * 0.2) * sin(uv.x * 15.0 - uTime * flowSpeed);
-    color += max(0.0, streaks) * 0.05 * (1.0 + uAudioEnergy + uTransitionProgress);
-
-    // Grain noise for texture
-    float grain = (hash(gl_FragCoord.xy * 0.01 + uTime * 0.1) - 0.5) * 0.1;
-    color += grain;
-
     gl_FragColor = vec4(color, 1.0);
   }
   `
 );
 
-// Declare the custom material for JSX
 declare module "@react-three/fiber" {
   interface ThreeElements {
     fluidMaterial: ThreeElement<typeof FluidMaterial>;
@@ -149,12 +157,8 @@ export default function BackgroundImageCover({
   transitionHighlight?: { start01: number; end01: number; intensity?: number } | null,
   palette?: THREE.Color[]
 }) {
-  const viewport = useThree((state) => state.viewport);
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<any>(null);
-
-  // Scale up to account for the background being further back than z=0
-  const scaleFactor = 5.0;
 
   useFrame((state, delta) => {
     if (!meshRef.current || !materialRef.current) return;
@@ -170,37 +174,37 @@ export default function BackgroundImageCover({
       materialRef.current.uColor3.copy(palette[2]);
       materialRef.current.uColor4.copy(palette[3]);
     }
-
-    meshRef.current.position.set(0, 0, -10);
-    meshRef.current.rotation.set(0, 0, -Math.PI / 2);
-    meshRef.current.scale.set(viewport.height * scaleFactor, viewport.width * scaleFactor, 1);
   });
 
   return (
-    <>
-      <mesh ref={meshRef}>
-        <planeGeometry />
+    <group>
+      {/* 
+          BACKSIDE SPHERE FLUID
+          renders at full screen resolution in the main scene.
+      */}
+      <mesh ref={meshRef} scale={100}>
+        <sphereGeometry args={[1, 64, 64]} />
         <fluidMaterial
           ref={materialRef}
-          depthWrite={false}
-          toneMapped={false}
-          transparent
+          side={THREE.BackSide}
           uColor1={palette?.[0] || new THREE.Color("#8B1A1A")}
           uColor2={palette?.[1] || new THREE.Color("#FF4500")}
           uColor3={palette?.[2] || new THREE.Color("#FF8C00")}
           uColor4={palette?.[3] || new THREE.Color("#FFD700")}
+          depthWrite={false}
+          toneMapped={false}
         />
       </mesh>
+
+      {/* Invisible shadow catcher plane */}
       <mesh
-        position={[0, 0, -9.9]}
-        scale={[viewport.height * scaleFactor, viewport.width * scaleFactor, 1]}
-        rotation={[0, 0, -Math.PI / 2]}
+        position={[0, 0, -10]}
+        scale={[200, 200, 1]}
         receiveShadow
       >
         <planeGeometry />
-        <shadowMaterial transparent opacity={0.3} />
+        <shadowMaterial transparent opacity={0.2} />
       </mesh>
-    </>
+    </group>
   );
 }
-

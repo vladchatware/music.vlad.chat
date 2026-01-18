@@ -54,12 +54,22 @@ export function MusicPlayerOverlay(props: {
         <MotionControl />
       </Container>
 
-      <Container display={isAuthenticated && activeTrack ? "flex" : "none"}>
-        <Card maxWidth={460} width="100%" backgroundColor="rgb(4, 16, 22)">
-          <CardContent gap={16} paddingTop={24}>
-            <Image src={activeTrack?.artwork_url} width="100%" aspectRatio={1} />
+      <Container 
+        display={isAuthenticated && activeTrack ? "flex" : "none"} 
+        marginBottom={20}
+        alignItems="center"
+        justifyContent="center"
+        width="100%"
+      >
+        <Card maxWidth={380} width="100%" backgroundColor="rgb(4, 16, 22)">
+          <CardContent gap={8} paddingTop={16} paddingX={20} paddingBottom={12}>
+            <Image 
+              src={activeTrack?.artwork_url} 
+              width="100%" 
+              aspectRatio={1}
+            />
           </CardContent>
-          <CardHeader>
+          <CardHeader paddingTop={0}>
             <CardTitle>
               <Text color="white" fontWeight="bold">
                 {activeTrack?.title}
@@ -74,7 +84,7 @@ export function MusicPlayerOverlay(props: {
         </Card>
       </Container>
 
-      <Container flexDirection="column" alignItems="center" gap={16}>
+      <Container flexDirection="column" alignItems="center" gap={12} width="100%">
         <Container backgroundColor="rgb(4, 16, 22)" borderRadius={8}>
           <Text color="white" padding={16}>
             {getLastMessage(messages) ||
