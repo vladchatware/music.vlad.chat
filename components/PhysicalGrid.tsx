@@ -118,6 +118,8 @@ export function PhysicalGrid({
           roughness={0.4}
           metalness={0.6}
           emissiveIntensity={1}
+          transparent
+          opacity={0.6}
         />
         {minor.map((data, i) => (
           <Instance
@@ -138,6 +140,8 @@ export function PhysicalGrid({
           roughness={0.3}
           metalness={0.8}
           emissiveIntensity={1}
+          transparent
+          opacity={0.8}
         />
         {major.map((data, i) => (
           <Instance
