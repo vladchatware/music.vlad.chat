@@ -49,11 +49,11 @@ export function MusicPlayerScene({
         powerPreference: "high-performance"
       }}
     >
-      <ambientLight intensity={0.4} />
+      <ambientLight intensity={0.3} />
 
       <spotLight
         decay={0} position={[0, 40, 20]} angle={0.5} penumbra={1}
-        intensity={Math.PI * 2} castShadow
+        intensity={1.5} castShadow
         color="white"
       />
       <SoftShadows size={40} samples={16} />
@@ -74,7 +74,7 @@ export function MusicPlayerScene({
           background={false}
           resolution={1024}
           frames={1}
-          environmentIntensity={1.8}
+          environmentIntensity={0.8}
         >
           <color attach="background" args={["black"]} />
           <mesh scale={100}>
