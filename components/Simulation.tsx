@@ -28,19 +28,21 @@ export function Floating({
   const material = useMemo(() => {
     return (
       <MeshTransmissionMaterial
-        color="white"
-        metalness={0}
-        roughness={0.01}
-        ior={1.8}
-        thickness={0.45}
-        reflectivity={0.45}
-        chromaticAberration={0.1}
-        clearcoat={0.4}
-        resolution={1024}
-        clearcoatRoughness={0.05}
-        iridescence={0.9}
+        // Water-bubble look: softer highlights, slightly darker core
+        color="#ffffffff"
+        ior={1.33}
+        thickness={0.35}
+        reflectivity={0.1}
+        chromaticAberration={0.06}
+        clearcoat={0.3}
+        resolution={256}
+        clearcoatRoughness={0.5}
+        iridescence={0.6}
         iridescenceIOR={0.1}
         iridescenceThicknessRange={[0, 140]}
+        attenuationColor="#ffffffff"
+        attenuationDistance={1}
+        transmission={1}
         samples={4}
       />
     );

@@ -49,14 +49,16 @@ export function MusicPlayerScene({
         powerPreference: "high-performance"
       }}
     >
-      <ambientLight intensity={0.3} />
-
-      <spotLight
-        decay={0} position={[0, 40, 20]} angle={0.5} penumbra={1}
-        intensity={1.5} castShadow
-        color="white"
+      {/* HDRI Environment provides the global lighting and reflections */}
+      <Environment
+        key={envKey}
+        background={true}
+        files="/studio_small_01_4k.exr"
+        environmentIntensity={1.2}
+        environmentRotation={[Math.PI / 2, Math.PI / 2, Math.PI / 2]}
       />
-      <SoftShadows size={40} samples={16} />
+
+
 
       <Defaults>
         <Fullscreen
@@ -68,20 +70,6 @@ export function MusicPlayerScene({
         </Fullscreen>
 
         <Rig audioLevelRef={audioEnergyRef} />
-
-        <Environment
-          key={envKey}
-          background={false}
-          resolution={1024}
-          frames={1}
-          environmentIntensity={0.8}
-        >
-          <color attach="background" args={["black"]} />
-          <mesh scale={100}>
-            <sphereGeometry args={[1, 32, 32]} />
-            <meshBasicMaterial side={THREE.BackSide} color={palette[0]} />
-          </mesh>
-        </Environment>
 
         {backgroundPrompt && (
           <Text
@@ -98,11 +86,11 @@ export function MusicPlayerScene({
         )}
 
         {/* --- DYNAMIC BACKGROUND SPHERE --- */}
-        <BackgroundImageCover
+        {/* <BackgroundImageCover
           audioEnergyRef={audioEnergyRef}
           transitionHighlight={transitionHighlight}
           palette={palette}
-        />
+        /> */}
 
         <group position={[0, 0, -2]}>
           <BaseDiffusedRing
@@ -115,10 +103,10 @@ export function MusicPlayerScene({
           />
         </group>
 
-        <PhysicalGrid
+        {/* <PhysicalGrid
           position={[0, 0, 0]} size={100} audioEnergyRef={audioEnergyRef}
           transitionProgress={transitionHighlight?.end01} palette={palette}
-        />
+        /> */}
 
         <group position={[0, 0, 8]}>
           <Floating
