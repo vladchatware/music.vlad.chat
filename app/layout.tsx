@@ -28,6 +28,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+          <script
+            defer
+            src="https://cloud.umami.is/script.js"
+            data-website-id="3287c25e-42c3-480b-8161-ebda17a92e30"
+          />
         </head>
         <body style={{ margin: 0, height: '100%', width: '100%', overflow: 'hidden', backgroundColor: 'black' }}>
           <ConvexClientProvider>
