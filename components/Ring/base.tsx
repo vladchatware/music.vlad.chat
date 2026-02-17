@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import {
   COORDINATE_TYPE,
   gaussianRandom,
@@ -8,13 +8,20 @@ import {
   type ICoordinateMapper,
 } from "@/lib/mappers/coordinateMappers/common";
 import { useFrame } from "@react-three/fiber";
-import { type Points } from "three";
+import { DynamicDrawUsage, type BufferAttribute, type Points } from "three";
+
+const DEFAULT_PARTICLE_COUNT = 3_500_000;
+const MIN_PARTICLE_UPDATES_PER_FRAME = 40_000;
+const MAX_PARTICLE_UPDATES_PER_FRAME = 300_000;
+const TARGET_FRAME_TIME_SEC = 1 / 60;
+const MIN_DISTANCE_FOR_POINT_SIZE = 0.01;
+const POINT_SIZE_VISUAL_SCALE = 1.28;
 
 const BaseDiffusedRing = ({
   coordinateMapper,
   radius = 2.0,
   pointSize = 0.2,
-  nPoints = 1000,
+  nPoints = DEFAULT_PARTICLE_COUNT,
   mirrorEffects = false,
   highlightStart01,
   highlightEnd01,
@@ -33,40 +40,64 @@ const BaseDiffusedRing = ({
   highlightColor?: [number, number, number]; // linear RGB 0..1
   thickness?: number;
 }) => {
-  const noise = Array.from({ length: nPoints }).map(gaussianRandom);
-  const smoothedOffsets = useRef<Float32Array>(new Float32Array(nPoints).fill(0));
+  const safePointCount = Math.max(2, Math.floor(nPoints));
+  const denom = safePointCount - 1;
+
+  const baseNoise = useMemo(() => {
+    const arr = new Float32Array(safePointCount);
+    for (let i = 0; i < safePointCount; i += 1) arr[i] = gaussianRandom();
+    return arr;
+  }, [safePointCount]);
+
+  const grainPhase = useMemo(() => {
+    const arr = new Float32Array(safePointCount);
+    for (let i = 0; i < safePointCount; i += 1) arr[i] = Math.random() * TWO_PI;
+    return arr;
+  }, [safePointCount]);
+
+  const depthPhase = useMemo(() => {
+    const arr = new Float32Array(safePointCount);
+    for (let i = 0; i < safePointCount; i += 1) arr[i] = Math.random() * TWO_PI;
+    return arr;
+  }, [safePointCount]);
+
+  const positionsArray = useMemo(() => {
+    const arr = new Float32Array(safePointCount * 3);
+    for (let i = 0; i < safePointCount; i += 1) {
+      const normIdx = i / denom;
+      const angle = normIdx * TWO_PI;
+      const idx3 = i * 3;
+      arr[idx3] = radius * Math.cos(angle);
+      arr[idx3 + 1] = radius * Math.sin(angle);
+      arr[idx3 + 2] = 0;
+    }
+    return arr;
+  }, [denom, radius, safePointCount]);
+
+  const smoothedOffsets = useRef<Float32Array>(new Float32Array(safePointCount));
+  const updateCursor = useRef(0);
   const refPoints = useRef<Points>(null!);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     //in ms
     const elapsedTimeSec = clock.getElapsedTime();
     let effectiveRadius, normIdx, angRad;
-    const positionsBuffer = refPoints.current.geometry.attributes.position;
-    const colorsBuffer = refPoints.current.geometry.attributes.color;
+    const positionsBuffer = refPoints.current.geometry.attributes.position as BufferAttribute;
+    const frameTime = Math.max(TARGET_FRAME_TIME_SEC * 0.5, delta || TARGET_FRAME_TIME_SEC);
+    const scaledBudget = Math.floor(
+      MAX_PARTICLE_UPDATES_PER_FRAME * (TARGET_FRAME_TIME_SEC / frameTime),
+    );
+    const budget = Math.max(
+      MIN_PARTICLE_UPDATES_PER_FRAME,
+      Math.min(MAX_PARTICLE_UPDATES_PER_FRAME, scaledBudget),
+    );
 
-    const hasHighlight =
-      Number.isFinite(highlightStart01) &&
-      Number.isFinite(highlightEnd01) &&
-      (highlightIntensity ?? 0) > 0;
+    const start = updateCursor.current;
+    const end = Math.min(safePointCount, start + Math.min(safePointCount, budget));
+    updateCursor.current = end >= safePointCount ? 0 : end;
 
-    const hStartRaw = hasHighlight ? (highlightStart01 as number) : 0;
-    const hEndRaw = hasHighlight ? (highlightEnd01 as number) : 0;
-    const wrap01 = (x: number) => ((x % 1) + 1) % 1;
-    const hStart = wrap01(hStartRaw);
-    const hEnd = wrap01(hEndRaw);
-    const span = Math.abs(hEnd - hStart);
-    const markerWidth = 0.008;
-    const startA = span < markerWidth ? wrap01(hStart - markerWidth / 2) : hStart;
-    const endA = span < markerWidth ? wrap01(hStart + markerWidth / 2) : hEnd;
-
-    const inArc = (t: number) => {
-      if (!hasHighlight) return false;
-      if (startA <= endA) return t >= startA && t <= endA;
-      return t >= startA || t <= endA;
-    };
-
-    for (let i = 0; i < nPoints; i++) {
-      normIdx = i / (nPoints - 1);
+    for (let i = start; i < end; i++) {
+      normIdx = i / denom;
 
       // targetOffset comes from the audio energy mapper
       const targetOffset = coordinateMapper.map(
@@ -77,79 +108,81 @@ const BaseDiffusedRing = ({
         elapsedTimeSec,
       );
 
-      // Balanced reactivity (0.5)
-      smoothedOffsets.current[i] += (targetOffset - smoothedOffsets.current[i]) * 0.5;
+      // Keep enough smoothing for stability, but retain more high-frequency detail.
+      smoothedOffsets.current[i] += (targetOffset - smoothedOffsets.current[i]) * 0.68;
 
       const amp = smoothedOffsets.current[i];
 
       // 1. INDIVIDUAL GRAIN JITTER (Simulated Noise)
       // This makes the 'little grains' shimmer and move independently.
       // We use a high-frequency per-point offset to create a 'sparkle'.
-      const grainJitter = (Math.sin(elapsedTimeSec * 15 + i * 0.5) + (Math.random() - 0.5)) * 0.015;
+      const grainJitter = (
+        Math.sin(elapsedTimeSec * 15 + grainPhase[i]) +
+        Math.sin(elapsedTimeSec * 5 + grainPhase[i] * 0.7) * 0.5
+      ) * 0.012;
 
       // 2. SIMULATED AUDIO NOISE FLOOR
       const ambientHum = (
         Math.sin(elapsedTimeSec * 10 + normIdx * 50) * 0.005 +
         Math.sin(elapsedTimeSec * 2 + normIdx * 10) * 0.01
       );
+      const microOsc =
+        Math.sin(elapsedTimeSec * 32 + normIdx * 220 + grainPhase[i] * 0.8) * 0.010 +
+        Math.sin(elapsedTimeSec * 54 + normIdx * 390 + depthPhase[i] * 0.5) * 0.007;
 
-      const effectiveAmp = amp + ambientHum;
+      // Keep a baseline occupancy so the ring reads as "millions" even in quieter sections.
+      const effectiveAmp = amp * 0.62 + ambientHum + microOsc + 0.2;
 
       // 3. NOISE DISTORTION (The 'Dust' Cloud)
       // The individual grain position now shifts every frame.
-      const noiseDistortion = (noise[i] - 0.5 + grainJitter) * (0.15 + effectiveAmp * 0.8) * thickness;
+      const shellSpread = 0.2 * thickness;
+      const noiseDistortion =
+        (baseNoise[i] - 0.5 + grainJitter) * (shellSpread + effectiveAmp * 0.95 * thickness);
 
       effectiveRadius =
-        radius * (1.0 + effectiveAmp * thickness * 0.4 + grainJitter) +
+        radius * (1.0 + effectiveAmp * thickness * 0.36 + grainJitter) +
         radius * noiseDistortion;
 
       angRad = normIdx * TWO_PI;
 
       // Add individual Z-jitter for shimmering depth
-      const zJitter = (Math.sin(elapsedTimeSec * 20 + i) - 0.5) * 0.02;
-
-      positionsBuffer.setXYZ(
-        i,
-        effectiveRadius * Math.cos(angRad), // x
-        effectiveRadius * Math.sin(angRad), // y
-        ((noise[i] - 0.5) * (effectiveAmp + 0.1) * thickness * 1.0) + zJitter,
-      );
-
-      // Default ring color is white; blend in a highlight arc for transition planning/progress.
-      const baseR = 1,
-        baseG = 1,
-        baseB = 1;
-      if (colorsBuffer) {
-        if (inArc(normIdx)) {
-          const a = Math.max(0, Math.min(1, highlightIntensity ?? 1));
-          colorsBuffer.setXYZ(
-            i,
-            baseR * (1 - a) + highlightColor[0] * a,
-            baseG * (1 - a) + highlightColor[1] * a,
-            baseB * (1 - a) + highlightColor[2] * a,
-          );
-        } else {
-          colorsBuffer.setXYZ(i, baseR, baseG, baseB);
-        }
-      }
+      const zJitter =
+        Math.sin(elapsedTimeSec * 20 + depthPhase[i]) * 0.02 +
+        Math.sin(elapsedTimeSec * 48 + normIdx * 180 + grainPhase[i]) * 0.012;
+      const idx3 = i * 3;
+      positionsArray[idx3] = effectiveRadius * Math.cos(angRad); // x
+      positionsArray[idx3 + 1] = effectiveRadius * Math.sin(angRad); // y
+      positionsArray[idx3 + 2] =
+        (baseNoise[i] - 0.5) * (effectiveAmp + 0.24) * thickness * 1.7 + zJitter;
     }
+
+    positionsBuffer.clearUpdateRanges();
+    positionsBuffer.addUpdateRange(start * 3, Math.max(0, (end - start) * 3));
     positionsBuffer.needsUpdate = true;
-    if (colorsBuffer) colorsBuffer.needsUpdate = true;
   });
+
+  const wrap01 = (x: number) => ((x % 1) + 1) % 1;
+  const hasHighlight =
+    Number.isFinite(highlightStart01) &&
+    Number.isFinite(highlightEnd01) &&
+    (highlightIntensity ?? 0) > 0;
+  const markerWidth = 0.008;
+  const highlightStart = hasHighlight ? wrap01(highlightStart01 as number) : 0;
+  const highlightEnd = hasHighlight ? wrap01(highlightEnd01 as number) : 0;
+  const highlightSpan = Math.abs(highlightEnd - highlightStart);
+  const highlightStartFinal =
+    highlightSpan < markerWidth ? wrap01(highlightStart - markerWidth / 2) : highlightStart;
+  const highlightEndFinal =
+    highlightSpan < markerWidth ? wrap01(highlightStart + markerWidth / 2) : highlightEnd;
 
   return (
     <points ref={refPoints}>
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
-          array={new Float32Array(nPoints * 3)}
-          count={nPoints}
-          itemSize={3}
-        />
-        <bufferAttribute
-          attach="attributes-color"
-          array={new Float32Array(nPoints * 3)}
-          count={nPoints}
+          usage={DynamicDrawUsage}
+          array={positionsArray}
+          count={safePointCount}
           itemSize={3}
         />
       </bufferGeometry>
@@ -158,38 +191,81 @@ const BaseDiffusedRing = ({
         transparent
         depthWrite={false}
         blending={2} // AdditiveBlending
-        vertexColors
         uniforms={{
-          uPointSize: { value: pointSize * (typeof window !== 'undefined' ? window.devicePixelRatio : 1) },
+          uPointSize: {
+            value:
+              pointSize *
+              POINT_SIZE_VISUAL_SCALE *
+              (typeof window !== "undefined" ? Math.min(window.devicePixelRatio, 1.5) : 1),
+          },
+          uRadius: { value: radius },
+          uHighlightStart: { value: highlightStartFinal },
+          uHighlightEnd: { value: highlightEndFinal },
+          uHighlightIntensity: { value: Math.max(0, Math.min(1, highlightIntensity ?? 0)) },
+          uHighlightColor: { value: highlightColor },
+          uHasHighlight: { value: hasHighlight ? 1 : 0 },
         }}
         vertexShader={`
-          varying vec3 vColor;
+          varying float vNormIdx;
           varying float vDistance;
+          varying vec3 vLocalPos;
           uniform float uPointSize;
           void main() {
-            vColor = color;
+            vLocalPos = position;
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
             vDistance = -mvPosition.z;
-            gl_PointSize = uPointSize * (300.0 / vDistance);
+            gl_PointSize = uPointSize * (300.0 / max(vDistance, ${MIN_DISTANCE_FOR_POINT_SIZE.toFixed(2)}));
+            float angle = atan(position.y, position.x);
+            if (angle < 0.0) angle += 6.28318530718;
+            vNormIdx = angle / 6.28318530718;
             gl_Position = projectionMatrix * mvPosition;
           }
         `}
         fragmentShader={`
-          varying vec3 vColor;
+          varying float vNormIdx;
           varying float vDistance;
+          varying vec3 vLocalPos;
+          uniform float uRadius;
+          uniform float uHighlightStart;
+          uniform float uHighlightEnd;
+          uniform float uHighlightIntensity;
+          uniform vec3 uHighlightColor;
+          uniform float uHasHighlight;
+
+          bool inArc(float t, float start, float end) {
+            if (start <= end) return t >= start && t <= end;
+            return t >= start || t <= end;
+          }
+
           void main() {
             float d = distance(gl_PointCoord, vec2(0.5));
             
             // Textured grain with bloom
-            float glow = 0.02 / d;
-            float core = smoothstep(0.5, 0.42, d); // Slightly sharper core for grain definition
-            
-            float strength = core + pow(glow, 1.9); // Slightly tighter bloom
+            float glow = 0.018 / max(0.02, d);
+            float core = smoothstep(0.5, 0.36, d);
+            float strength = core * 0.9 + pow(glow, 1.55) * 1.0;
             
             // Subtle falloff
-            float alpha = smoothstep(0.5, 0.15, d) * min(1.0, strength);
-            
-            gl_FragColor = vec4(vColor * strength * 1.1, alpha);
+            float alpha = smoothstep(0.5, 0.18, d) * min(1.0, strength * 1.6);
+            float ringRadius = length(vLocalPos.xy);
+            float outerBand = exp(-pow((ringRadius - uRadius) / max(0.0001, uRadius * 0.18), 2.0));
+            float innerBand = exp(-pow((ringRadius - uRadius * 0.62) / max(0.0001, uRadius * 0.14), 2.0));
+            float axial = pow(max(0.0, 1.0 - abs(vLocalPos.x) / max(0.0001, uRadius * 0.75)), 3.0);
+            float spokes = pow(abs(sin(vNormIdx * 64.0)), 10.0);
+            float radialEnergy = outerBand * 1.12 + innerBand * 1.36 + axial * 0.92 + spokes * 0.34;
+
+            vec3 coolBase = vec3(0.08, 0.10, 0.18);
+            vec3 warmCore = vec3(1.0, 0.52, 0.18);
+            vec3 halo = vec3(0.96, 0.78, 0.55);
+            vec3 baseColor = mix(coolBase, halo, clamp(outerBand * 0.9 + innerBand * 0.4, 0.0, 1.0));
+            baseColor = mix(baseColor, warmCore, clamp(innerBand * 0.9 + axial * 0.5 + spokes * 0.3, 0.0, 1.0));
+            vec3 color = baseColor;
+            if (uHasHighlight > 0.5 && inArc(vNormIdx, uHighlightStart, uHighlightEnd)) {
+              color = mix(baseColor, uHighlightColor, uHighlightIntensity);
+            }
+
+            float luminance = (0.46 + radialEnergy) * strength;
+            gl_FragColor = vec4(color * luminance * 1.12, alpha * (0.78 + radialEnergy * 0.3));
           }
         `}
       />

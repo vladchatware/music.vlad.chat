@@ -15,7 +15,7 @@ export const { useParams, useActions, usePresets } = createConfigStore<TConfig>(
   {
     default: {
       radius: 2,
-      nPoints: 1000,
+      nPoints: 3_500_000,
       pointSize: 0.2,
       thickness: 1,
       mirrorEffects: false,
