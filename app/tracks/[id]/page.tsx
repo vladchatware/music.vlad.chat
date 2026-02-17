@@ -1,9 +1,9 @@
 "use client"
 
 import { useParams } from 'next/navigation'
-import MusicPlayer from '@/components/MusicPlayer'
+import MusicPlayerV2 from '@/components/music-player/MusicPlayerV2'
 
 export default function Page() {
   const { id } = useParams()
-  return <MusicPlayer initialTrackId={id as string | number} />
+  return <MusicPlayerV2 initialTrackId={id as string | number} />
 }

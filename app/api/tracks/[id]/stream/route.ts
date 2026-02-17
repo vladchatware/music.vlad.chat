@@ -1,15 +1,18 @@
-import { NextResponse, NextRequest } from 'next/server'
-import { streamTrack } from '../../../../../soundcloud'
+import { NextResponse } from 'next/server'
+import { isPreviewStreamUrl, resolveTrackStreamUrl } from '../../../../../soundcloud'
+import { playbackDebugServer as playbackDebug } from '@/lib/playbackDebugServer'
 import { fetchQuery } from "convex/nextjs"
 import { api } from '../../../../../convex/_generated/api'
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
 
-export async function GET(req: NextRequest, { params }) {
+export async function GET(_req: Request, { params }) {
+  const startedAt = Date.now()
   const { id } = await params
   if (!id) {
     return NextResponse.json({ error: 'Track ID is required' }, { status: 400 })
   }
   try {
+    playbackDebug('stream.route.begin', { trackId: id })
     // Try to get the user's SoundCloud token if they're authenticated
     let userToken: string | undefined
     try {
@@ -21,22 +24,43 @@ export async function GET(req: NextRequest, { params }) {
       // User not authenticated, will use server credentials
     }
 
-    const res = await streamTrack(id, userToken)
-
-    if (!res.ok) {
-      return NextResponse.json({ error: 'Track not found' }, { status: res.status })
-    }
-
+    const streamUrl = await resolveTrackStreamUrl(id, userToken)
+    const preview = isPreviewStreamUrl(streamUrl)
+    playbackDebug('stream.route.resolved', {
+      trackId: id,
+      hasUserToken: Boolean(userToken),
+      preview,
+      elapsedMs: Date.now() - startedAt,
+      streamHost: (() => {
+        try {
+          return new URL(streamUrl).host
+        } catch {
+          return null
+        }
+      })(),
+    })
     const headers = new Headers()
-    if (res.headers.get('content-type')) {
-      headers.set('content-type', res.headers.get('content-type')!)
-    }
-    if (res.headers.get('content-length')) {
-      headers.set('content-length', res.headers.get('content-length')!)
-    }
-
-    return new NextResponse(res.body, { headers })
+    headers.set('Location', streamUrl)
+    headers.set('Cache-Control', 'private, max-age=30')
+    headers.set('X-MP-Has-User-Token', userToken ? '1' : '0')
+    headers.set('X-MP-Stream-Preview', preview ? '1' : '0')
+    headers.set(
+      'X-MP-Resolved-Host',
+      (() => {
+        try {
+          return new URL(streamUrl).host
+        } catch {
+          return 'unknown'
+        }
+      })(),
+    )
+    return new NextResponse(null, { status: 307, headers })
   } catch (e) {
-    return NextResponse.json({ error: 'Failed to fetch track' }, { status: 500 })
+    playbackDebug('stream.route.failed', {
+      trackId: id,
+      elapsedMs: Date.now() - startedAt,
+      message: e instanceof Error ? e.message : String(e),
+    })
+    return NextResponse.json({ error: 'Failed to resolve track stream URL' }, { status: 502 })
   }
 }

@@ -1,9 +1,20 @@
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
 import { tracks, users, playlists, likes, Track } from "../../../soundcloud"
+import { playbackDebugServer as playbackDebug } from "@/lib/playbackDebugServer"
 import { fetchQuery } from "convex/nextjs"
 import { api } from "../../../convex/_generated/api"
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
+
+const MIN_PLAYABLE_TRACK_DURATION_MS = 90_000
+const MAX_PLAYABLE_TRACK_DURATION_MS = 10 * 60 * 1000
+
+const isTransitionSafeTrack = (track: Track) => {
+  if (track.streamable !== true) return false
+  const duration = track.duration
+  if (!Number.isFinite(duration)) return false
+  return duration >= MIN_PLAYABLE_TRACK_DURATION_MS && duration <= MAX_PLAYABLE_TRACK_DURATION_MS
+}
 
 // Helper to get user's SoundCloud token if authenticated
 const getUserToken = async (): Promise<string | undefined> => {
@@ -79,8 +90,8 @@ const handler = createMcpHandler(
         }, userToken)
 
         const list: Track[] = Array.isArray(res) ? res : res?.collection ?? []
-        // Filter to only include tracks that can be streamed
-        const streamableTracks = list.filter(track => track.streamable === true)
+        // Filter to transition-safe tracks only.
+        const streamableTracks = list.filter(isTransitionSafeTrack)
         const payload = streamableTracks.map(track => {
           const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
           const followers = track.user?.followers_count ?? 0
@@ -128,9 +139,10 @@ const handler = createMcpHandler(
       'PRIMARY SOURCE: Get user\'s liked tracks - these are pre-vetted quality tracks that match user taste. Use this FIRST before searching. Play directly from likes or use as reference for similar music.',
       {
         user_id: z.string().optional(),
-        limit: z.string().optional().default('50'),
+        limit: z.string().optional().default('20'),
       },
       async ({ user_id, limit }) => {
+        const startedAt = Date.now()
         const userToken = await getUserToken()
         const effectiveUserId = user_id ?? process.env.SOUNDCLOUD_USER_ID
         if (!effectiveUserId) {
@@ -141,16 +153,28 @@ const handler = createMcpHandler(
             }]
           }
         }
-        // Fetch all likes (up to 200) then shuffle and limit the output
-        const res = await likes(effectiveUserId, { limit: '200' }, userToken)
+        const requestedLimit = Number.parseInt(limit ?? '20', 10)
+        const normalizedLimit =
+          Number.isFinite(requestedLimit) && requestedLimit > 0
+            ? Math.min(Math.max(requestedLimit, 8), 30)
+            : 20
+        // Fetch a bounded likes window to reduce transition-time latency.
+        const fetchLimit = Math.min(Math.max(normalizedLimit * 3, 40), 120)
+        playbackDebug("mcp.likes.begin", {
+          requestedLimit: limit ?? null,
+          normalizedLimit,
+          fetchLimit,
+          hasUserToken: Boolean(userToken),
+        })
+        const res = await likes(effectiveUserId, { limit: String(fetchLimit) }, userToken)
 
-        // Filter to only include tracks that can be streamed, then shuffle
-        const streamableTracks = res.filter(track => track.streamable === true)
+        // Filter to transition-safe tracks, then shuffle
+        const streamableTracks = res.filter(isTransitionSafeTrack)
         const shuffled = streamableTracks
           .map(value => ({ value, sort: Math.random() }))
           .sort((a, b) => a.sort - b.sort)
           .map(({ value }) => value)
-          .slice(0, parseInt(limit || '50', 10))
+          .slice(0, normalizedLimit)
 
         const payload = shuffled.map(track => {
           const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
@@ -162,6 +186,15 @@ const handler = createMcpHandler(
           const hintsStr = hints.length > 0 ? ` (${hints.join(', ')})` : ''
           return `${track.id} ${artist} - ${track.title}${hintsStr}`
         }).join('\n')
+
+        playbackDebug("mcp.likes.done", {
+          requestedLimit: limit ?? null,
+          normalizedLimit,
+          fetchedCount: res.length,
+          streamableCount: streamableTracks.length,
+          returnedCount: shuffled.length,
+          elapsedMs: Date.now() - startedAt,
+        })
 
         return {
           content: [{

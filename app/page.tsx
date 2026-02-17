@@ -1,7 +1,7 @@
 "use client"
 
-import MusicPlayer from '@/components/MusicPlayer'
+import MusicPlayerV2 from '@/components/music-player/MusicPlayerV2'
 
 export default function Page() {
-  return <MusicPlayer initialTrackId={2094321906} />
+  return <MusicPlayerV2 initialTrackId={2094321906} />
 }

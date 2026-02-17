@@ -13,7 +13,11 @@ import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 const FALLBACK_BPM = 120;
 const DEFAULT_PHRASE_BARS = 16;
 const AUTO_REVIBE_COOLDOWN_MS = 45000;
-const AUTO_REVIBE_MIN_PLAY_SEC = 30;
+const AUTO_REVIBE_MIN_PLAY_SEC = 75;
+const AUTO_REVIBE_MIN_PROGRESS = 0.35;
+const AUTO_REVIBE_MIN_REMAINING_SEC = 30;
+const MIN_PLANNED_TRANSITION_SEC = 90;
+const MIN_PLANNED_TRANSITION_PROGRESS = 0.5;
 
 // Transition filter tuning (WebAudio path only)
 const FILTER_MIN_HPF_HZ = 20;
@@ -74,6 +78,7 @@ export function useDualDeckEngine(opts: {
   const autoRevibeAtMsRef = useRef<number>(0);
   const crossfadeScheduledRef = useRef(false);
   const plannedBarDurationSecRef = useRef<number | null>(null);
+  const earlyEndRecoveryRef = useRef<{ A: number; B: number }>({ A: 0, B: 0 });
 
   const getActuallyPlayingDeck = useCallback((): "A" | "B" => {
     const deckA = deckARef.current;
@@ -240,6 +245,7 @@ export function useDualDeckEngine(opts: {
       const isAActive = getActuallyPlayingDeck() === "A";
       const currentDeck = isAActive ? deckARef.current : deckBRef.current;
       const nextDeck = isAActive ? deckBRef.current : deckARef.current;
+      const currentSource = isAActive ? deckASourceRef.current : deckBSourceRef.current;
       const currentGain = isAActive ? deckAGainRef.current : deckBGainRef.current;
       const nextGain = isAActive ? deckBGainRef.current : deckAGainRef.current;
       const nextSource = isAActive ? deckBSourceRef.current : deckASourceRef.current;
@@ -293,6 +299,15 @@ export function useDualDeckEngine(opts: {
           analyzerRef.current.connectInput(nextSource);
         } catch (e) {
           console.warn("Analyzer rewire failed:", e);
+          // Fail safe: restore previous source so visuals never lose input.
+          if (currentSource) {
+            try {
+              analyzerRef.current.disconnectInputs();
+              analyzerRef.current.connectInput(currentSource);
+            } catch (restoreErr) {
+              console.warn("Analyzer restore failed:", restoreErr);
+            }
+          }
         }
       }
 
@@ -655,6 +670,7 @@ export function useDualDeckEngine(opts: {
       const isActiveDeck = playingDeck === (activeDeckRef.current === "A" ? deckA : deckB);
 
       if (isActiveDeck) {
+        earlyEndRecoveryRef.current[activeDeckRef.current] = 0;
         actions.dispatchEngine({ type: "PLAYING" });
         revibeTriggeredRef.current = false;
         lastPlannedStartSecRef.current = null;
@@ -667,9 +683,26 @@ export function useDualDeckEngine(opts: {
     const handleEnded = async (e: Event) => {
       const audio = e.target as HTMLAudioElement;
       const isAActive = activeDeckRef.current === "A";
+      const endedDeckKey: "A" | "B" = audio === deckARef.current ? "A" : "B";
       const currentDeck = isAActive ? deckARef.current : deckBRef.current;
 
       if (audio !== currentDeck) return;
+
+      // Network hiccups can emit "ended" before true media duration.
+      // Attempt a single in-place recovery before switching tracks.
+      const duration = audio.duration;
+      const endedTooEarly =
+        Number.isFinite(duration) && duration > 0 && audio.currentTime < duration - 8;
+      if (endedTooEarly && earlyEndRecoveryRef.current[endedDeckKey] < 1) {
+        earlyEndRecoveryRef.current[endedDeckKey] += 1;
+        try {
+          audio.currentTime = Math.max(0, audio.currentTime - 0.75);
+          await audio.play();
+          return;
+        } catch (resumeErr) {
+          console.warn("Early ended recovery failed:", resumeErr);
+        }
+      }
 
       const isTransitioning = crossfadeInProgressRef.current || (nextTrackReadyRef.current && waitingForBeatRef.current);
 
@@ -721,26 +754,21 @@ export function useDualDeckEngine(opts: {
         barDurationSec,
       });
 
-      // Auto-revibe not only near the end: if we're in a strong transitionable section,
-      // request the next track (cueing) and then let the planner decide when to switch.
+      // Conservative strategy: only auto-request the next track when approaching track end.
+      // Mid-track auto-revibe can cause abrupt vibe cuts on noisy analysis.
       const nowMs = Date.now();
-      const analysisNow = useMusicPlayerStore.getState().analysis;
+      const progress01 =
+        audio.duration > 0 ? Math.max(0, Math.min(1, audio.currentTime / audio.duration)) : 0;
+      const remainingSec = Math.max(0, audio.duration - audio.currentTime);
       const canAutoRevibe =
         nowMs - autoRevibeAtMsRef.current > AUTO_REVIBE_COOLDOWN_MS &&
         audio.currentTime > AUTO_REVIBE_MIN_PLAY_SEC &&
+        progress01 >= AUTO_REVIBE_MIN_PROGRESS &&
+        remainingSec > AUTO_REVIBE_MIN_REMAINING_SEC &&
         !revibeTriggeredRef.current &&
         !waitingForBeatRef.current &&
         !nextTrackReadyRef.current &&
         !crossfadeInProgressRef.current;
-      const isGoodMixMoment =
-        analysisNow.section === "breakdown" ||
-        (analysisNow.section === "culmination" && analysisNow.bassEnergy > 0.55) ||
-        (analysisNow.stillDurationMs > 900);
-      if (canAutoRevibe && isGoodMixMoment && onRevibeRef.current) {
-        autoRevibeAtMsRef.current = nowMs;
-        revibeTriggeredRef.current = true;
-        await onRevibeRef.current(e);
-      }
 
       // Auto-queue the next track early enough to complete a 16-bar crossfade smoothly.
       // This requests a new track, but does NOT force an immediate transition.
@@ -797,7 +825,11 @@ export function useDualDeckEngine(opts: {
           ? performance.now() - analysis.lastTransitionSignalAtMs
           : Infinity;
         const hasRecentSignal = recentSignalMs < plannedBarDurationSec * 1000 * 2; // within ~2 bars
+        const allowPlannedTransition =
+          audio.currentTime >= Math.min(MIN_PLANNED_TRANSITION_SEC, audio.duration * MIN_PLANNED_TRANSITION_PROGRESS) ||
+          audio.duration - audio.currentTime < crossfadeDurationSec + 2;
         if (
+          allowPlannedTransition &&
           (analysis.transitionSignal || hasRecentSignal || audio.duration - audio.currentTime < 3) &&
           audio.currentTime + epsilon >= plannedStartSec &&
           audio.currentTime <= plannedStartSec + 0.5
@@ -869,4 +901,3 @@ export function useDualDeckEngine(opts: {
     trackEndedWhileCueingRef,
   };
 }
-

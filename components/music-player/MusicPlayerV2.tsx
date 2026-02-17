@@ -19,6 +19,7 @@ import { useShallow } from "zustand/react/shallow";
 
 import { api } from "@/convex/_generated/api";
 import { fetchTrack, streamTrack } from "@/lib/soundcloud";
+import { playbackDebug } from "@/lib/playbackDebug";
 import { CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
 
 import { MusicPlayerScene } from "./Scene";
@@ -57,13 +58,48 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   const latestOnRevibeRef = useRef<
     ((e: Event | ThreeEvent<MouseEvent>) => Promise<void> | void) | null
   >(null);
+  const autoNextFastRef = useRef<(() => Promise<boolean>) | null>(null);
+  const queuedAutoRevibeRef = useRef(false);
+  const autoNextFastInFlightRef = useRef(false);
+  const autoNextFastLastAtMsRef = useRef(0);
 
   // Use the new DJ engine
   const engine = useDJEngine({
     isIOS,
     onRequestNextTrack: async () => {
+      const startedAt = performance.now();
+      playbackDebug("player.on_request_next_track");
+      if (autoNextFastRef.current) {
+        try {
+          const usedFastPath = await autoNextFastRef.current();
+          if (usedFastPath) {
+            playbackDebug("player.on_request_next_track.completed", {
+              mode: "fast_auto_next",
+              elapsedMs: Math.round(performance.now() - startedAt),
+            });
+            return;
+          }
+        } catch (error) {
+          playbackDebug("player.on_request_next_track.fast_path_failed", {
+            elapsedMs: Math.round(performance.now() - startedAt),
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       if (latestOnRevibeRef.current) {
-        await latestOnRevibeRef.current(new Event("revibe"));
+        try {
+          await latestOnRevibeRef.current(new Event("revibe"));
+          playbackDebug("player.on_request_next_track.completed", {
+            mode: "chat",
+            elapsedMs: Math.round(performance.now() - startedAt),
+          });
+        } catch (error) {
+          playbackDebug("player.on_request_next_track.failed", {
+            elapsedMs: Math.round(performance.now() - startedAt),
+            message: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       }
     },
   });
@@ -128,16 +164,33 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
 
   const onPlayerToolRequested = useCallback(
     async (id: number) => {
+      queuedAutoRevibeRef.current = false;
+      const startedAt = performance.now();
+      playbackDebug("player.tool_request.begin", {
+        trackId: id,
+        state: djState.type,
+      });
       const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
+      const shouldCue =
+        djState.type === "playing" ||
+        djState.type === "cueing" ||
+        djState.type === "planned" ||
+        djState.type === "crossfading";
 
-      if (isPlaying) {
+      if (shouldCue) {
         await cueNextTrack(newTrack);
       } else {
         await loadInitialTrack(newTrack);
         await play();
       }
+      playbackDebug("player.tool_request.done", {
+        trackId: id,
+        state: djState.type,
+        mode: shouldCue ? "cue" : "initial_play",
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
     },
-    [cueNextTrack, isPlaying, loadInitialTrack, play],
+    [cueNextTrack, djState.type, loadInitialTrack, play],
   );
 
   const { setPalette } = actions;
@@ -159,7 +212,89 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
     });
   }, [activeTrack?.artwork_url, setPalette]);
 
-  const { messages, sendMessage, status } = useRevibeChat({ onPlayerToolRequested });
+  const { messages, sendMessage, status } = useRevibeChat({
+    onPlayerToolRequested,
+    isTransitionBlocked: () =>
+      djState.type === "cueing" ||
+      djState.type === "planned" ||
+      djState.type === "crossfading",
+  });
+
+  const requestAutoNextFast = useCallback(async (): Promise<boolean> => {
+    const now = performance.now();
+    if (autoNextFastInFlightRef.current) {
+      playbackDebug("player.auto_next.fast.skip_inflight");
+      return true;
+    }
+    if (now - autoNextFastLastAtMsRef.current < 1200) {
+      playbackDebug("player.auto_next.fast.skip_recent");
+      return true;
+    }
+
+    autoNextFastInFlightRef.current = true;
+    autoNextFastLastAtMsRef.current = now;
+    const startedAt = now;
+    try {
+      const exclude = [activeTrack?.id, trackA?.id, trackB?.id]
+        .filter((id): id is number => Number.isFinite(id as number))
+        .join(",");
+      playbackDebug("player.auto_next.fast.begin", {
+        exclude,
+        djState: djState.type,
+        chatStatus: status,
+      });
+
+      const res = await fetch(
+        `/api/tracks/next${exclude.length > 0 ? `?exclude=${encodeURIComponent(exclude)}` : ""}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) {
+        playbackDebug("player.auto_next.fast.http_error", {
+          status: res.status,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+        return false;
+      }
+
+      const payload = (await res.json()) as { track?: SoundCloudTrack };
+      const selected = payload.track;
+      if (!selected || !selected.id) {
+        playbackDebug("player.auto_next.fast.invalid_payload");
+        return false;
+      }
+
+      const shouldCue =
+        djState.type === "playing" ||
+        djState.type === "cueing" ||
+        djState.type === "planned" ||
+        djState.type === "crossfading";
+      if (shouldCue) {
+        await cueNextTrack(selected);
+      } else {
+        await loadInitialTrack(selected);
+        await play();
+      }
+
+      playbackDebug("player.auto_next.fast.done", {
+        trackId: selected.id,
+        mode: shouldCue ? "cue" : "initial_play",
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+      return true;
+    } catch (error) {
+      playbackDebug("player.auto_next.fast.failed", {
+        elapsedMs: Math.round(performance.now() - startedAt),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    } finally {
+      autoNextFastInFlightRef.current = false;
+    }
+  }, [activeTrack?.id, cueNextTrack, djState.type, loadInitialTrack, play, status, trackA?.id, trackB?.id]);
+
+  useEffect(() => {
+    autoNextFastRef.current = requestAutoNextFast;
+  }, [requestAutoNextFast]);
 
   // Lock-screen / headset controls + metadata where supported.
   useEffect(() => {
@@ -198,8 +333,13 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   }, [activeTrack, isPlaying, pause, play]);
 
   const onFetchInitialTrack = useCallback(async () => {
+    const startedAt = performance.now();
     const track = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
     await loadInitialTrack(track);
+    playbackDebug("player.initial_track_loaded", {
+      trackId: track.id,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
   }, [initialTrackId, loadInitialTrack]);
 
   useEffect(() => {
@@ -210,15 +350,34 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   const onRevibe = useCallback(
     async (e: Event | ThreeEvent<MouseEvent>) => {
       e.stopPropagation();
+      const isAutoRequest =
+        e.type === "revibe" || e.type === "nexttrack" || e.type === "auto-revibe";
+      playbackDebug("player.revibe.requested", {
+        eventType: e.type,
+        isAutoRequest,
+        status,
+        djState: djState.type,
+      });
 
       if (isAuthenticated === false) {
-        await signIn("anonymous");
+        if (!isAutoRequest) {
+          await signIn("anonymous");
+        }
         return;
       }
 
-      if (status === "streaming") return;
+      if (status === "streaming") {
+        if (isAutoRequest) {
+          queuedAutoRevibeRef.current = true;
+          playbackDebug("player.revibe.queued_while_streaming", {
+            eventType: e.type,
+          });
+        }
+        return;
+      }
 
       if (needsUserInteraction) {
+        if (isAutoRequest) return;
         // If the user clicks Play before initial track is loaded, load + autoplay it.
         if (!trackA?.id) {
           const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
@@ -239,9 +398,14 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       const prompt = buildRevibePrompt({
         track: currentTrack,
         detectedBpm,
+        continuityMode: isAutoRequest,
       });
 
       sendMessage({ role: "user", text: prompt });
+      playbackDebug("player.revibe.prompt_sent", {
+        eventType: e.type,
+        activeTrackId: currentTrack?.id ?? null,
+      });
     },
     [
       activeTrack,
@@ -251,6 +415,7 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       sendMessage,
       signIn,
       status,
+      djState.type,
       togglePlay,
       trackA?.id,
       initialTrackId,
@@ -262,6 +427,32 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   useEffect(() => {
     latestOnRevibeRef.current = onRevibe;
   }, [onRevibe]);
+
+  useEffect(() => {
+    if (status === "streaming") return;
+    if (!queuedAutoRevibeRef.current) return;
+    if (djState.type !== "playing") {
+      queuedAutoRevibeRef.current = false;
+      return;
+    }
+    queuedAutoRevibeRef.current = false;
+    playbackDebug("player.revibe.flush_queued_auto", {
+      djState: djState.type,
+      status,
+    });
+    void onRevibe(new Event("auto-revibe"));
+  }, [djState.type, onRevibe, status]);
+
+  useEffect(() => {
+    playbackDebug("player.state", {
+      djState: djState.type,
+      chatStatus: status,
+      phase,
+      activeTrackId: activeTrack?.id ?? null,
+      trackAId: trackA?.id ?? null,
+      trackBId: trackB?.id ?? null,
+    });
+  }, [activeTrack?.id, djState.type, phase, status, trackA?.id, trackB?.id]);
 
   const checkout = async () => {
     const res = await fetch(`/api/checkout_session`, {

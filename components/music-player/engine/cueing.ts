@@ -3,6 +3,11 @@
 import { type MutableRefObject } from "react";
 import FFTAnalyzer from "@/lib/analyzers/ftt";
 
+const MIN_REMAINING_AFTER_CUE_SEC = 45;
+const MIN_RANDOM_START_SEC = 8;
+const MAX_RANDOM_START_SEC = 35;
+const MAX_RANDOM_START_FRACTION = 0.2;
+
 export type CueingResult =
   | { kind: "beat"; cueTimeSec: number }
   | { kind: "still"; cueTimeSec: number; stillDurationMs: number }
@@ -30,12 +35,27 @@ export async function cueTrackOnDeck(opts: {
 
   targetDeck.muted = true;
 
-  // Randomize start position to avoid always catching intros
-  const duration = targetDeck.duration || 180;
-  const minStart = Math.min(15, duration * 0.1);
-  const maxStart = Math.min(duration * 0.5, duration - 60);
-  const randomStart = minStart + Math.random() * Math.max(0, maxStart - minStart);
-  targetDeck.currentTime = randomStart;
+  const duration =
+    Number.isFinite(targetDeck.duration) && targetDeck.duration > 0
+      ? targetDeck.duration
+      : null;
+  const latestSafeCueStart =
+    duration !== null ? Math.max(0, duration - MIN_REMAINING_AFTER_CUE_SEC) : 0;
+
+  // Keep cue discovery early in the song so a transition does not land near track end.
+  if (duration !== null && latestSafeCueStart > 0) {
+    const maxStart = Math.min(
+      latestSafeCueStart,
+      MAX_RANDOM_START_SEC,
+      duration * MAX_RANDOM_START_FRACTION,
+    );
+    const minStart = Math.min(maxStart, MIN_RANDOM_START_SEC);
+    const randomStart =
+      minStart + Math.random() * Math.max(0, maxStart - minStart);
+    targetDeck.currentTime = randomStart;
+  } else {
+    targetDeck.currentTime = 0;
+  }
 
   // Try to play for cueing - may fail on iOS Safari without user gesture
   try {
@@ -80,14 +100,15 @@ export async function cueTrackOnDeck(opts: {
         }
         const stillDuration = performance.now() - currentStillStart;
         if (stillDuration >= minStillDuration) {
+          const cueTime = Math.min(currentStillAudioTime, latestSafeCueStart);
           targetDeck.pause();
-          targetDeck.currentTime = currentStillAudioTime;
+          targetDeck.currentTime = cueTime;
           targetDeck.muted = false;
           nextTrackReadyRef.current = true;
           setLoading(false);
           resolve({
             kind: "still",
-            cueTimeSec: currentStillAudioTime,
+            cueTimeSec: cueTime,
             stillDurationMs: stillDuration,
           });
           return;
@@ -95,7 +116,10 @@ export async function cueTrackOnDeck(opts: {
       } else {
         currentStillStart = null;
         if (bassEnergy > beatThreshold) {
-          const cueTime = Math.max(0, targetDeck.currentTime - 0.05);
+          const cueTime = Math.min(
+            Math.max(0, targetDeck.currentTime - 0.05),
+            latestSafeCueStart,
+          );
           targetDeck.pause();
           targetDeck.currentTime = cueTime;
           targetDeck.muted = false;
@@ -126,4 +150,3 @@ export async function cueTrackOnDeck(opts: {
     requestAnimationFrame(checkCuePoint);
   });
 }
-
