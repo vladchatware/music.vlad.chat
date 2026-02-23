@@ -33,6 +33,7 @@ export function MusicPlayerScene({
   children: ReactNode;
 }) {
   const { palette } = useMusicPlayerStore(useShallow((s) => ({ palette: s.palette })));
+  const highlightColor = palette[1] ?? palette[0] ?? new THREE.Color("#FF4500");
   const envKey = useMemo(() => initialTrackId?.toString() || "default", [initialTrackId]);
 
   return (
@@ -99,7 +100,7 @@ export function MusicPlayerScene({
             mirrorEffects={true} highlightStart01={transitionHighlight?.start01}
             highlightEnd01={transitionHighlight?.end01}
             highlightIntensity={transitionHighlight?.intensity ?? 0.9}
-            highlightColor={[palette[1].r, palette[1].g, palette[1].b]}
+            highlightColor={[highlightColor.r, highlightColor.g, highlightColor.b]}
           />
         </group>
 

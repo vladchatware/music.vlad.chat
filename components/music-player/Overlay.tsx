@@ -20,6 +20,7 @@ function getLastMessage(messages: UIMessage[]) {
 
 export function MusicPlayerOverlay(props: {
   isAuthenticated: boolean | null | undefined;
+  showSoundCloudSignIn?: boolean;
   activeTrack: any;
   messages: UIMessage[];
   onRevibe: (e: any) => void | Promise<void>;
@@ -31,6 +32,7 @@ export function MusicPlayerOverlay(props: {
 }) {
   const {
     isAuthenticated,
+    showSoundCloudSignIn,
     activeTrack,
     messages,
     onRevibe,
@@ -96,6 +98,15 @@ export function MusicPlayerOverlay(props: {
           <Button onClick={onRevibe} disabled={status === "streaming"}>
             <Text>{buttonLabel}</Text>
           </Button>
+          {showSoundCloudSignIn && (
+            <Button
+              onClick={() => {
+                return signIn("soundcloud");
+              }}
+            >
+              <Text>Sign in for full track</Text>
+            </Button>
+          )}
         </Container>
 
         <Container flexDirection="column">
@@ -124,4 +135,3 @@ export function MusicPlayerOverlay(props: {
     </>
   );
 }
-

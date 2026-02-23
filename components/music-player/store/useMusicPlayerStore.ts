@@ -72,6 +72,25 @@ export type MusicPlayerStore = {
   };
 };
 
+const DEFAULT_PALETTE_HEX = ["#8B1A1A", "#FF4500", "#FF8C00", "#FFD700"] as const;
+
+function createDefaultPalette(): THREE.Color[] {
+  return DEFAULT_PALETTE_HEX.map((hex) => new THREE.Color(hex));
+}
+
+function normalizePalette(colors: THREE.Color[]): THREE.Color[] {
+  const fallback = createDefaultPalette();
+  const normalized = colors
+    .filter((color): color is THREE.Color => color instanceof THREE.Color)
+    .slice(0, fallback.length);
+
+  while (normalized.length < fallback.length) {
+    normalized.push(fallback[normalized.length].clone());
+  }
+
+  return normalized;
+}
+
 export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
   ...initialEngineState,
 
@@ -110,12 +129,7 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
     progress01: 0,
   },
 
-  palette: [
-    new THREE.Color("#8B1A1A"),
-    new THREE.Color("#FF4500"),
-    new THREE.Color("#FF8C00"),
-    new THREE.Color("#FFD700"),
-  ],
+  palette: createDefaultPalette(),
 
   actions: {
     dispatchEngine: (action) =>
@@ -143,7 +157,10 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
         transition: { ...state.transition, ...patch },
       })),
 
-    setPalette: (colors) => set({ palette: colors }),
+    setPalette: (colors) =>
+      set(() => ({
+        palette: normalizePalette(colors),
+      })),
 
     resetTransition: () =>
       set(() => ({
@@ -190,12 +207,7 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
           trackA: null,
           trackB: null,
           activeTrack: null,
-          palette: [
-            new THREE.Color("#8B1A1A"),
-            new THREE.Color("#FF4500"),
-            new THREE.Color("#FF8C00"),
-            new THREE.Color("#FFD700"),
-          ],
+          palette: createDefaultPalette(),
           analysis: {
             bpm: null,
             bpmSource: "fallback",
@@ -225,4 +237,3 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
       }),
   },
 }));
-

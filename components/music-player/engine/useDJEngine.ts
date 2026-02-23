@@ -63,6 +63,14 @@ type HoldLoopCache = {
 interface UseDJEngineOptions {
   isIOS: boolean;
   onRequestNextTrack?: () => Promise<void>;
+  autoCueConfig?: {
+    minPlaySec?: number;
+    minProgress?: number;
+    minRemainingSec?: number;
+    shortTrackMinHoldSec?: number;
+    shortTrackMinProgress?: number;
+    shortTrackMinRemainingSec?: number;
+  };
 }
 
 interface DJEngineState {
@@ -215,7 +223,7 @@ function sectionToAnalysis(
 }
 
 export function useDJEngine(opts: UseDJEngineOptions) {
-  const { isIOS, onRequestNextTrack } = opts;
+  const { isIOS, onRequestNextTrack, autoCueConfig } = opts;
 
   const [engineState, dispatch] = useReducer(djEngineReducer, {
     djState: getInitialDJState(),
@@ -1331,8 +1339,12 @@ export function useDJEngine(opts: UseDJEngineOptions) {
             progress01,
             alreadyTriggered: revibeTriggeredRef.current,
             isPlayingState: true,
-            minPlaySec: MIN_AUTO_CUE_PLAY_SEC,
-            minProgress: MIN_AUTO_CUE_PROGRESS,
+            minPlaySec: autoCueConfig?.minPlaySec ?? MIN_AUTO_CUE_PLAY_SEC,
+            minProgress: autoCueConfig?.minProgress ?? MIN_AUTO_CUE_PROGRESS,
+            minRemainingSec: autoCueConfig?.minRemainingSec,
+            shortTrackMinHoldSec: autoCueConfig?.shortTrackMinHoldSec,
+            shortTrackMinProgress: autoCueConfig?.shortTrackMinProgress,
+            shortTrackMinRemainingSec: autoCueConfig?.shortTrackMinRemainingSec,
           });
           if (shouldCue) {
             revibeTriggeredRef.current = true;

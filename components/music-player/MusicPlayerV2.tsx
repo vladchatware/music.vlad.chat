@@ -31,8 +31,13 @@ import { useDJEngine } from "./engine/useDJEngine";
 import { useAudioAnalysis } from "./engine/useAudioAnalysis";
 import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
 
-export default function MusicPlayerV2(props: { initialTrackId: string | number }) {
-  const { initialTrackId } = props;
+type MusicPlayerV2Props = {
+  initialTrackId: string | number;
+  playbackProfile?: "default" | "trackFocus";
+};
+
+export default function MusicPlayerV2(props: MusicPlayerV2Props) {
+  const { initialTrackId, playbackProfile = "default" } = props;
 
   const { transition, playback } = useMusicPlayerStore(
     useShallow((s) => ({
@@ -58,14 +63,28 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   const latestOnRevibeRef = useRef<
     ((e: Event | ThreeEvent<MouseEvent>) => Promise<void> | void) | null
   >(null);
+  const initialLoadTrackKeyRef = useRef<string | null>(null);
   const autoNextFastRef = useRef<(() => Promise<boolean>) | null>(null);
   const queuedAutoRevibeRef = useRef(false);
   const autoNextFastInFlightRef = useRef(false);
   const autoNextFastLastAtMsRef = useRef(0);
+  const autoCueConfig = useMemo(() => {
+    if (playbackProfile !== "trackFocus") return undefined;
+    // Track route: hold the current track's strongest section longer before queueing next.
+    return {
+      minPlaySec: 150,
+      minProgress: 0.9,
+      minRemainingSec: 2,
+      shortTrackMinHoldSec: 26,
+      shortTrackMinProgress: 0.86,
+      shortTrackMinRemainingSec: 3,
+    };
+  }, [playbackProfile]);
 
   // Use the new DJ engine
   const engine = useDJEngine({
     isIOS,
+    autoCueConfig,
     onRequestNextTrack: async () => {
       const startedAt = performance.now();
       playbackDebug("player.on_request_next_track");
@@ -343,9 +362,14 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
   }, [initialTrackId, loadInitialTrack]);
 
   useEffect(() => {
-    if (isAuthenticated !== true) return;
+    // Initial track loading should not depend on authenticated=true:
+    // public/anonymous users can still play previews and should not get a blank route.
+    if (isAuthenticated === undefined) return;
+    const trackKey = String(initialTrackId);
+    if (initialLoadTrackKeyRef.current === trackKey) return;
+    initialLoadTrackKeyRef.current = trackKey;
     void onFetchInitialTrack();
-  }, [isAuthenticated, onFetchInitialTrack]);
+  }, [initialTrackId, isAuthenticated, onFetchInitialTrack]);
 
   const onRevibe = useCallback(
     async (e: Event | ThreeEvent<MouseEvent>) => {
@@ -486,6 +510,10 @@ export default function MusicPlayerV2(props: { initialTrackId: string | number }
       >
         <MusicPlayerOverlay
           isAuthenticated={isAuthenticated}
+          showSoundCloudSignIn={
+            playbackProfile === "trackFocus" &&
+            (isAuthenticated !== true || user?.isAnonymous === true)
+          }
           activeTrack={activeTrack}
           messages={messages}
           onRevibe={onRevibe}
