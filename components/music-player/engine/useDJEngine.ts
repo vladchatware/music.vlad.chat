@@ -165,8 +165,12 @@ function clampTransitionPlanToMedia(opts: {
   const { plan, currentTimeSec, outgoingDurationSec, incomingDurationSec } = opts;
   const maxByIncoming =
     incomingDurationSec !== null ? Math.max(1.5, incomingDurationSec - 1) : Number.POSITIVE_INFINITY;
+    
+  const isShortTrack = outgoingDurationSec !== null && outgoingDurationSec <= 70;
+  const outgoingRatio = isShortTrack ? 0.3 : 0.35;
   const maxByOutgoing =
-    outgoingDurationSec !== null ? Math.max(1.5, outgoingDurationSec * 0.35) : Number.POSITIVE_INFINITY;
+    outgoingDurationSec !== null ? Math.max(1.5, outgoingDurationSec * outgoingRatio) : Number.POSITIVE_INFINITY;
+    
   const clampedCrossfadeDurationSec = Math.min(
     Math.max(1.5, plan.crossfadeDurationSec),
     8,
@@ -661,6 +665,11 @@ export function useDJEngine(opts: UseDJEngineOptions) {
           playbackRate: deck.playbackRate,
           volume: deck.volume,
         });
+
+        if (deckId === activeDeckRef.current) {
+          // @ts-ignore OBS
+          window.obsstudio?.startRecording();
+        }
       };
       const onStalled = () => {
         updateStatus(deckId, { isPlaying: false });
@@ -767,6 +776,15 @@ export function useDJEngine(opts: UseDJEngineOptions) {
             nextTrackRequestInFlightRef.current = false;
           }
         }
+
+        const isTransitioning =
+          djStateTypeRef.current === "crossfading" ||
+          djStateTypeRef.current === "cueing" ||
+          djStateTypeRef.current === "planned";
+        if (!isTransitioning) {
+          // @ts-ignore OBS
+          window.obsstudio?.stopRecording();
+        }
       };
 
       deck.addEventListener("loadedmetadata", onLoadedMetadata);
@@ -822,6 +840,9 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     if (djStateTypeRef.current === "ready" || djStateTypeRef.current === "paused") {
       dispatch({ type: "PLAY" });
     }
+
+    // @ts-ignore OBS
+    window.obsstudio?.startRecording();
   }, [ensureListeningSegment, getActiveDeckElement]);
 
   const pause = useCallback(() => {
@@ -836,6 +857,9 @@ export function useDJEngine(opts: UseDJEngineOptions) {
       dispatch({ type: "PAUSE" });
     }
     finalizeCurrentListeningSegment(performance.now());
+
+    // @ts-ignore OBS
+    window.obsstudio?.stopRecording();
   }, [finalizeCurrentListeningSegment, getActiveDeckElement]);
 
   const togglePlay = useCallback(async () => {
@@ -1339,6 +1363,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
             progress01,
             alreadyTriggered: revibeTriggeredRef.current,
             isPlayingState: true,
+            section,
             minPlaySec: autoCueConfig?.minPlaySec ?? MIN_AUTO_CUE_PLAY_SEC,
             minProgress: autoCueConfig?.minProgress ?? MIN_AUTO_CUE_PROGRESS,
             minRemainingSec: autoCueConfig?.minRemainingSec,
