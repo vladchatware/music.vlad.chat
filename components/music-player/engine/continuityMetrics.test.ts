@@ -56,6 +56,30 @@ describe("continuityMetrics", () => {
         isPlayingState: true,
       }),
     ).toBe(false);
+
+    // Should block cueing if high energy (culmination)
+    expect(
+      shouldTriggerAutoCue({
+        currentTimeSec: 95,
+        progress01: 0.72,
+        alreadyTriggered: false,
+        isPlayingState: true,
+        section: "culmination",
+        durationSec: 130, // 35 seconds remaining, above 8 threshold
+      }),
+    ).toBe(false);
+
+    // Should allow cueing if high energy but very close to end
+    expect(
+      shouldTriggerAutoCue({
+        currentTimeSec: 125,
+        progress01: 0.96,
+        alreadyTriggered: false,
+        isPlayingState: true,
+        section: "culmination",
+        durationSec: 130, // 5 seconds remaining, <= 8 threshold
+      }),
+    ).toBe(true);
   });
 
   it("falls back to near-end cueing for short tracks", () => {
@@ -71,9 +95,9 @@ describe("continuityMetrics", () => {
 
     expect(
       shouldTriggerAutoCue({
-        currentTimeSec: 18.2,
+        currentTimeSec: 24.2, // Remaining 5.5 < 6
         durationSec: 29.7,
-        progress01: 0.61,
+        progress01: 0.81,
         alreadyTriggered: false,
         isPlayingState: true,
       }),

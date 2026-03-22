@@ -3,8 +3,8 @@ export const MIN_AUTO_CUE_PROGRESS = 0.7;
 export const MIN_AUTO_CUE_REMAINING_SEC = 25;
 export const SHORT_TRACK_CLASSIFIER_SEC = 70;
 export const SHORT_TRACK_MIN_HOLD_SEC = 16;
-export const SHORT_TRACK_MIN_PROGRESS = 0.58;
-export const SHORT_TRACK_MIN_REMAINING_SEC = 12;
+export const SHORT_TRACK_MIN_PROGRESS = 0.5;
+export const SHORT_TRACK_MIN_REMAINING_SEC = 6;
 export const DEFAULT_ABRUPT_MISMATCH_THRESHOLD = 0.35;
 export const PLANNED_TRANSITION_TIMEOUT_MS = 12000;
 export const MAX_PLANNED_REPLANS = 2;
@@ -35,6 +35,7 @@ export function shouldTriggerAutoCue(opts: {
   progress01: number;
   alreadyTriggered: boolean;
   isPlayingState: boolean;
+  section?: string;
   minPlaySec?: number;
   minProgress?: number;
   minRemainingSec?: number;
@@ -58,6 +59,8 @@ export function shouldTriggerAutoCue(opts: {
       : null;
   const remainingSec = durationSec !== null ? durationSec - opts.currentTimeSec : null;
 
+  const isHighEnergy = opts.section === "culmination";
+
   // Short effective streams (e.g. 30s previews) should breathe longer before queueing.
   // Keep this classifier independent of long-track hold constants to avoid accidental early cueing.
   if (durationSec !== null && durationSec <= SHORT_TRACK_CLASSIFIER_SEC) {
@@ -70,10 +73,15 @@ export function shouldTriggerAutoCue(opts: {
   }
 
   const byHoldAndProgress = opts.currentTimeSec >= minPlaySec && opts.progress01 >= minProgress;
-  if (byHoldAndProgress) return true;
+  if (byHoldAndProgress) {
+    if (!isHighEnergy) return true;
+  }
 
   if (remainingSec !== null) {
-    if (remainingSec <= minRemainingSec) return true;
+    if (remainingSec <= minRemainingSec) {
+      if (isHighEnergy && remainingSec > 8) return false;
+      return true;
+    }
   }
 
   return false;
