@@ -57,13 +57,13 @@ export function MusicPlayerOverlay(props: {
       </Container>
 
       <Container 
-        display={isAuthenticated && activeTrack ? "flex" : "none"} 
+        display={isAuthenticated && user && !user.isAnonymous && activeTrack ? "flex" : "none"} 
         marginBottom={20}
         alignItems="center"
         justifyContent="center"
         width="100%"
       >
-        {/* <Card maxWidth={380} width="100%" backgroundColor="rgb(4, 16, 22)">
+        <Card maxWidth={380} width="100%" backgroundColor="rgb(4, 16, 22)">
           <CardContent gap={8} paddingTop={16} paddingX={20} paddingBottom={12}>
             <Image 
               src={activeTrack?.artwork_url} 
@@ -83,7 +83,7 @@ export function MusicPlayerOverlay(props: {
               </Text>
             </CardDescription>
           </CardHeader>
-        </Card> */}
+        </Card>
       </Container>
 
       <Container flexDirection="column" alignItems="center" gap={12} width="100%">
