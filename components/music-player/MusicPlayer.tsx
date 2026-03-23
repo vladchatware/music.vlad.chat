@@ -220,6 +220,7 @@ export default function MusicPlayer(props: { initialTrackId: string | number }) 
         initialTrackId={initialTrackId}
         coordinateMapper={coordinateMapper}
         audioEnergyRef={audioEnergyRef}
+        isPlaybackActive={isPlaying}
         transitionHighlight={(() => {
           if (!transition || transition.state === "none") return null;
           if (transition.state === "planned") {

@@ -506,6 +506,7 @@ export default function MusicPlayerV2(props: MusicPlayerV2Props) {
         initialTrackId={initialTrackId}
         coordinateMapper={coordinateMapper}
         audioEnergyRef={audioEnergyRef}
+        isPlaybackActive={isPlaying || isTransitioning}
         transitionHighlight={transitionHighlight}
       >
         <MusicPlayerOverlay

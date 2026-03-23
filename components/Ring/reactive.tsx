@@ -18,6 +18,8 @@ export const { useParams, useActions, usePresets } = createConfigStore<TConfig>(
       nPoints: 3_500_000,
       pointSize: 0.2,
       thickness: 1,
+      audioEnergyRef: undefined,
+      isPlaybackActive: false,
       mirrorEffects: false,
       highlightStart01: 0,
       highlightEnd01: 0,

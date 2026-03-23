@@ -21,6 +21,7 @@ export function MusicPlayerScene({
   initialTrackId,
   coordinateMapper,
   audioEnergyRef,
+  isPlaybackActive = false,
   transitionHighlight,
   backgroundPrompt,
   children
@@ -28,11 +29,14 @@ export function MusicPlayerScene({
   initialTrackId: string | number;
   coordinateMapper: CoordinateMapper_Data;
   audioEnergyRef: React.MutableRefObject<number>;
+  isPlaybackActive?: boolean;
   transitionHighlight?: { start01: number; end01: number; intensity?: number } | null;
   backgroundPrompt?: string;
   children: ReactNode;
 }) {
-  const { palette } = useMusicPlayerStore(useShallow((s) => ({ palette: s.palette })));
+  const { palette } = useMusicPlayerStore(
+    useShallow((s) => ({ palette: s.palette })),
+  );
   const highlightColor = palette[1] ?? palette[0] ?? new THREE.Color("#FF4500");
   const envKey = useMemo(() => initialTrackId?.toString() || "default", [initialTrackId]);
 
@@ -96,7 +100,9 @@ export function MusicPlayerScene({
         <group position={[0, 0, -2]}>
           <BaseDiffusedRing
             coordinateMapper={coordinateMapper}
-            radius={2.8} nPoints={20000} pointSize={0.12} thickness={1.5}
+            radius={2.8} nPoints={180000} pointSize={0.16} thickness={2.1}
+            audioEnergyRef={audioEnergyRef}
+            isPlaybackActive={isPlaybackActive}
             mirrorEffects={true} highlightStart01={transitionHighlight?.start01}
             highlightEnd01={transitionHighlight?.end01}
             highlightIntensity={transitionHighlight?.intensity ?? 0.9}
