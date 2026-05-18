@@ -255,12 +255,17 @@ export const resolveTrackStreamUrl = async (
   userToken?: string,
 ): Promise<string> => {
   const access_token = userToken ?? await getAccessToken()
-  const res = await fetch(`https://api.soundcloud.com/tracks/${id}/stream`, {
+  const res = await fetch(`https://api.soundcloud.com/tracks/soundcloud:tracks:${id}/streams`, {
+    headers: { Authorization: `Bearer ${access_token}` },
+  })
+  if (!res.ok) throw new Error(`Failed to resolve stream: ${res.status}`)
+  const body = await res.json() as { http_mp3_128_url?: string }
+  if (!body.http_mp3_128_url) throw new Error('No full stream URL in response')
+  const cdn = await fetch(body.http_mp3_128_url, {
     headers: { Authorization: `Bearer ${access_token}` },
     redirect: 'follow',
   })
-  if (!res.ok) throw new Error(`Failed to resolve stream: ${res.status}`)
-  return res.url
+  return cdn.url
 }
 
 export const tracks = async (query: {
