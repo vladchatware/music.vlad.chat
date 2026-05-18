@@ -21,12 +21,14 @@ const Soundcloud: AuthProviderConfig = (options) => {
         return me.json()
       }
     },
-    profile(profile) {
+    profile(profile, tokens) {
       return {
         id: String(profile.id),
         name: profile.username || profile.full_name,
         email: profile.email,
         image: profile.avatar_url,
+        soundcloudAccessToken: tokens.access_token,
+        soundcloudRefreshToken: tokens.refresh_token,
       };
     },
     client: {
