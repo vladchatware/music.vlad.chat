@@ -11,3 +11,4 @@ soundcloud.json
 .vercel
 
 coverage/
+tsconfig.tsbuildinfo
