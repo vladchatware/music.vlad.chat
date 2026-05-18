@@ -4,7 +4,7 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 
 import { api } from "@/convex/_generated/api";
 import { playbackDebugServer as playbackDebug } from "@/lib/playbackDebugServer";
-import { likes, type Track } from "../../../../soundcloud";
+import { likes, seedFromConvexSettings, type Track } from "../../../../soundcloud";
 
 export const runtime = "nodejs";
 
@@ -53,6 +53,7 @@ export async function GET(req: Request) {
     const token = await convexAuthNextjsToken();
     if (token) {
       userToken = (await fetchQuery(api.users.soundcloudToken, {}, { token })) ?? undefined;
+      seedFromConvexSettings(token);
     }
   } catch {
     userToken = undefined;

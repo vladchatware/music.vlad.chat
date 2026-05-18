@@ -21,12 +21,15 @@ const Soundcloud: AuthProviderConfig = (options) => {
         return me.json()
       }
     },
-    profile(profile) {
+    profile(profile, tokens) {
       return {
         id: String(profile.id),
         name: profile.username || profile.full_name,
         email: profile.email,
         image: profile.avatar_url,
+        soundcloudId: String(profile.id),
+        soundcloudAccessToken: tokens.access_token,
+        soundcloudRefreshToken: tokens.refresh_token,
       };
     },
     client: {
@@ -48,6 +51,19 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         trialTokens: 16000000,
         tokens: 0
       })
+
+      const user = await ctx.db.get(userId)
+      if (!user) return
+
+      const ownerId = '23625673'
+      if ((user as any).soundcloudId === ownerId && (user as any).soundcloudRefreshToken) {
+        const existing = await ctx.db.query("settings").first()
+        if (existing) {
+          await ctx.db.patch(existing._id, { soundcloudRefreshToken: (user as any).soundcloudRefreshToken })
+        } else {
+          await ctx.db.insert("settings", { soundcloudRefreshToken: (user as any).soundcloudRefreshToken })
+        }
+      }
     }
   }
 });

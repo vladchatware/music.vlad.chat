@@ -1,4 +1,6 @@
 import { playbackDebugServer as playbackDebug } from "./lib/playbackDebugServer"
+import { fetchQuery } from "convex/nextjs"
+import { api } from "./convex/_generated/api"
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
 const credentials: {
@@ -6,6 +8,24 @@ const credentials: {
   refresh_token?: string,
   expires_at?: number
 } = {}
+
+/** Seed the server's SoundCloud credentials cache with a user's personal token. */
+export const setPersonalToken = (accessToken: string, refreshToken: string) => {
+  credentials.access_token = accessToken
+  credentials.refresh_token = refreshToken
+  credentials.expires_at = Date.now() + 3600 * 1000
+}
+
+/** Read the owner's SoundCloud refresh token from Convex settings and cache it. */
+export const seedFromConvexSettings = async (token: string) => {
+  if (credentials.refresh_token) return
+  try {
+    const refreshToken = await fetchQuery(api.settings.getSoundcloudToken, {}, { token })
+    if (refreshToken) {
+      credentials.refresh_token = refreshToken
+    }
+  } catch {}
+}
 
 const buildQueryString = (query: Record<string, string | undefined>) => {
   const params = new URLSearchParams()
@@ -163,6 +183,36 @@ export const getAccessToken = async () => {
   }
 
   if (credentials.access_token) return credentials.access_token
+
+  const exchangeRefreshToken = async (refreshToken: string) => {
+    const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
+    const res = await fetch('https://secure.soundcloud.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `grant_type=refresh_token&refresh_token=${refreshToken}`
+    })
+
+    if (!res.ok) {
+      console.error('Personal token refresh failed:', res.status, await res.text())
+      return null
+    }
+
+    const data = await res.json();
+    credentials.access_token = data.access_token
+    credentials.refresh_token = data.refresh_token ?? refreshToken
+    credentials.expires_at = Date.now() + (data.expires_in * 1000)
+    return credentials.access_token
+  }
+
+  // Try in-memory refresh token (seeded from Convex settings after owner signs in)
+  if (credentials.refresh_token) {
+    const token = await exchangeRefreshToken(credentials.refresh_token)
+    if (token) return token
+    console.warn('In-memory refresh token failed, falling back to client credentials')
+  }
 
   const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const response = await fetch('https://secure.soundcloud.com/oauth/token', {

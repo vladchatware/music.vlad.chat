@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { createMcpHandler } from "mcp-handler"
-import { tracks, users, playlists, likes, Track } from "../../../soundcloud"
+import { tracks, users, playlists, likes, seedFromConvexSettings, Track } from "../../../soundcloud"
 import { playbackDebugServer as playbackDebug } from "@/lib/playbackDebugServer"
 import { fetchQuery } from "convex/nextjs"
 import { api } from "../../../convex/_generated/api"
@@ -21,7 +21,9 @@ const getUserToken = async (): Promise<string | undefined> => {
   try {
     const token = await convexAuthNextjsToken()
     if (token) {
-      return await fetchQuery(api.users.soundcloudToken, {}, { token }) ?? undefined
+      const accessToken = await fetchQuery(api.users.soundcloudToken, {}, { token }) ?? undefined
+      seedFromConvexSettings(token)
+      return accessToken
     }
   } catch {
     // User not authenticated, will use server credentials

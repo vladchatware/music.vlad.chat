@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { isPreviewStreamUrl, resolveTrackStreamUrl } from '../../../../../soundcloud'
+import { isPreviewStreamUrl, resolveTrackStreamUrl, seedFromConvexSettings } from '../../../../../soundcloud'
 import { playbackDebugServer as playbackDebug } from '@/lib/playbackDebugServer'
 import { fetchQuery } from "convex/nextjs"
 import { api } from '../../../../../convex/_generated/api'
@@ -19,6 +19,7 @@ export async function GET(_req: Request, { params }) {
       const token = await convexAuthNextjsToken()
       if (token) {
         userToken = await fetchQuery(api.users.soundcloudToken, {}, { token }) ?? undefined
+        seedFromConvexSettings(token)
       }
     } catch {
       // User not authenticated, will use server credentials

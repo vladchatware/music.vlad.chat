@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 export const viewer = query({
   args: {},
@@ -13,16 +13,45 @@ export const viewer = query({
 export const soundcloudToken = query({
   args: {},
   handler: async (ctx) => {
-    const sessionId = await getAuthSessionId(ctx);
-    if (sessionId === null) return null;
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
 
-    const session = await ctx.db.get(sessionId);
-    if (!session) return null;
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
 
-    // Check if this session has a SoundCloud access token (OAuth login)
-    // The token is stored on the authSessions table by @convex-dev/auth
-    // @ts-ignore - access_token is added by OAuth flow
-    return session.access_token ?? null;
+    return (user as any).soundcloudAccessToken ?? null;
+  },
+});
+
+export const mySoundcloudCredentials = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+
+    return {
+      soundcloudId: (user as any).soundcloudId ?? null,
+      accessToken: (user as any).soundcloudAccessToken ?? null,
+      refreshToken: (user as any).soundcloudRefreshToken ?? null,
+    };
+  },
+});
+
+export const ownerRefreshToken = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+
+    if ((user as any).soundcloudId !== '23625673') return null;
+
+    return (user as any).soundcloudRefreshToken ?? null;
   },
 });
 
