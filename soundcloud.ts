@@ -1,4 +1,6 @@
 import { playbackDebugServer as playbackDebug } from "./lib/playbackDebugServer"
+import { fetchQuery } from "convex/nextjs"
+import { api } from "./convex/_generated/api"
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
 const credentials: {
@@ -148,8 +150,11 @@ const readAccessToken = async () => {
 
     if (credentials.refresh_token && Date.now() > credentials.expires_at) {
       console.log('token expired, refreshing')
-      return refreshToken(credentials.refresh_token)
+      const token = await refreshToken(credentials.refresh_token)
+      if (token) return token
     }
+
+    return getAccessToken()
 
   } catch (e) {
     console.log('error', e)
@@ -163,6 +168,18 @@ export const getAccessToken = async () => {
   }
 
   if (credentials.access_token) return credentials.access_token
+
+  if (!credentials.refresh_token) {
+    try {
+      const rt = await fetchQuery(api.settings.getRefreshToken, {})
+      if (rt) credentials.refresh_token = rt
+    } catch {}
+  }
+
+  if (credentials.refresh_token) {
+    const token = await refreshToken(credentials.refresh_token)
+    if (token) return token
+  }
 
   const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const response = await fetch('https://secure.soundcloud.com/oauth/token', {
@@ -189,24 +206,22 @@ export const getAccessToken = async () => {
   return credentials.access_token
 }
 
-export const refreshToken = async (refresh_token) => {
+export const refreshToken = async (refresh_token: string) => {
   const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-  const response = await fetch('https://secure.soundcloud.com/oauth/token', {
+  const res = await fetch('https://secure.soundcloud.com/oauth/token', {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${auth}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: `grant_type=refresh_token&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&refresh_token=${refresh_token}`
+    body: `grant_type=refresh_token&refresh_token=${refresh_token}`
   })
 
-  if (!response.ok) {
-    throw new Error(`Authentication failed with status: ${response.status}`);
-  }
-  const data = await response.json();
+  if (!res.ok) return null
 
+  const data = await res.json();
   credentials.access_token = data.access_token
-  credentials.refresh_token = data.refresh_token
+  credentials.refresh_token = data.refresh_token ?? refresh_token
   credentials.expires_at = Date.now() + (data.expires_in * 1000)
 
   return credentials.access_token
