@@ -250,148 +250,17 @@ export const track = async (id: string | number, userToken?: string) => {
   return track
 }
 
-export const isPreviewStreamUrl = (url: string) => {
-  try {
-    const parsed = new URL(url)
-    return parsed.host.includes('cf-preview-media.sndcdn.com') || parsed.pathname.includes('/preview/')
-  } catch {
-    return url.includes('/preview/')
-  }
-}
-
 export const resolveTrackStreamUrl = async (
   id: string | number,
   userToken?: string,
 ): Promise<string> => {
-  const startedAt = Date.now()
-  const endpoint = `https://api.soundcloud.com/tracks/${id}/stream`
-
-  let serverToken: string | undefined
-  try {
-    serverToken = await readAccessToken() ?? undefined
-  } catch {
-    serverToken = undefined
-  }
-
-  const tokenCandidates: Array<{ token: string; source: 'user' | 'server' }> = []
-  if (userToken) tokenCandidates.push({ token: userToken, source: 'user' })
-  if (serverToken && serverToken !== userToken) {
-    tokenCandidates.push({ token: serverToken, source: 'server' })
-  }
-
-  if (tokenCandidates.length === 0) {
-    playbackDebug("soundcloud.stream.resolve.no_token", { trackId: id })
-    throw new Error('Failed to acquire SoundCloud access token')
-  }
-
-  const resolveWithToken = async (accessToken: string, source: 'user' | 'server') => {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${accessToken}`,
-    }
-
-    const manual = await fetch(endpoint, {
-      headers,
-      redirect: 'manual',
-    })
-    playbackDebug("soundcloud.stream.resolve.manual", {
-      trackId: id,
-      tokenSource: source,
-      status: manual.status,
-      hasLocation: Boolean(manual.headers.get('location')),
-      elapsedMs: Date.now() - startedAt,
-    })
-
-    const location = manual.headers.get('location')
-    if (location) {
-      return new URL(location, endpoint).toString()
-    }
-
-    const followed = await fetch(endpoint, {
-      headers,
-      redirect: 'follow',
-    })
-    playbackDebug("soundcloud.stream.resolve.followed", {
-      trackId: id,
-      tokenSource: source,
-      status: followed.status,
-      ok: followed.ok,
-      elapsedMs: Date.now() - startedAt,
-    })
-    if (!followed.ok) {
-      throw new Error(`Failed to resolve stream URL: ${followed.status} ${followed.statusText}`)
-    }
-    if (!followed.url) {
-      throw new Error('Failed to resolve stream URL: missing final URL')
-    }
-    return followed.url
-  }
-
-  let fallbackPreviewUrl: string | null = null
-  for (const candidate of tokenCandidates) {
-    try {
-      const resolved = await resolveWithToken(candidate.token, candidate.source)
-      const preview = isPreviewStreamUrl(resolved)
-      playbackDebug("soundcloud.stream.resolve.classified", {
-        trackId: id,
-        tokenSource: candidate.source,
-        preview,
-        host: (() => {
-          try {
-            return new URL(resolved).host
-          } catch {
-            return null
-          }
-        })(),
-        elapsedMs: Date.now() - startedAt,
-      })
-      if (!preview) {
-        playbackDebug("soundcloud.stream.resolve.success", {
-          trackId: id,
-          tokenSource: candidate.source,
-          elapsedMs: Date.now() - startedAt,
-        })
-        return resolved
-      }
-      if (!fallbackPreviewUrl) fallbackPreviewUrl = resolved
-    } catch (error) {
-      playbackDebug("soundcloud.stream.resolve.candidate_failed", {
-        trackId: id,
-        tokenSource: candidate.source,
-        elapsedMs: Date.now() - startedAt,
-        message: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  if (fallbackPreviewUrl) {
-    playbackDebug("soundcloud.stream.resolve.preview_fallback", {
-      trackId: id,
-      elapsedMs: Date.now() - startedAt,
-    })
-    return fallbackPreviewUrl
-  }
-
-  throw new Error('Failed to resolve stream URL')
-}
-
-export const streamTrack = async (
-  id: string | number,
-  userToken?: string,
-  rangeHeader?: string | null,
-) => {
   const access_token = userToken ?? await getAccessToken()
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${access_token}`,
-  }
-  if (rangeHeader) {
-    headers.Range = rangeHeader
-  }
-
   const res = await fetch(`https://api.soundcloud.com/tracks/${id}/stream`, {
-    headers,
+    headers: { Authorization: `Bearer ${access_token}` },
+    redirect: 'follow',
   })
-
-  return res
+  if (!res.ok) throw new Error(`Failed to resolve stream: ${res.status}`)
+  return res.url
 }
 
 export const tracks = async (query: {

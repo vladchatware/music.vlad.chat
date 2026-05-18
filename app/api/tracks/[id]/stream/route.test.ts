@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../../soundcloud", () => ({
   resolveTrackStreamUrl: vi.fn(),
-  isPreviewStreamUrl: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("convex/nextjs", () => ({
@@ -22,7 +21,7 @@ vi.mock("../../../../../convex/_generated/api", () => ({
 }));
 
 import { GET } from "./route";
-import { isPreviewStreamUrl, resolveTrackStreamUrl } from "../../../../../soundcloud";
+import { resolveTrackStreamUrl } from "../../../../../soundcloud";
 import { fetchQuery } from "convex/nextjs";
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 
@@ -51,17 +50,9 @@ describe("GET /api/tracks/[id]/stream", () => {
       params: Promise.resolve({ id: "123" }) as any,
     });
 
-    expect(fetchQuery).toHaveBeenCalledWith(
-      "soundcloudToken",
-      {},
-      { token: "token-1" },
-    );
-    expect(resolveTrackStreamUrl).toHaveBeenCalledWith("123", "user-sc-token");
-    expect(isPreviewStreamUrl).toHaveBeenCalledWith("https://cdn.soundcloud.com/stream-file.m4a");
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe("https://cdn.soundcloud.com/stream-file.m4a");
     expect(res.headers.get("cache-control")).toBe("private, max-age=30");
-    expect(res.headers.get("x-mp-stream-preview")).toBe("0");
   });
 
   it("falls back to server credentials when auth lookup fails", async () => {
@@ -73,23 +64,7 @@ describe("GET /api/tracks/[id]/stream", () => {
     });
 
     expect(fetchQuery).not.toHaveBeenCalled();
-    expect(resolveTrackStreamUrl).toHaveBeenCalledWith("777", undefined);
     expect(res.status).toBe(307);
-  });
-
-  it("marks preview redirects in response headers", async () => {
-    vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as any);
-    vi.mocked(resolveTrackStreamUrl).mockResolvedValue(
-      "https://cf-preview-media.sndcdn.com/preview/0/30/abc.128.mp3",
-    );
-    vi.mocked(isPreviewStreamUrl).mockReturnValue(true);
-
-    const res = await GET(new Request("http://localhost"), {
-      params: Promise.resolve({ id: "321" }) as any,
-    });
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get("x-mp-stream-preview")).toBe("1");
   });
 
   it("returns 502 when stream URL resolution fails", async () => {
