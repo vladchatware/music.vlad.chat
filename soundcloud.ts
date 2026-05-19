@@ -1,6 +1,8 @@
 import { playbackDebugServer as playbackDebug } from "./lib/playbackDebugServer"
 const { CLIENT_ID, CLIENT_SECRET } = process.env;
 
+
+
 const credentials: {
   access_token?: string,
   refresh_token?: string,
@@ -212,6 +214,22 @@ export const refreshToken = async (refresh_token) => {
   return credentials.access_token
 }
 
+export const refreshUserToken = async (refreshToken: string) => {
+  if (!CLIENT_ID || !CLIENT_SECRET) throw new Error('Soundcloud client credentials not found')
+  const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')
+  const response = await fetch('https://secure.soundcloud.com/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `grant_type=refresh_token&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&refresh_token=${refreshToken}`
+  })
+  if (!response.ok) throw new Error(`Token refresh failed: ${response.status}`)
+  const data = await response.json()
+  return { accessToken: data.access_token, refreshToken: data.refresh_token }
+}
+
 export const users = async (query: {
   q?: string,
   ids?: string,
@@ -235,14 +253,18 @@ export const users = async (query: {
 }
 
 export const track = async (id: string | number, userToken?: string) => {
-  const access_token = userToken ?? await getAccessToken()
+  const access_token = userToken ?? await readAccessToken()
+  if (!access_token) throw new Error('No access token available')
   const res = await fetch(`https://api.soundcloud.com/tracks/${id}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
     }
   })
   if (!res.ok) {
-    throw new Error(res.statusText)
+    const body = await res.text()
+    const e = new Error(`SoundCloud API error ${res.status}: ${body}`)
+    ;(e as any).status = res.status
+    throw e
   }
 
   const track = await res.json()
@@ -254,11 +276,17 @@ export const resolveTrackStreamUrl = async (
   id: string | number,
   userToken?: string,
 ): Promise<string> => {
-  const access_token = userToken ?? await getAccessToken()
+  const access_token = userToken ?? await readAccessToken()
+  if (!access_token) throw new Error('No access token available')
   const res = await fetch(`https://api.soundcloud.com/tracks/soundcloud:tracks:${id}/streams`, {
     headers: { Authorization: `Bearer ${access_token}` },
   })
-  if (!res.ok) throw new Error(`Failed to resolve stream: ${res.status}`)
+  if (!res.ok) {
+    const body = await res.text()
+    const e = new Error(`SoundCloud API error ${res.status}: ${body}`)
+    ;(e as any).status = res.status
+    throw e
+  }
   const body = await res.json() as { http_mp3_128_url?: string }
   if (!body.http_mp3_128_url) throw new Error('No full stream URL in response')
   const cdn = await fetch(body.http_mp3_128_url, {

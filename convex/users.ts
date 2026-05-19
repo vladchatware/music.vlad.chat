@@ -23,6 +23,35 @@ export const soundcloudToken = query({
   },
 });
 
+export const soundcloudTokens = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    return {
+      accessToken: (user as any).soundcloudAccessToken ?? null,
+      refreshToken: (user as any).soundcloudRefreshToken ?? null,
+    };
+  },
+});
+
+export const updateSoundcloudTokens = mutation({
+  args: {
+    accessToken: v.string(),
+    refreshToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('Not authenticated');
+    await ctx.db.patch(userId, {
+      soundcloudAccessToken: args.accessToken,
+      soundcloudRefreshToken: args.refreshToken,
+    });
+  },
+});
+
 export const connect = mutation({
   args: { stripeId: v.string() },
   handler: async (ctx, args) => {
