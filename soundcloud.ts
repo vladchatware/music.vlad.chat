@@ -268,7 +268,7 @@ export const track = async (id: string | number, userToken?: string) => {
   }
 
   const track = await res.json()
-  track.artwork_url = track.artwork_url?.replace('large', 't500x500')
+  track.artwork_url = track.artwork_url?.replace('large', 'original')
   return track
 }
 
