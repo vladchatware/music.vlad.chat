@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Container, Image, Text } from "@react-three/uikit";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default";
 import { Authenticated } from "convex/react";
@@ -20,7 +20,6 @@ function getLastMessage(messages: UIMessage[]) {
 
 export function MusicPlayerOverlay(props: {
   isAuthenticated: boolean | null | undefined;
-  showSoundCloudSignIn?: boolean;
   activeTrack: any;
   messages: UIMessage[];
   onRevibe: (e: any) => void | Promise<void>;
@@ -32,7 +31,6 @@ export function MusicPlayerOverlay(props: {
 }) {
   const {
     isAuthenticated,
-    showSoundCloudSignIn,
     activeTrack,
     messages,
     onRevibe,
@@ -42,6 +40,30 @@ export function MusicPlayerOverlay(props: {
     signIn,
     checkout,
   } = props;
+
+  const [viewportWidth, setViewportWidth] = useState(390);
+
+  useEffect(() => {
+    setViewportWidth(window.innerWidth);
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const cardMaxWidth = useMemo(
+    () => Math.max(Math.min(viewportWidth * 0.75, 640), 380),
+    [viewportWidth],
+  );
+
+  const titleFontSize = useMemo(
+    () => Math.round(Math.max(Math.min(viewportWidth / 28, 22), 15)),
+    [viewportWidth],
+  );
+
+  const artistFontSize = useMemo(
+    () => Math.round(Math.max(Math.min(viewportWidth / 36, 16), 12)),
+    [viewportWidth],
+  );
 
   return (
     <>
@@ -57,13 +79,13 @@ export function MusicPlayerOverlay(props: {
       </Container>
 
       <Container 
-        display={isAuthenticated && user && !user.isAnonymous && activeTrack ? "flex" : "none"} 
+        display={activeTrack ? "flex" : "none"} 
         marginBottom={20}
         alignItems="center"
         justifyContent="center"
         width="100%"
       >
-        <Card maxWidth={380} width="100%" backgroundColor="rgb(4, 16, 22)">
+        <Card maxWidth={cardMaxWidth} width="100%" backgroundColor="rgb(4, 16, 22)">
           <CardContent gap={8} paddingTop={16} paddingX={20} paddingBottom={12}>
             <Image 
               src={activeTrack?.artwork_url} 
@@ -73,12 +95,12 @@ export function MusicPlayerOverlay(props: {
           </CardContent>
           <CardHeader paddingTop={0}>
             <CardTitle>
-              <Text color="white" fontWeight="bold">
+              <Text color="white" fontWeight="bold" fontSize={titleFontSize}>
                 {activeTrack?.title}
               </Text>
             </CardTitle>
             <CardDescription>
-              <Text color="rgb(192, 192, 197)">
+              <Text color="rgb(192, 192, 197)" fontSize={artistFontSize}>
                 {activeTrack?.user?.username || activeTrack?.user?.full_name}
               </Text>
             </CardDescription>
@@ -98,15 +120,6 @@ export function MusicPlayerOverlay(props: {
           <Button onClick={onRevibe} disabled={status === "streaming"}>
             <Text>{buttonLabel}</Text>
           </Button>
-          {showSoundCloudSignIn && (
-            <Button
-              onClick={() => {
-                return signIn("soundcloud");
-              }}
-            >
-              <Text>Sign in for full track</Text>
-            </Button>
-          )}
         </Container>
 
         <Container flexDirection="column">

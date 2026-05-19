@@ -511,10 +511,6 @@ export default function MusicPlayerV2(props: MusicPlayerV2Props) {
       >
         <MusicPlayerOverlay
           isAuthenticated={isAuthenticated}
-          showSoundCloudSignIn={
-            playbackProfile === "trackFocus" &&
-            (isAuthenticated !== true || user?.isAnonymous === true)
-          }
           activeTrack={activeTrack}
           messages={messages}
           onRevibe={onRevibe}
