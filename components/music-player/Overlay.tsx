@@ -50,7 +50,7 @@ export function MusicPlayerOverlay(props: {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const cardMaxWidth = 380;
+  const cardMaxWidth = Math.min(viewportWidth * 0.85, 380);
 
   const titleFontSize = useMemo(
     () => Math.round(Math.max(Math.min(viewportWidth / 28, 22), 15)),
