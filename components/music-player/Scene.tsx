@@ -1,6 +1,7 @@
 "use client"
 
 import React, { type ReactNode, useMemo } from "react";
+const isOBS = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("obs")
 import { Canvas } from "@react-three/fiber";
 import { Fullscreen } from "@react-three/uikit";
 import { Defaults } from "@react-three/uikit-default";
@@ -100,7 +101,7 @@ export function MusicPlayerScene({
         <group position={[0, 0, -2]}>
           <BaseDiffusedRing
             coordinateMapper={coordinateMapper}
-            radius={2.8} nPoints={180000} pointSize={0.16} thickness={2.1}
+            radius={2.8} nPoints={isOBS ? 24000 : 180000} pointSize={isOBS ? 0.8 : 0.16} thickness={2.1}
             audioEnergyRef={audioEnergyRef}
             isPlaybackActive={isPlaybackActive}
             mirrorEffects={true} highlightStart01={transitionHighlight?.start01}

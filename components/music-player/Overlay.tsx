@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react";
+import React from "react";
 import { Container, Image, Text } from "@react-three/uikit";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default";
 import { Authenticated } from "convex/react";
@@ -41,26 +41,14 @@ export function MusicPlayerOverlay(props: {
     checkout,
   } = props;
 
-  const [viewportWidth, setViewportWidth] = useState(390);
-
-  useEffect(() => {
-    setViewportWidth(window.innerWidth);
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  const cardMaxWidth = Math.min(viewportWidth * 0.85, 380);
-
-  const titleFontSize = useMemo(
-    () => Math.round(Math.max(Math.min(viewportWidth / 28, 22), 15)),
-    [viewportWidth],
-  );
-
-  const artistFontSize = useMemo(
-    () => Math.round(Math.max(Math.min(viewportWidth / 36, 16), 12)),
-    [viewportWidth],
-  );
+  const isOBS = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("obs")
+  const isLandscape = typeof window !== "undefined"
+    ? window.innerWidth > window.innerHeight
+    : true
+  const baseCardWidth = isLandscape ? 380 : 600
+  const cardMaxWidth = isOBS ? baseCardWidth * 1.8 : baseCardWidth
+  const titleFontSize = isOBS ? 28 : undefined
+  const artistFontSize = isOBS ? 20 : undefined
 
   return (
     <>
