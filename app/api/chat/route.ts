@@ -1,76 +1,87 @@
 import { NextResponse, NextRequest } from 'next/server'
-import { streamText, UIMessage, convertToModelMessages, stepCountIs, smoothStream, ToolSet } from 'ai';
+import { streamText, convertToModelMessages, hasToolCall, stepCountIs } from 'ai';
 import { experimental_createMCPClient } from '@ai-sdk/mcp';
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { openai } from '@ai-sdk/openai';
 import { systemMessage } from '../../../lib/ai';
-import { fetchMutation, fetchQuery } from "convex/nextjs"
-import { api, internal } from '../../../convex/_generated/api';
-import z from 'zod';
+import { fetchQuery } from "convex/nextjs"
+import { api } from '../../../convex/_generated/api';
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server';
-import { stripe } from '@/lib/stripe';
+import { createDJAgentTools } from '@/lib/server/djAgentTools';
+import { checkDJAccess, recordDJUsage } from '@/lib/server/djAgentAccess';
+import { isLocalDJBypass } from '@/lib/server/localDJBypass';
+import { playbackDebugServer } from '@/lib/playbackDebugServer';
+
+function cleanCorrelation(value: unknown) {
+  return typeof value === 'string' && value.length > 0 ? value.slice(0, 128) : undefined;
+}
 
 export async function POST(req: NextRequest) {
-  const { messages } = await req.json()
+  const { messages, telemetry } = await req.json()
+  const chatSessionId = cleanCorrelation(telemetry?.chatSessionId);
+  const turnId = cleanCorrelation(telemetry?.turnId);
 
-  const user = await fetchQuery(api.users.viewer, {}, { token: await convexAuthNextjsToken() })
+  const token = await convexAuthNextjsToken()
+  const user = await fetchQuery(api.users.viewer, {}, { token })
+  if (!user) return new NextResponse('Unauthorized', { status: 401 })
 
-  // Bypass limits in development
-  const isDev = process.env.NODE_ENV === 'development';
-  
-  if (!isDev) {
-    if (!user.isAnonymous) {
-      if (!user.stripeId) {
-        const customer = await stripe.customers.create(({
-          email: user.email
-        }))
-        await fetchMutation(api.users.connect, { stripeId: customer.id }, { token: await convexAuthNextjsToken() })
-        user.stripeId = customer.id
-      }
-
-      if (user.trialTokens <= 0 && user.tokens <= 0) {
-        return new NextResponse('out of tokens', { status: 429 })
-      }
-    } else {
-      if (user.trialMessages! <= 0) return new NextResponse('no more messages left', { status: 429 })
-    }
-  }
+  const localBypass = isLocalDJBypass(req)
+  const denied = localBypass ? null : await checkDJAccess(user, token)
+  if (denied) return new NextResponse(denied.message, { status: denied.status })
 
   const url = process.env.NEXT_PUBLIC_SITE_URL
   const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`))
-  const notion = await experimental_createMCPClient({
-    // @ts-ignore TODO 
-    transport
-  })
+  const soundcloud = await experimental_createMCPClient({ transport })
 
-  const tools: ToolSet = {
-    player: {
-      description: "Play a song",
-      inputSchema: z.object({
-        id: z.number().describe("The id of a song")
-      })
-    }
+  const soundcloudTools = await soundcloud.tools()
+  const discoveryTools = {
+    ...(soundcloudTools.likes ? { likes: soundcloudTools.likes } : {}),
+    ...(soundcloudTools.tracks ? { tracks: soundcloudTools.tracks } : {}),
   }
-
-  const notionTools = await notion.tools() as ToolSet
+  const model = process.env.DJ_MODEL ?? 'openai/gpt-5.4-nano';
+  const timeoutMs = Math.min(
+    120_000,
+    Math.max(15_000, Number.parseInt(process.env.DJ_AGENT_TIMEOUT_MS ?? '45000', 10) || 45_000),
+  );
+  const traceContext = { chatSessionId, turnId, model };
+  playbackDebugServer('ai.dj.turn.started', {
+    ...traceContext,
+    messageCount: Array.isArray(messages) ? messages.length : 0,
+  });
   const result = streamText({
-    model: 'openai/gpt-5-mini',
+    model,
     messages: convertToModelMessages(messages),
-    tools: { ...tools, ...notionTools },
-    stopWhen: stepCountIs(5),
+    tools: { ...discoveryTools, ...createDJAgentTools() },
+    stopWhen: [hasToolCall('player'), stepCountIs(12)],
+    abortSignal: AbortSignal.timeout(timeoutMs),
     system: systemMessage,
-    onFinish: async ({ usage, providerMetadata }) => {
-      // console.log(usage)
-      if (user.isAnonymous) {
-        await fetchMutation(api.users.messages, {}, { token: await convexAuthNextjsToken() })
-      } else {
-        await fetchMutation(api.users.usage, { usage, model: 'gpt-5-mini', provider: 'AI Gateway' }, { token: await convexAuthNextjsToken() })
-      }
+    experimental_telemetry: {
+      isEnabled: true,
+      functionId: 'ai-dj-chat',
+      recordInputs: process.env.AI_TELEMETRY_RECORD_CONTENT === 'true',
+      recordOutputs: process.env.AI_TELEMETRY_RECORD_CONTENT === 'true',
+      metadata: {
+        ...(chatSessionId ? { chatSessionId } : {}),
+        ...(turnId ? { turnId } : {}),
+      },
+    },
+    onError: ({ error }) => {
+      playbackDebugServer('ai.dj.turn.failed', {
+        ...traceContext,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    },
+    onFinish: async ({ usage, finishReason, steps }) => {
+      playbackDebugServer('ai.dj.turn.finished', {
+        ...traceContext,
+        finishReason,
+        stepCount: steps.length,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens: usage.totalTokens,
+      });
+      if (!localBypass) await recordDJUsage(user, token, model, usage);
     },
   })
 
-  return result.toUIMessageStreamResponse({
-    sendSources: true,
-    sendReasoning: true
-  })
+  return result.toUIMessageStreamResponse({ sendSources: true })
 }

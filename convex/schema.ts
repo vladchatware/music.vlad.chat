@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values"
 import { authTables } from "@convex-dev/auth/server";
+import { trackAnalysisResultValidator } from "./trackAnalysisValidators";
 
 export default defineSchema({
   ...authTables,
@@ -32,5 +33,38 @@ export default defineSchema({
       reasoningTokens: v.optional(v.number()),
       cachedInputTokens: v.optional(v.number()),
     })
+  }),
+  trackAnalysisJobs: defineTable({
+    cacheKey: v.string(),
+    source: v.literal("soundcloud"),
+    sourceTrackId: v.string(),
+    analysisVersion: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("processing"),
+      v.literal("failed"),
+      v.literal("dead"),
+    ),
+    priority: v.number(),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
   })
+    .index("by_cacheKey", ["cacheKey"])
+    .index("by_status_priority_createdAt", ["status", "priority", "createdAt"]),
+  trackAnalyses: defineTable({
+    cacheKey: v.string(),
+    result: trackAnalysisResultValidator,
+    createdAt: v.number(),
+  })
+    .index("by_cacheKey", ["cacheKey"])
+    .index("by_source_track_version", [
+      "result.source",
+      "result.sourceTrackId",
+      "result.analysisVersion",
+    ]),
 });

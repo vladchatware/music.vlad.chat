@@ -301,6 +301,8 @@ export interface TransitionPlan {
   readonly quality: Normalized;
   /** Timestamp when this plan was created */
   readonly createdAt: TimestampMs;
+  /** Optional agent-authored performance intent compiled against live engine state */
+  readonly performance?: import("./performance/types").CompiledPerformance;
 }
 
 // =============================================================================
@@ -329,6 +331,13 @@ export interface DJTrack {
   readonly duration?: DurationSec;
   /** Artwork URL */
   readonly artworkUrl?: string;
+}
+
+export interface TrackCuePoints {
+  readonly mixInSec: AudioTimeSec;
+  readonly mixOutSec: AudioTimeSec;
+  readonly confidence: Normalized;
+  readonly reason: string;
 }
 
 /**

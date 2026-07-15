@@ -3,6 +3,8 @@ import { track, refreshUserToken } from '../../../../soundcloud'
 import { fetchQuery, fetchMutation } from "convex/nextjs"
 import { api } from '../../../../convex/_generated/api'
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
+import { enqueueTrackAnalysis } from '@/lib/server/analysisQueue'
+import { getErrorRetryAfterMs, getErrorStatus } from '@/lib/server/httpError'
 
 async function fetchTrackWithUserRefresh(id: string, convexToken: string) {
   const tokens = await fetchQuery(api.users.soundcloudTokens, {}, { token: convexToken })
@@ -11,7 +13,7 @@ async function fetchTrackWithUserRefresh(id: string, convexToken: string) {
   try {
     return await track(id, tokens.accessToken)
   } catch (e) {
-    if ((e as any).status !== 401 || !tokens.refreshToken) throw e
+    if (getErrorStatus(e) !== 401 || !tokens.refreshToken) throw e
 
     console.log('User SoundCloud token expired, refreshing...')
     const refreshed = await refreshUserToken(tokens.refreshToken)
@@ -39,9 +41,10 @@ export async function GET(req: NextRequest, { params }) {
       try {
         const _track = await fetchTrackWithUserRefresh(id, convexToken)
         if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
+        await enqueueTrackAnalysis(id, 100).catch(() => false)
         return NextResponse.json(_track)
       } catch (e) {
-        if ((e as any).status === 401) {
+        if (getErrorStatus(e) === 401) {
           return NextResponse.json(
             { error: 'SoundCloud session expired. Please sign in again.', code: 'TOKEN_EXPIRED' },
             { status: 401 },
@@ -53,8 +56,18 @@ export async function GET(req: NextRequest, { params }) {
 
     const _track = await track(id)
     if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
+    await enqueueTrackAnalysis(id, 100).catch(() => false)
     return NextResponse.json(_track)
   } catch (e) {
+    if (getErrorStatus(e) === 429) {
+      const headers = new Headers()
+      const retryAfterMs = getErrorRetryAfterMs(e)
+      if (retryAfterMs !== null) headers.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)))
+      return NextResponse.json(
+        { error: 'SoundCloud rate limit reached. Try again later.', code: 'RATE_LIMITED' },
+        { status: 429, headers },
+      )
+    }
     console.error('Failed to fetch track:', e)
     return NextResponse.json({ error: 'Failed to fetch track' }, { status: 500 })
   }

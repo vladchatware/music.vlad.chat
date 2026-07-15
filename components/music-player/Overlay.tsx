@@ -1,12 +1,28 @@
-"use client"
+"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Container, Image, Text } from "@react-three/uikit";
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@react-three/uikit-default";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@react-three/uikit-default";
 import { Authenticated } from "convex/react";
 import { type UIMessage } from "@ai-sdk/react";
+import type { ThreeEvent } from "@react-three/fiber";
 
 import { MotionControl } from "./MotionControl";
+import type { SoundCloudTrack } from "./types";
+
+type OverlayUser = {
+  isAnonymous?: boolean;
+  trialMessages?: number;
+  trialTokens?: number;
+  tokens?: number;
+};
 
 function getLastMessage(messages: UIMessage[]) {
   const userMessages = messages.filter((m) => m.role === "user");
@@ -20,14 +36,14 @@ function getLastMessage(messages: UIMessage[]) {
 
 export function MusicPlayerOverlay(props: {
   isAuthenticated: boolean | null | undefined;
-  activeTrack: any;
+  activeTrack: SoundCloudTrack | null;
   messages: UIMessage[];
-  onRevibe: (e: any) => void | Promise<void>;
+  onRevibe: (event: Event | ThreeEvent<MouseEvent>) => void | Promise<void>;
   status: string;
   buttonLabel: string;
-  user: any;
-  signIn: (...args: any[]) => Promise<any>;
-  checkout: () => Promise<any>;
+  user: OverlayUser | null | undefined;
+  signIn: (provider: string) => Promise<unknown>;
+  checkout: () => Promise<unknown>;
 }) {
   const {
     isAuthenticated,
@@ -75,18 +91,22 @@ export function MusicPlayerOverlay(props: {
         <MotionControl />
       </Container>
 
-      <Container 
-        display={activeTrack ? "flex" : "none"} 
+      <Container
+        display={activeTrack ? "flex" : "none"}
         marginBottom={20}
         alignItems="center"
         justifyContent="center"
         width="100%"
       >
-        <Card maxWidth={cardMaxWidth} width="100%" backgroundColor="rgb(4, 16, 22)">
+        <Card
+          maxWidth={cardMaxWidth}
+          width="100%"
+          backgroundColor="rgb(4, 16, 22)"
+        >
           <CardContent gap={8} paddingTop={16} paddingX={20} paddingBottom={12}>
-            <Image 
-              src={activeTrack?.artwork_url} 
-              width="100%" 
+            <Image
+              src={activeTrack?.artwork_url}
+              width="100%"
               aspectRatio={1}
             />
           </CardContent>
@@ -105,7 +125,12 @@ export function MusicPlayerOverlay(props: {
         </Card>
       </Container>
 
-      <Container flexDirection="column" alignItems="center" gap={12} width="100%">
+      <Container
+        flexDirection="column"
+        alignItems="center"
+        gap={12}
+        width="100%"
+      >
         <Container backgroundColor="rgb(4, 16, 22)" borderRadius={8}>
           <Text color="white" padding={16}>
             {getLastMessage(messages) ||

@@ -38,6 +38,46 @@ music.vlad.chat is a web application that combines AI music curation with real-t
 ### Audio Processing
 - **FFT Analyzer** - Real-time frequency analysis
 - **Web Audio API** - Audio playback and analysis
+- **Essentia.js Worker** - Offline beat, key, energy, structure, semantic mood, vocal presence, and cue-point analysis
+
+## DJ Analysis Worker
+
+Track analysis runs as separate Bun coordinator backed by Convex queue. Coordinator keeps health endpoint and queue leases; persistent Bun Worker threads perform FFmpeg decode and Essentia analysis. Worker requires FFmpeg and service-accessible SoundCloud tracks.
+
+```env
+DJ_ANALYSIS_QUEUE_ENABLED=true
+NEXT_PUBLIC_DJ_ANALYSIS_ENABLED=true
+ANALYSIS_SERVICE_SECRET=<shared-random-secret>
+CONVEX_SITE_URL=https://<deployment>.convex.site
+ANALYSIS_WORKER_CONCURRENCY=1
+ANALYSIS_WORKER_POLL_MS=2000
+PORT=3001
+```
+
+Run locally:
+
+```bash
+bun run analysis:prepare-models
+bun run analysis:worker
+```
+
+Semantic analysis uses overlapping 10-second MusiCNN windows with a 5-second hop, then overlap-weights mood and voice probabilities into four-bar musical segments. Model files are cached outside Git under `workers/track-analysis/models`. Set `ESSENTIA_MODEL_DIR` to use another location. Missing models degrade to structural analysis and add a diagnostic warning.
+
+Queue every eligible liked track (paginated, batched, and idempotent):
+
+```bash
+bun run analysis:queue-likes
+```
+
+Build dedicated container with `Dockerfile.worker`. Include semantic weights only after accepting their license:
+
+```bash
+docker build -f Dockerfile.worker --build-arg ESSENTIA_MODELS_ACCEPT_LICENSE=true .
+```
+
+Deploy queue/storage first with client consumption disabled, inspect results, then enable `NEXT_PUBLIC_DJ_ANALYSIS_ENABLED`.
+
+Essentia.js uses AGPL-3.0. Downloaded MTG model weights use CC BY-NC-SA 4.0; obtain proprietary model licensing before commercial deployment.
 
 ## Getting Started
 
@@ -137,6 +177,22 @@ music.vlad.chat/
 - `bun dev` - Start development server with Turbopack
 - `bun build` - Build for production with Turbopack
 - `bun start` - Start production server
+- `bun run debug:playback` - Summarize captured runtime sessions, transitions, and failures
+
+## Playback diagnostics
+
+Enable locally with `?mpDebug=1` or `localStorage.musicPlayerDebug = "true"`. Events remain
+available in `window.__MUSIC_PLAYER_DEBUG__.events`, batch to `logs/playback-debug.ndjson`, and
+include runtime session ID, chat session ID, AI turn ID, order, and elapsed time. AI generation and
+deck events share correlation IDs, allowing one trace from prompt through player tool to transition
+outcome. Run `bun run debug:playback` after a performance.
+Report contains captured facts only; it does not infer performance quality.
+
+Production endpoint stays disabled unless `PLAYBACK_DEBUG=true`. `addPlaybackTelemetrySink()` in
+`lib/playbackDebug.ts` is integration seam for Sentry: forward each structured entry as breadcrumb
+or captured event without changing DJ engine instrumentation. AI SDK telemetry is enabled under
+function ID `ai-dj-chat`; prompt/output recording remains off unless
+`AI_TELEMETRY_RECORD_CONTENT=true` because chat content may contain private data.
 
 ## Key Features Explained
 

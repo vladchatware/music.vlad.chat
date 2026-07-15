@@ -20,6 +20,9 @@ export const playbackDebugServer = (event: string, payload?: DebugPayload) => {
 
   const entry: PlaybackLogEntry = {
     ts: new Date().toISOString(),
+    chatSessionId:
+      typeof payload?.chatSessionId === "string" ? payload.chatSessionId : undefined,
+    turnId: typeof payload?.turnId === "string" ? payload.turnId : undefined,
     event,
     payload,
   };

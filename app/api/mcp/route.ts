@@ -61,6 +61,7 @@ const handler = createMcpHandler(
       'Search for tracks. Returns shuffled results. Prefer using "likes" tool first to get quality tracks matching user taste. Only use this for specific searches.',
       {
         q: z.string(),
+        limit: z.union([z.string(), z.number()]).optional(),
         genres: z.string().optional(),
         tags: z.string().optional(),
         bpm: z.object({
@@ -92,7 +93,8 @@ const handler = createMcpHandler(
         const list: Track[] = Array.isArray(res) ? res : res?.collection ?? []
         // Filter to transition-safe tracks only.
         const streamableTracks = list.filter(isTransitionSafeTrack)
-        const payload = streamableTracks.map(track => {
+        const requestedLimit = Math.max(1, Math.min(12, Number.parseInt(String(query.limit ?? "12"), 10) || 12))
+        const payload = streamableTracks.slice(0, requestedLimit).map(track => {
           const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
           const followers = track.user?.followers_count ?? 0
           const hints: string[] = []
@@ -102,9 +104,7 @@ const handler = createMcpHandler(
           if (track.duration) hints.push(`${Math.round(track.duration / 1000)}s`)
           if (followers > 0) hints.push(`${followers} followers`)
           const hintsStr = hints.length > 0 ? ` (${hints.join(', ')})` : ''
-          // Include description snippet for quality assessment
-          const descSnippet = track.description ? ` | "${track.description.slice(0, 80).replace(/\n/g, ' ')}${track.description.length > 80 ? '...' : ''}"` : ''
-          return `${track.id} ${artist} - ${track.title}${hintsStr}${descSnippet}`
+          return `${track.id} ${artist} - ${track.title}${hintsStr}`
         }).join('\n')
 
         return {
@@ -138,22 +138,21 @@ const handler = createMcpHandler(
       'likes',
       'PRIMARY SOURCE: Get user\'s liked tracks - these are pre-vetted quality tracks that match user taste. Use this FIRST before searching. Play directly from likes or use as reference for similar music.',
       {
-        user_id: z.string().optional(),
-        limit: z.string().optional().default('20'),
+        limit: z.union([z.string(), z.number()]).optional().default('20'),
       },
-      async ({ user_id, limit }) => {
+      async ({ limit }) => {
         const startedAt = Date.now()
         const userToken = await getUserToken()
-        const effectiveUserId = user_id ?? process.env.SOUNDCLOUD_USER_ID
+        const effectiveUserId = process.env.SOUNDCLOUD_USER_ID
         if (!effectiveUserId) {
           return {
             content: [{
               type: "text",
-              text: "Missing user_id (and SOUNDCLOUD_USER_ID is not set)."
+              text: "SOUNDCLOUD_USER_ID is not configured."
             }]
           }
         }
-        const requestedLimit = Number.parseInt(limit ?? '20', 10)
+        const requestedLimit = Number.parseInt(String(limit ?? '20'), 10)
         const normalizedLimit =
           Number.isFinite(requestedLimit) && requestedLimit > 0
             ? Math.min(Math.max(requestedLimit, 8), 30)

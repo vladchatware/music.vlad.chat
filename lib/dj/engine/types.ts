@@ -15,6 +15,9 @@ import type {
   Normalized,
   AudioTimeSec,
   TimestampMs,
+  CamelotKey,
+  TrackCuePoints,
+  PhraseType,
 } from '../types';
 
 // =============================================================================
@@ -57,6 +60,38 @@ export interface DeckSnapshot {
   readonly beatGrid: BeatGrid | null;
   readonly structureMap: StructureMap | null;
   readonly energyCurve: EnergyCurve | null;
+  readonly cuePoints?: TrackCuePoints;
+  readonly analysisVersion?: string;
+  readonly segments?: PerformanceSegment[];
+}
+
+export interface PerformanceSegment {
+  readonly id: string;
+  readonly startSec: number;
+  readonly endSec: number;
+  readonly section: PhraseType;
+  readonly energy: number;
+  readonly energySlope: number;
+  readonly rhythmicDensity?: number;
+  readonly entryQuality?: number;
+  readonly exitQuality?: number;
+  readonly confidence?: number;
+  readonly mirexMood?: Record<string, number> | null;
+  readonly valence?: number | null;
+  readonly arousal?: number | null;
+  readonly vocalProbability?: number | null;
+}
+
+export interface DeckAnalysisMetadata {
+  readonly analysisVersion?: string;
+  readonly beatGrid?: BeatGrid;
+  readonly structureMap?: StructureMap;
+  readonly energyCurve: EnergyCurve;
+  readonly cuePoints?: TrackCuePoints;
+  readonly bpm?: number;
+  readonly keySignature?: string;
+  readonly camelotKey?: CamelotKey;
+  readonly segments?: PerformanceSegment[];
 }
 
 // =============================================================================
@@ -82,6 +117,7 @@ export type DJEventType =
   | 'CROSSFADE_COMPLETE'
   | 'CANCEL_TRANSITION'
   | 'ANALYSIS_UPDATE'
+  | 'TRACK_ANALYSIS_READY'
   | 'RESET';
 
 /**
@@ -103,6 +139,11 @@ export type DJEvent =
   | { readonly type: 'CROSSFADE_COMPLETE' }
   | { readonly type: 'CANCEL_TRANSITION' }
   | { readonly type: 'ANALYSIS_UPDATE'; readonly analysis: AnalysisSnapshot }
+  | {
+      readonly type: 'TRACK_ANALYSIS_READY';
+      readonly trackId: number;
+      readonly analysis: DeckAnalysisMetadata;
+    }
   | { readonly type: 'RESET' };
 
 // =============================================================================
@@ -136,27 +177,6 @@ export interface TransitionPlanOptions {
   /** EQ curve preset to use */
   readonly eqPreset?: 'bassSwap' | 'frequencySplit' | 'smooth' | 'highFirst';
 }
-
-/**
- * Result of state transition (for side effects)
- */
-export interface StateTransitionResult {
-  readonly state: DJState;
-  readonly sideEffects: readonly SideEffect[];
-}
-
-/**
- * Side effects that the state machine can request
- */
-export type SideEffect =
-  | { readonly type: 'LOAD_AUDIO'; readonly trackId: number; readonly deck: 'A' | 'B' }
-  | { readonly type: 'PLAY_DECK'; readonly deck: 'A' | 'B' }
-  | { readonly type: 'PAUSE_DECK'; readonly deck: 'A' | 'B' }
-  | { readonly type: 'SEEK_DECK'; readonly deck: 'A' | 'B'; readonly positionSec: AudioTimeSec }
-  | { readonly type: 'SET_PLAYBACK_RATE'; readonly deck: 'A' | 'B'; readonly rate: number }
-  | { readonly type: 'START_CROSSFADE_AUTOMATION'; readonly plan: TransitionPlan }
-  | { readonly type: 'STOP_DECK'; readonly deck: 'A' | 'B' }
-  | { readonly type: 'RESET_ALL' };
 
 // =============================================================================
 // Default Values

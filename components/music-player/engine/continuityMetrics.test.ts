@@ -6,6 +6,7 @@ import {
   computeCrossfadeProgressByClock,
   computeHandoffEnergyMismatch,
   evaluatePlannedTimeout,
+  shouldEvaluatePlannedTimeout,
   isAbruptTransition,
   shouldTriggerAutoCue,
 } from "./continuityMetrics";
@@ -57,7 +58,7 @@ describe("continuityMetrics", () => {
       }),
     ).toBe(false);
 
-    // Should block cueing if high energy (culmination)
+    // Preparation starts during high energy; transition timing remains planner-controlled.
     expect(
       shouldTriggerAutoCue({
         currentTimeSec: 95,
@@ -67,7 +68,7 @@ describe("continuityMetrics", () => {
         section: "culmination",
         durationSec: 130, // 35 seconds remaining, above 8 threshold
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     // Should allow cueing if high energy but very close to end
     expect(
@@ -85,26 +86,6 @@ describe("continuityMetrics", () => {
   it("falls back to near-end cueing for short tracks", () => {
     expect(
       shouldTriggerAutoCue({
-        currentTimeSec: 15,
-        durationSec: 29.7,
-        progress01: 0.5,
-        alreadyTriggered: false,
-        isPlayingState: true,
-      }),
-    ).toBe(false);
-
-    expect(
-      shouldTriggerAutoCue({
-        currentTimeSec: 24.2, // Remaining 5.5 < 6
-        durationSec: 29.7,
-        progress01: 0.81,
-        alreadyTriggered: false,
-        isPlayingState: true,
-      }),
-    ).toBe(true);
-
-    expect(
-      shouldTriggerAutoCue({
         currentTimeSec: 2,
         durationSec: 29.7,
         progress01: 0.06,
@@ -112,6 +93,37 @@ describe("continuityMetrics", () => {
         isPlayingState: true,
       }),
     ).toBe(false);
+
+    expect(
+      shouldTriggerAutoCue({
+        currentTimeSec: 5,
+        durationSec: 29.7,
+        progress01: 0.17,
+        alreadyTriggered: false,
+        isPlayingState: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldTriggerAutoCue({
+        currentTimeSec: 3,
+        durationSec: 29.7,
+        progress01: 0.1,
+        alreadyTriggered: false,
+        isPlayingState: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not auto-cue immediately after a deep entry point", () => {
+    expect(shouldTriggerAutoCue({
+      currentTimeSec: 57, listenedSec: 1, durationSec: 106, progress01: 0.54,
+      alreadyTriggered: false, isPlayingState: true,
+    })).toBe(false);
+    expect(shouldTriggerAutoCue({
+      currentTimeSec: 87, listenedSec: 31, durationSec: 106, progress01: 0.82,
+      alreadyTriggered: false, isPlayingState: true,
+    })).toBe(true);
   });
 
   it("computes phrase-quantized hold loops when BPM is known", () => {
@@ -191,5 +203,14 @@ describe("continuityMetrics", () => {
         maxReplans: 2,
       }),
     ).toBe("abort");
+  });
+
+  it("does not timeout a valid plan while waiting for a future boundary", () => {
+    expect(
+      shouldEvaluatePlannedTimeout({ currentTimeSec: 100, plannedStartSec: 192 }),
+    ).toBe(false);
+    expect(
+      shouldEvaluatePlannedTimeout({ currentTimeSec: 192.5, plannedStartSec: 192 }),
+    ).toBe(true);
   });
 });

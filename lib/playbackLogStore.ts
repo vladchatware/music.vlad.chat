@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export type PlaybackLogEntry = {
+  schemaVersion?: 1;
   ts: string;
+  sessionId?: string;
+  sequence?: number;
+  elapsedMs?: number;
+  chatSessionId?: string;
+  turnId?: string;
   event: string;
   payload?: Record<string, unknown>;
 };
@@ -22,7 +28,7 @@ export async function appendPlaybackLogs(entries: PlaybackLogEntry[], source: st
       .map((entry) =>
         JSON.stringify({
           ...entry,
-          source,
+          source: source.slice(0, 64),
           receivedAt: new Date().toISOString(),
         }),
       )

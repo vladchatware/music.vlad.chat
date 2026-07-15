@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+RUN pip install --no-cache-dir tensorflow==2.16.1
+RUN pip install --no-cache-dir --no-deps tensorflowjs==4.22.0 \
+    && pip install --no-cache-dir --no-deps tf-keras==2.16.0 \
+    && pip install --no-cache-dir packaging==23.2 \
+    && mkdir -p /usr/local/lib/python3.11/site-packages/tensorflow_decision_forests \
+        /usr/local/lib/python3.11/site-packages/tensorflow_hub \
+    && touch /usr/local/lib/python3.11/site-packages/tensorflow_decision_forests/__init__.py \
+        /usr/local/lib/python3.11/site-packages/tensorflow_hub/__init__.py \
+    && sed -i '/jax_conversion import convert_jax/d' \
+        /usr/local/lib/python3.11/site-packages/tensorflowjs/converters/__init__.py
+
+ENTRYPOINT ["tensorflowjs_converter"]

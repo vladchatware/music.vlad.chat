@@ -19,11 +19,14 @@ const MOTION_ICON = iconToDataUrl(Smartphone);
 
 export function MotionControl() {
   const [showButton, setShowButton] = useState(false);
+  const orientationEvent = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+    requestPermission?: () => Promise<"granted" | "denied">;
+  };
 
   useEffect(() => {
     if (
       typeof DeviceOrientationEvent !== "undefined" &&
-      typeof (DeviceOrientationEvent as any).requestPermission === "function"
+      typeof orientationEvent.requestPermission === "function"
     ) {
       setShowButton(true);
 
@@ -40,7 +43,7 @@ export function MotionControl() {
 
   const requestPermission = async () => {
     try {
-      const response = await (DeviceOrientationEvent as any).requestPermission();
+    const response = await orientationEvent.requestPermission?.();
       if (response === "granted") setShowButton(false);
     } catch (e) {
       console.error(e);
@@ -50,7 +53,6 @@ export function MotionControl() {
   if (!showButton) return null;
 
   return (
-    // @ts-ignore
     <Badge
       onClick={requestPermission}
       backgroundColor="white"
@@ -62,4 +64,3 @@ export function MotionControl() {
     </Badge>
   );
 }
-

@@ -19,7 +19,7 @@ export const soundcloudToken = query({
     const user = await ctx.db.get(userId);
     if (!user) return null;
 
-    return (user as any).soundcloudAccessToken ?? null;
+    return user.soundcloudAccessToken ?? null;
   },
 });
 
@@ -31,8 +31,8 @@ export const soundcloudTokens = query({
     const user = await ctx.db.get(userId);
     if (!user) return null;
     return {
-      accessToken: (user as any).soundcloudAccessToken ?? null,
-      refreshToken: (user as any).soundcloudRefreshToken ?? null,
+      accessToken: user.soundcloudAccessToken ?? null,
+      refreshToken: user.soundcloudRefreshToken ?? null,
     };
   },
 });

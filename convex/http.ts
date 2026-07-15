@@ -3,11 +3,38 @@ import { auth } from "./auth";
 import { httpAction } from "./_generated/server";
 import Stripe from "stripe";
 import { internal } from "./_generated/api";
+import { TRACK_ANALYSIS_VERSION, type TrackAnalysis } from "../lib/trackAnalysis";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const webhook_secret = process.env.STRIPE_WEBHOOK_SECRET
 
 const http = httpRouter();
+
+type DeepMutable<T> = T extends readonly (infer Item)[]
+  ? DeepMutable<Item>[]
+  : T extends object
+    ? { -readonly [Key in keyof T]: DeepMutable<T[Key]> }
+    : T;
+
+function isAnalysisServiceAuthorized(req: Request): boolean {
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  if (!secret) return false;
+  return req.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function analysisRoute(
+  path: string,
+  handler: Parameters<typeof httpAction>[0],
+) {
+  http.route({ path, method: "POST", handler: httpAction(handler) });
+}
 
 auth.addHttpRoutes(http);
 
@@ -36,5 +63,82 @@ http.route({
   })
 })
 
-export default http;
+analysisRoute("/analysis/enqueue", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      trackId?: string | number;
+      trackIds?: Array<string | number>;
+      priority?: number;
+      analysisVersion?: string;
+    };
+    const trackIds = (body.trackIds ?? [body.trackId])
+      .map((id) => String(id ?? ""))
+      .filter((id) => /^\d+$/.test(id));
+    if (trackIds.length === 0 || trackIds.length > 20) {
+      return json({ error: "trackIds must contain 1-20 positive numeric IDs" }, 400);
+    }
+    const result = await ctx.runMutation(internal.trackAnalysis.enqueue, {
+      trackIds,
+      priority: Number.isFinite(body.priority) ? Number(body.priority) : 0,
+      analysisVersion: body.analysisVersion ?? TRACK_ANALYSIS_VERSION,
+    });
+    return json(result);
+  } catch (error) {
+    console.error("Analysis enqueue failed", error);
+    return json({ error: "Invalid enqueue request" }, 400);
+  }
+});
 
+analysisRoute("/analysis/claim", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json().catch(() => ({}))) as { leaseDurationMs?: number };
+    const leaseDurationMs = Math.min(
+      30 * 60_000,
+      Math.max(60_000, Number(body.leaseDurationMs) || 15 * 60_000),
+    );
+    const job = await ctx.runMutation(internal.trackAnalysis.claim, {
+      leaseToken: crypto.randomUUID(),
+      leaseDurationMs,
+    });
+    return json({ job });
+  } catch (error) {
+    console.error("Analysis claim failed", error);
+    return json({ error: "Failed to claim analysis job" }, 500);
+  }
+});
+
+analysisRoute("/analysis/complete", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      cacheKey: string;
+      leaseToken: string;
+      result: DeepMutable<TrackAnalysis>;
+    };
+    const result = await ctx.runMutation(internal.trackAnalysis.complete, body);
+    return json(result);
+  } catch (error) {
+    console.error("Analysis completion failed", error);
+    return json({ error: "Invalid completion request" }, 400);
+  }
+});
+
+analysisRoute("/analysis/fail", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      cacheKey: string;
+      leaseToken: string;
+      error: string;
+    };
+    const result = await ctx.runMutation(internal.trackAnalysis.fail, body);
+    return json(result);
+  } catch (error) {
+    console.error("Analysis failure report failed", error);
+    return json({ error: "Invalid failure request" }, 400);
+  }
+});
+
+export default http;

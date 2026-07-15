@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useChat, type UIMessage } from "@ai-sdk/react";
-import { playbackDebug } from "@/lib/playbackDebug";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { playbackDebug, setPlaybackDebugCorrelation } from "@/lib/playbackDebug";
+import { compactDJMessages } from "./chatTransport";
+import {
+  playerToolInputSchema,
+  type PlayerToolInput,
+} from "@/lib/dj";
 
-type PlayerToolInput = { id: number };
+export type { PlayerToolInput } from "@/lib/dj";
 const DEDUPE_WINDOW_MS = 4000;
 const QUEUE_FLUSH_INTERVAL_MS = 400;
-export type PlayerRequestOutcome = "ignored" | "queued" | "playing";
+export type PlayerRequestOutcome = "ignored" | "queued" | "playing" | "failed";
 
 export function createPlayerToolOrchestrator(opts: {
-  onExecute: (id: number) => Promise<void>;
+  onExecute: (input: PlayerToolInput) => Promise<void>;
+  onExecutionError?: (error: unknown, input: PlayerToolInput) => void;
   isTransitionBlocked: () => boolean;
   dedupeWindowMs?: number;
   queueFlushIntervalMs?: number;
@@ -25,7 +32,7 @@ export function createPlayerToolOrchestrator(opts: {
   const clearTimer = opts.clearTimer ?? ((id) => clearTimeout(id));
 
   let inFlight = false;
-  let queuedPlayerId: number | null = null;
+  let queuedPlayerRequest: PlayerToolInput | null = null;
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const lastPlayerIdAtMs = new Map<number, number>();
 
@@ -45,6 +52,16 @@ export function createPlayerToolOrchestrator(opts: {
     return false;
   };
 
+  const execute = async (request: PlayerToolInput): Promise<boolean> => {
+    try {
+      await opts.onExecute(request);
+      return true;
+    } catch (error) {
+      opts.onExecutionError?.(error, request);
+      return false;
+    }
+  };
+
   const scheduleFlush = () => {
     if (flushTimer) return;
     flushTimer = setTimer(async () => {
@@ -54,47 +71,49 @@ export function createPlayerToolOrchestrator(opts: {
         return;
       }
 
-      const nextId = queuedPlayerId;
-      if (nextId === null) return;
+      const nextRequest = queuedPlayerRequest;
+      if (nextRequest === null) return;
       if (opts.isTransitionBlocked()) {
         scheduleFlush();
         return;
       }
 
-      queuedPlayerId = null;
+      queuedPlayerRequest = null;
       inFlight = true;
       try {
-        await opts.onExecute(nextId);
+        await execute(nextRequest);
       } finally {
         inFlight = false;
-        if (queuedPlayerId !== null) {
+        if (queuedPlayerRequest !== null) {
           scheduleFlush();
         }
       }
     }, queueFlushIntervalMs);
   };
 
-  const handlePlayerRequest = async (id: number): Promise<PlayerRequestOutcome> => {
+  const handlePlayerRequest = async (request: PlayerToolInput): Promise<PlayerRequestOutcome> => {
+    const id = request.id;
     if (isDuplicatePlayerRequest(id)) {
       return "ignored";
     }
 
     if (inFlight || opts.isTransitionBlocked()) {
-      queuedPlayerId = id; // latest wins
+      queuedPlayerRequest = request; // latest wins
       scheduleFlush();
       return "queued";
     }
 
     inFlight = true;
+    let succeeded = false;
     try {
-      await opts.onExecute(id);
+      succeeded = await execute(request);
     } finally {
       inFlight = false;
     }
-    if (queuedPlayerId !== null) {
+    if (queuedPlayerRequest !== null) {
       scheduleFlush();
     }
-    return "playing";
+    return succeeded ? "playing" : "failed";
   };
 
   const dispose = () => {
@@ -102,7 +121,7 @@ export function createPlayerToolOrchestrator(opts: {
       clearTimer(flushTimer);
       flushTimer = null;
     }
-    queuedPlayerId = null;
+    queuedPlayerRequest = null;
     inFlight = false;
   };
 
@@ -110,30 +129,52 @@ export function createPlayerToolOrchestrator(opts: {
 }
 
 export function useRevibeChat(opts: {
-  onPlayerToolRequested: (id: number) => Promise<void>;
+  onPlayerToolRequested: (input: PlayerToolInput) => Promise<void>;
   isTransitionBlocked?: () => boolean;
+  getDJState?: () => unknown;
 }) {
+  const transport = useMemo(() => new DefaultChatTransport<UIMessage>({
+    prepareSendMessagesRequest: ({ id, messages, body }) => {
+      const turnId = [...messages].reverse().find((message) => message.role === "user")?.id
+        ?? crypto.randomUUID();
+      setPlaybackDebugCorrelation({ chatSessionId: id, turnId });
+      playbackDebug("chat.turn.requested", {
+        messageCount: messages.length,
+      });
+      return {
+        body: {
+          ...body,
+          messages: compactDJMessages(messages),
+          telemetry: { chatSessionId: id, turnId },
+        },
+      };
+    },
+  }), []);
   const onPlayerToolRequestedRef = useRef(opts.onPlayerToolRequested);
   const isTransitionBlockedRef = useRef(opts.isTransitionBlocked);
+  const getDJStateRef = useRef(opts.getDJState);
   const orchestratorRef = useRef<ReturnType<typeof createPlayerToolOrchestrator> | null>(null);
-
-  useEffect(() => {
-    onPlayerToolRequestedRef.current = opts.onPlayerToolRequested;
-  }, [opts.onPlayerToolRequested]);
-
-  useEffect(() => {
-    isTransitionBlockedRef.current = opts.isTransitionBlocked;
-  }, [opts.isTransitionBlocked]);
+  onPlayerToolRequestedRef.current = opts.onPlayerToolRequested;
+  isTransitionBlockedRef.current = opts.isTransitionBlocked;
+  getDJStateRef.current = opts.getDJState;
 
   useEffect(() => {
     orchestratorRef.current = createPlayerToolOrchestrator({
-      onExecute: (id) => onPlayerToolRequestedRef.current(id),
+      onExecute: (input) => onPlayerToolRequestedRef.current(input),
+      onExecutionError: (error, input) => {
+        playbackDebug("chat.tool_call.player_failed", {
+          trackId: input.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
       isTransitionBlocked: () => isTransitionBlockedRef.current?.() ?? false,
     });
     return () => orchestratorRef.current?.dispose();
   }, []);
 
   const { messages, sendMessage, status, addToolResult } = useChat({
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onError: (error) => {
       playbackDebug("chat.error", {
         message: error instanceof Error ? error.message : String(error),
@@ -145,6 +186,17 @@ export function useRevibeChat(opts: {
         toolCallId: ctx.toolCall.toolCallId,
         input: ctx.toolCall.input,
       });
+      if (ctx.toolCall.toolName === "dj_state") {
+        addToolResult({
+          tool: ctx.toolCall.toolName,
+          toolCallId: ctx.toolCall.toolCallId,
+          output: getDJStateRef.current?.() ?? { unavailable: true },
+        });
+        playbackDebug("chat.tool_call.dj_state", {
+          toolCallId: ctx.toolCall.toolCallId,
+        });
+        return;
+      }
       if (ctx.toolCall.toolName !== "player") {
         addToolResult({
           tool: ctx.toolCall.toolName,
@@ -158,15 +210,33 @@ export function useRevibeChat(opts: {
         return;
       }
 
-      const id = (ctx.toolCall.input as PlayerToolInput).id;
-      const outcome = await orchestratorRef.current?.handlePlayerRequest(id);
+      const parsedInput = playerToolInputSchema.safeParse(ctx.toolCall.input);
+      if (!parsedInput.success) {
+        addToolResult({
+          tool: ctx.toolCall.toolName,
+          toolCallId: ctx.toolCall.toolCallId,
+          output: "Rejected invalid DJ performance plan.",
+        });
+        playbackDebug("chat.tool_call.player_rejected", {
+          toolCallId: ctx.toolCall.toolCallId,
+          issues: parsedInput.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            code: issue.code,
+          })),
+        });
+        return;
+      }
+      const request = parsedInput.data;
+      const outcome = await orchestratorRef.current?.handlePlayerRequest(request);
 
       const output =
-        outcome === "ignored"
-          ? `Ignored duplicate player request for ${id}`
+        outcome === "failed"
+          ? `Player rejected track ${request.id}. Read dj_state, choose a different ID not present in playedTrackIds, and call player again now.`
+          : outcome === "ignored"
+          ? `Duplicate player request ignored for ${request.id}. If no transition is active, choose a different unplayed track and call player again.`
           : outcome === "queued"
-            ? `Queued ${id}`
-            : `Playing ${id}`;
+            ? `Queued ${request.id}`
+            : `Playing ${request.id}`;
       addToolResult({
         tool: ctx.toolCall.toolName,
         toolCallId: ctx.toolCall.toolCallId,
@@ -174,7 +244,7 @@ export function useRevibeChat(opts: {
       });
       playbackDebug("chat.tool_call.player_outcome", {
         toolCallId: ctx.toolCall.toolCallId,
-        trackId: id,
+        trackId: request.id,
         outcome,
       });
     },

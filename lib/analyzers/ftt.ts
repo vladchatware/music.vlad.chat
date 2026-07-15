@@ -67,7 +67,7 @@ export default class FFTAnalyzer implements TAnalyzerInputControl {
   public readonly _audioCtx: AudioContext;
   public readonly _sources: AudioNode[];
   private _outNodes: AudioDestinationNode[];
-  private _fftData: Uint8Array;
+  private _fftData: Uint8Array<ArrayBuffer>;
   private _freqBinInfos: FreqBinInfo[] = [];
   public getBars(): FreqBinInfo[] {
     return this._freqBinInfos;
@@ -274,7 +274,6 @@ export default class FFTAnalyzer implements TAnalyzerInputControl {
     const n = this._freqBinInfos.length;
     // get a new array of data from the FFT
     const fftData = this._fftData;
-    // @ts-ignore FIXME
     this._analyzer.getByteFrequencyData(fftData);
     // helper function for FFT data interpolation
     const interpolate = (bin: number, ratio: number) =>

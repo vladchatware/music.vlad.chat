@@ -10,6 +10,9 @@ import {
 export const runtime = "nodejs";
 
 const MAX_BATCH_SIZE = 250;
+const MAX_BODY_BYTES = 256_000;
+const debugApiEnabled = () =>
+  process.env.NODE_ENV !== "production" || process.env.PLAYBACK_DEBUG === "true";
 
 function normalizeEntries(rawEvents: unknown[]): PlaybackLogEntry[] {
   const normalized: PlaybackLogEntry[] = [];
@@ -18,7 +21,17 @@ function normalizeEntries(rawEvents: unknown[]): PlaybackLogEntry[] {
     const candidate = raw as Record<string, unknown>;
     if (typeof candidate.event !== "string" || candidate.event.length === 0) continue;
     normalized.push({
+      schemaVersion: candidate.schemaVersion === 1 ? 1 : undefined,
       ts: typeof candidate.ts === "string" ? candidate.ts : new Date().toISOString(),
+      sessionId:
+        typeof candidate.sessionId === "string" ? candidate.sessionId.slice(0, 128) : undefined,
+      sequence: typeof candidate.sequence === "number" ? candidate.sequence : undefined,
+      elapsedMs: typeof candidate.elapsedMs === "number" ? candidate.elapsedMs : undefined,
+      chatSessionId:
+        typeof candidate.chatSessionId === "string"
+          ? candidate.chatSessionId.slice(0, 128)
+          : undefined,
+      turnId: typeof candidate.turnId === "string" ? candidate.turnId.slice(0, 128) : undefined,
       event: candidate.event,
       payload:
         candidate.payload && typeof candidate.payload === "object"
@@ -31,7 +44,14 @@ function normalizeEntries(rawEvents: unknown[]): PlaybackLogEntry[] {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
+  if (!debugApiEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const text = await req.text();
+  if (text.length > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
+  const body = (() => {
+    try { return JSON.parse(text); } catch { return null; }
+  })();
   const source =
     body && typeof body.source === "string" && body.source.length > 0 ? body.source : "client";
   const events = normalizeEntries(Array.isArray(body?.events) ? body.events : []);
@@ -48,6 +68,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  if (!debugApiEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const url = new URL(req.url);
   const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "200", 10);
   const limit =
