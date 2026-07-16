@@ -141,4 +141,21 @@ analysisRoute("/analysis/fail", async (ctx, req) => {
   }
 });
 
+analysisRoute("/analysis/defer", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      cacheKey: string;
+      leaseToken: string;
+      retryMs: number;
+      reason: string;
+    };
+    await ctx.runMutation(internal.trackAnalysis.defer, body);
+    return json({ deferred: true });
+  } catch (error) {
+    console.error("Analysis deferral failed", error);
+    return json({ error: "Invalid deferral request" }, 400);
+  }
+});
+
 export default http;

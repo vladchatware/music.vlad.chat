@@ -52,12 +52,76 @@ export function computeEnergy(signal: Float32Array): {
   return { samples, peaks, valleys };
 }
 
-function sampleBeatEnergy(signal: Float32Array, beatSec: number): number {
-  const start = Math.max(0, Math.floor((beatSec - 0.03) * ANALYSIS_SAMPLE_RATE));
-  const end = Math.min(signal.length, Math.floor((beatSec + 0.12) * ANALYSIS_SAMPLE_RATE));
-  let sumSquares = 0;
-  for (let index = start; index < end; index += 1) sumSquares += signal[index] ** 2;
-  return Math.sqrt(sumSquares / Math.max(1, end - start));
+type BeatAccent = {
+  broadbandOnset: number;
+  lowFrequencyOnset: number;
+  lowFrequencyShare: number;
+};
+
+function sampleBeatAccent(signal: Float32Array, beatSec: number): BeatAccent {
+  const start = Math.max(0, Math.floor((beatSec - 0.12) * ANALYSIS_SAMPLE_RATE));
+  const beat = Math.max(start, Math.floor(beatSec * ANALYSIS_SAMPLE_RATE));
+  const end = Math.min(signal.length, Math.floor((beatSec + 0.15) * ANALYSIS_SAMPLE_RATE));
+  const lowPassAlpha = 1 - Math.exp((-2 * Math.PI * 180) / ANALYSIS_SAMPLE_RATE);
+  let lowPassed = 0;
+  let preBroadbandPower = 0;
+  let postBroadbandPower = 0;
+  let preLowFrequencyPower = 0;
+  let postLowFrequencyPower = 0;
+  let preCount = 0;
+  let postCount = 0;
+
+  for (let index = start; index < end; index += 1) {
+    const sample = signal[index];
+    lowPassed += lowPassAlpha * (sample - lowPassed);
+    if (index < beat) {
+      preBroadbandPower += sample * sample;
+      preLowFrequencyPower += lowPassed * lowPassed;
+      preCount += 1;
+    } else {
+      postBroadbandPower += sample * sample;
+      postLowFrequencyPower += lowPassed * lowPassed;
+      postCount += 1;
+    }
+  }
+
+  const preBroadband = Math.sqrt(preBroadbandPower / Math.max(1, preCount));
+  const postBroadband = Math.sqrt(postBroadbandPower / Math.max(1, postCount));
+  const preLowFrequency = Math.sqrt(preLowFrequencyPower / Math.max(1, preCount));
+  const postLowFrequency = Math.sqrt(postLowFrequencyPower / Math.max(1, postCount));
+  return {
+    broadbandOnset: Math.log1p(postBroadband * 1_000) - Math.log1p(preBroadband * 1_000),
+    lowFrequencyOnset: Math.log1p(postLowFrequency * 1_000) - Math.log1p(preLowFrequency * 1_000),
+    lowFrequencyShare: postLowFrequency / Math.max(postBroadband, Number.EPSILON),
+  };
+}
+
+function rankNormalize(values: number[]): number[] {
+  if (values.length < 2) return values.map(() => 0.5);
+  const indices = values.map((_, index) => index).sort((a, b) => values[a] - values[b]);
+  const normalized = new Array<number>(values.length);
+  for (let start = 0; start < indices.length;) {
+    let end = start;
+    while (
+      end + 1 < indices.length &&
+      Math.abs(values[indices[end + 1]] - values[indices[start]]) <= 1e-9
+    ) end += 1;
+    const rank = ((start + end) / 2) / (indices.length - 1);
+    for (let index = start; index <= end; index += 1) normalized[indices[index]] = rank;
+    start = end + 1;
+  }
+  return normalized;
+}
+
+function scorePhases(scores: number[], start = 0, end = scores.length): number[] {
+  const totals = [0, 0, 0, 0];
+  const counts = [0, 0, 0, 0];
+  for (let index = start; index < end; index += 1) {
+    const phase = index % 4;
+    totals[phase] += scores[index];
+    counts[phase] += 1;
+  }
+  return totals.map((total, phase) => total / Math.max(1, counts[phase]));
 }
 
 export function estimateDownbeats(signal: Float32Array, beatsSec: number[]) {
@@ -68,17 +132,44 @@ export function estimateDownbeats(signal: Float32Array, beatsSec: number[]) {
       confidence: 0,
     };
   }
-  const phaseEnergy = [0, 0, 0, 0];
-  const phaseCount = [0, 0, 0, 0];
-  beatsSec.forEach((beat, index) => {
-    const phase = index % 4;
-    phaseEnergy[phase] += sampleBeatEnergy(signal, beat);
-    phaseCount[phase] += 1;
-  });
-  const averages = phaseEnergy.map((sum, phase) => sum / Math.max(1, phaseCount[phase]));
-  const sorted = [...averages].sort((a, b) => b - a);
-  const bestPhase = averages.indexOf(sorted[0]);
-  const confidence = clamp01((sorted[0] - sorted[1]) / Math.max(sorted[0], Number.EPSILON));
+
+  const accents = beatsSec.map((beat) => sampleBeatAccent(signal, beat));
+  const broadbandOnsets = rankNormalize(accents.map((accent) => accent.broadbandOnset));
+  const lowFrequencyOnsets = rankNormalize(accents.map((accent) => accent.lowFrequencyOnset));
+  const lowFrequencyShares = rankNormalize(accents.map((accent) => accent.lowFrequencyShare));
+  const accentScores = accents.map((_, index) =>
+    lowFrequencyOnsets[index] * 0.45 +
+    lowFrequencyShares[index] * 0.35 +
+    broadbandOnsets[index] * 0.2
+  );
+
+  const phaseScores = scorePhases(accentScores);
+  const rankedPhases = phaseScores
+    .map((score, phase) => ({ phase, score }))
+    .sort((a, b) => b.score - a.score);
+  const bestPhase = rankedPhases[0].phase;
+  const phaseSeparation = clamp01((rankedPhases[0].score - rankedPhases[1].score) / 0.12);
+
+  const windowSizeBeats = 32;
+  let eligibleWindows = 0;
+  let agreeingWindows = 0;
+  const totalWindows = Math.ceil(accentScores.length / windowSizeBeats);
+  for (let start = 0; start < accentScores.length; start += windowSizeBeats) {
+    const windowScores = scorePhases(
+      accentScores,
+      start,
+      Math.min(accentScores.length, start + windowSizeBeats),
+    )
+      .map((score, phase) => ({ phase, score }))
+      .sort((a, b) => b.score - a.score);
+    if (windowScores[0].score - windowScores[1].score < 0.03) continue;
+    eligibleWindows += 1;
+    if (windowScores[0].phase === bestPhase) agreeingWindows += 1;
+  }
+  const agreement = eligibleWindows === 0 ? 0 : agreeingWindows / eligibleWindows;
+  const coverage = eligibleWindows / Math.max(1, totalWindows);
+  const confidence = clamp01(phaseSeparation * 0.7 + agreement * coverage * 0.3);
+
   return {
     firstDownbeatSec: beatsSec[bestPhase] ?? beatsSec[0],
     downbeatsSec: beatsSec.filter((_, index) => index >= bestPhase && (index - bestPhase) % 4 === 0),

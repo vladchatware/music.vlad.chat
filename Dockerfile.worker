@@ -1,6 +1,6 @@
 FROM python:3.11-slim AS model-prep
 
-ARG ESSENTIA_MODELS_ACCEPT_LICENSE=false
+ARG ESSENTIA_MODELS_ACCEPT_LICENSE=true
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl unzip \
   && rm -rf /var/lib/apt/lists/* \

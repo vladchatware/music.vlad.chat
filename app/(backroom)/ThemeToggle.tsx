@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 type Theme = "light" | "dark";
 
-const storageKey = "revibe-dashboard-theme";
+const storageKey = "revibe-backroom-theme";
 
 function preferredTheme(): Theme {
   const stored = localStorage.getItem(storageKey);
@@ -21,7 +21,7 @@ export default function ThemeToggle() {
 
   function toggleTheme() {
     const next = theme === "light" ? "dark" : "light";
-    document.documentElement.dataset.dashboardTheme = next;
+    document.documentElement.dataset.backroomTheme = next;
     localStorage.setItem(storageKey, next);
     setTheme(next);
   }
@@ -29,7 +29,7 @@ export default function ThemeToggle() {
   return (
     <button
       type="button"
-      className="dashboardThemeToggle"
+      className="backroomThemeToggle"
       onClick={toggleTheme}
       aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
     >

@@ -1,7 +1,9 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { trackAnalysisResultValidator } from "./trackAnalysisValidators";
 import { getAnalysisRetryPolicy, sanitizeAnalysisError } from "../lib/analysisQueuePolicy";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import type { Id } from "./_generated/dataModel";
 
 export const getBySoundCloudId = query({
   args: {
@@ -29,13 +31,17 @@ export const getBySoundCloudId = query({
   },
 });
 
-export const enqueue = internalMutation({
-  args: {
-    trackIds: v.array(v.string()),
-    analysisVersion: v.string(),
-    priority: v.number(),
-  },
-  handler: async (ctx, args) => {
+const enqueueArgs = {
+  trackIds: v.array(v.string()),
+  analysisVersion: v.string(),
+  priority: v.number(),
+};
+
+async function enqueueJobs(
+  ctx: MutationCtx,
+  args: { trackIds: string[]; analysisVersion: string; priority: number },
+  requestedBy?: Id<"users">,
+) {
     const now = Date.now();
     let enqueued = 0;
     let cached = 0;
@@ -67,6 +73,7 @@ export const enqueue = internalMutation({
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
+            ...(requestedBy ? { requestedBy } : {}),
             updatedAt: now,
           });
           enqueued += 1;
@@ -74,7 +81,13 @@ export const enqueue = internalMutation({
         }
         existing += 1;
         if (args.priority > job.priority) {
-          await ctx.db.patch(job._id, { priority: args.priority, updatedAt: now });
+          await ctx.db.patch(job._id, {
+            priority: args.priority,
+            ...(requestedBy ? { requestedBy } : {}),
+            updatedAt: now,
+          });
+        } else if (requestedBy && job.requestedBy !== requestedBy) {
+          await ctx.db.patch(job._id, { requestedBy, updatedAt: now });
         }
         continue;
       }
@@ -84,6 +97,7 @@ export const enqueue = internalMutation({
         source: "soundcloud",
         sourceTrackId,
         analysisVersion: args.analysisVersion,
+        ...(requestedBy ? { requestedBy } : {}),
         status: "queued",
         priority: args.priority,
         attempts: 0,
@@ -95,6 +109,23 @@ export const enqueue = internalMutation({
     }
 
     return { enqueued, cached, existing };
+}
+
+export const enqueue = internalMutation({
+  args: enqueueArgs,
+  handler: async (ctx, args) => enqueueJobs(ctx, args),
+});
+
+export const enqueueForViewer = mutation({
+  args: enqueueArgs,
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Not authenticated");
+    const user = await ctx.db.get(userId);
+    if (!user || user.isAnonymous || !user.soundcloudAccessToken) {
+      throw new Error("SoundCloud authentication required");
+    }
+    return enqueueJobs(ctx, args, userId);
   },
 });
 
@@ -143,12 +174,14 @@ export const claim = internalMutation({
       updatedAt: now,
     });
 
+    const user = job.requestedBy ? await ctx.db.get(job.requestedBy) : null;
     return {
       cacheKey: job.cacheKey,
       sourceTrackId: job.sourceTrackId,
       analysisVersion: job.analysisVersion,
       attempt: job.attempts + 1,
       leaseToken: args.leaseToken,
+      soundCloudAccessToken: user?.soundcloudAccessToken,
     };
   },
 });
@@ -235,5 +268,33 @@ export const fail = internalMutation({
       updatedAt: now,
     });
     return { dead: retry.dead, attempts: job.attempts };
+  },
+});
+
+export const defer = internalMutation({
+  args: {
+    cacheKey: v.string(),
+    leaseToken: v.string(),
+    retryMs: v.number(),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db
+      .query("trackAnalysisJobs")
+      .withIndex("by_cacheKey", (q) => q.eq("cacheKey", args.cacheKey))
+      .unique();
+    if (!job || job.status !== "processing" || job.leaseToken !== args.leaseToken) {
+      throw new Error("Invalid or expired analysis lease");
+    }
+    const now = Date.now();
+    await ctx.db.patch(job._id, {
+      status: "queued",
+      attempts: Math.max(0, job.attempts - 1),
+      leaseToken: undefined,
+      leaseExpiresAt: undefined,
+      nextAttemptAt: now + Math.min(30 * 60_000, Math.max(1_000, args.retryMs)),
+      lastError: sanitizeAnalysisError(args.reason),
+      updatedAt: now,
+    });
   },
 });

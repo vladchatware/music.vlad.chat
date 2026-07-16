@@ -8,10 +8,10 @@ import { getErrorRetryAfterMs, getErrorStatus } from '@/lib/server/httpError'
 
 async function fetchTrackWithUserRefresh(id: string, convexToken: string) {
   const tokens = await fetchQuery(api.users.soundcloudTokens, {}, { token: convexToken })
-  if (!tokens?.accessToken) return track(id)
+  if (!tokens?.accessToken) return { track: await track(id), usedUserCredentials: false }
 
   try {
-    return await track(id, tokens.accessToken)
+    return { track: await track(id, tokens.accessToken), usedUserCredentials: true }
   } catch (e) {
     if (getErrorStatus(e) !== 401 || !tokens.refreshToken) throw e
 
@@ -21,7 +21,7 @@ async function fetchTrackWithUserRefresh(id: string, convexToken: string) {
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken,
     }, { token: convexToken })
-    return await track(id, refreshed.accessToken)
+    return { track: await track(id, refreshed.accessToken), usedUserCredentials: true }
   }
 }
 
@@ -39,9 +39,14 @@ export async function GET(req: NextRequest, { params }) {
 
     if (convexToken) {
       try {
-        const _track = await fetchTrackWithUserRefresh(id, convexToken)
+        const resolved = await fetchTrackWithUserRefresh(id, convexToken)
+        const _track = resolved.track
         if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
-        await enqueueTrackAnalysis(id, 100).catch(() => false)
+        await enqueueTrackAnalysis(
+          id,
+          100,
+          resolved.usedUserCredentials ? convexToken : undefined,
+        ).catch(() => false)
         return NextResponse.json(_track)
       } catch (e) {
         if (getErrorStatus(e) === 401) {

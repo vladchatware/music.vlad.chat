@@ -1,8 +1,8 @@
 const themeScript = `
   try {
-    const stored = localStorage.getItem("revibe-dashboard-theme");
+    const stored = localStorage.getItem("revibe-backroom-theme");
     if (stored === "light" || stored === "dark") {
-      document.documentElement.dataset.dashboardTheme = stored;
+      document.documentElement.dataset.backroomTheme = stored;
     }
   } catch {}
 `;

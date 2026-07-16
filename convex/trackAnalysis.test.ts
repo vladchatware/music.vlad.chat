@@ -95,6 +95,37 @@ describe("track analysis queue", () => {
     expect(second).toBeNull();
   });
 
+  it("leases requesting user's SoundCloud access token to worker", async () => {
+    const t = convexTest(schema, modules);
+    const requestedBy = await t.run((ctx) => ctx.db.insert("users", {
+      name: "Signed listener",
+      soundcloudAccessToken: "user-access-token",
+    }));
+    await t.run((ctx) => ctx.db.insert("trackAnalysisJobs", {
+      cacheKey: "soundcloud:43:essentia-dj-v1",
+      source: "soundcloud",
+      sourceTrackId: "43",
+      analysisVersion: "essentia-dj-v1",
+      requestedBy,
+      status: "queued",
+      priority: 10,
+      attempts: 0,
+      nextAttemptAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+
+    const job = await t.mutation(internal.trackAnalysis.claim, {
+      leaseToken: "lease-user",
+      leaseDurationMs: 60_000,
+    });
+
+    expect(job).toMatchObject({
+      sourceTrackId: "43",
+      soundCloudAccessToken: "user-access-token",
+    });
+  });
+
   it("stores immutable result and removes completed job", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(internal.trackAnalysis.enqueue, {
@@ -143,6 +174,34 @@ describe("track analysis queue", () => {
     const jobs = await t.run((ctx) => ctx.db.query("trackAnalysisJobs").collect());
     expect(jobs[0].status).toBe("dead");
     expect(jobs[0].lastError).toBe("decode failed secret");
+  });
+
+  it("defers infrastructure auth failures without consuming an attempt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.trackAnalysis.enqueue, {
+      trackIds: ["11"], analysisVersion: "essentia-dj-v1", priority: 1,
+    });
+    const job = await t.mutation(internal.trackAnalysis.claim, {
+      leaseToken: "lease-auth", leaseDurationMs: 60_000,
+    });
+    if (!job) throw new Error("Expected job");
+
+    await t.mutation(internal.trackAnalysis.defer, {
+      cacheKey: job.cacheKey,
+      leaseToken: job.leaseToken,
+      retryMs: 30_000,
+      reason: "SoundCloud authentication unavailable",
+    });
+
+    const [deferred] = await t.run((ctx) => ctx.db.query("trackAnalysisJobs").collect());
+    expect(deferred).toMatchObject({
+      status: "queued",
+      attempts: 0,
+      nextAttemptAt: Date.now() + 30_000,
+    });
+    expect(deferred.leaseToken).toBeUndefined();
   });
 
   it("revives a dead job when it is explicitly enqueued again", async () => {

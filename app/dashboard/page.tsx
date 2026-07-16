@@ -1,37 +1,34 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
 
-import ThemeToggle from "./ThemeToggle";
-import styles from "./dashboard.module.css";
+import { api } from "../../convex/_generated/api";
+import SignInGateway from "./SignInGateway";
+
+function safeReturnTo(value: string | undefined, id: string | undefined): string {
+  if (value?.startsWith("/") && !value.startsWith("//")) {
+    const target = new URL(value, "http://internal");
+    if (
+      target.pathname === "/backroom" ||
+      /^\/tracks\/\d+\/backroom$/.test(target.pathname)
+    ) {
+      return `${target.pathname}${target.search}`;
+    }
+  }
+  if (id && /^\d+$/.test(id)) return `/tracks/${id}/backroom`;
+  return "/backroom";
+}
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ id?: string; returnTo?: string }>;
 }) {
-  const { id } = await searchParams;
-  if (id && /^\d+$/.test(id)) redirect(`/dashboard/tracks/${id}`);
+  const { id, returnTo: requestedReturnTo } = await searchParams;
+  const returnTo = safeReturnTo(requestedReturnTo, id);
+  const token = await convexAuthNextjsToken();
+  const user = token ? await fetchQuery(api.users.viewer, {}, { token }) : null;
 
-  return (
-    <main className={styles.landing}>
-      <div className={styles.noise} />
-      <div className={styles.landingTheme}><ThemeToggle /></div>
-      <section className={styles.lookupPanel}>
-        <p className={styles.eyebrow}>REVIBE / ANALYSIS DESK</p>
-        <h1>Read the record<br />before the room.</h1>
-        <p className={styles.lede}>
-          Inspect timing, structure, emotion, texture, and DJ-safe entry points from one analyzed SoundCloud track.
-        </p>
-        <form className={styles.lookup} action="/dashboard">
-          <label htmlFor="track-id">SoundCloud track ID</label>
-          <div>
-            <input id="track-id" name="id" inputMode="numeric" pattern="[0-9]+" placeholder="2248709558" required />
-            <button type="submit">Open analysis →</button>
-          </div>
-        </form>
-      </section>
-      <aside className={styles.landingIndex} aria-hidden="true">
-        <span>01 / TEMPO</span><span>02 / EMOTION</span><span>03 / TEXTURE</span><span>04 / CUES</span>
-      </aside>
-    </main>
-  );
+  if (user && !user.isAnonymous && user.soundcloudAccessToken) redirect(returnTo);
+  return <SignInGateway returnTo={returnTo} />;
 }

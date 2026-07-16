@@ -1,4 +1,6 @@
 import { TRACK_ANALYSIS_VERSION } from "../trackAnalysis";
+import { fetchMutation } from "convex/nextjs";
+import { api } from "../../convex/_generated/api";
 
 function getConvexSiteUrl(): string | null {
   if (process.env.CONVEX_SITE_URL) {
@@ -14,8 +16,9 @@ function getConvexSiteUrl(): string | null {
 export async function enqueueTrackAnalysis(
   trackId: string | number,
   priority = 0,
+  convexToken?: string,
 ): Promise<boolean> {
-  const result = await enqueueTrackAnalyses([trackId], priority);
+  const result = await enqueueTrackAnalyses([trackId], priority, convexToken);
   return result !== null;
 }
 
@@ -28,12 +31,23 @@ export type AnalysisEnqueueResult = {
 export async function enqueueTrackAnalyses(
   trackIds: Array<string | number>,
   priority = 0,
+  convexToken?: string,
 ): Promise<AnalysisEnqueueResult | null> {
   if (process.env.DJ_ANALYSIS_QUEUE_ENABLED !== "true") return null;
+  const normalized = [...new Set(trackIds.map(String).filter((id) => /^\d+$/.test(id)))].slice(0, 20);
+  if (normalized.length === 0) return null;
+
+  if (convexToken) {
+    return await fetchMutation(api.trackAnalysis.enqueueForViewer, {
+      trackIds: normalized,
+      priority,
+      analysisVersion: TRACK_ANALYSIS_VERSION,
+    }, { token: convexToken });
+  }
+
   const siteUrl = getConvexSiteUrl();
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
-  const normalized = [...new Set(trackIds.map(String).filter((id) => /^\d+$/.test(id)))].slice(0, 20);
-  if (!siteUrl || !secret || normalized.length === 0) return null;
+  if (!siteUrl || !secret) return null;
 
   const response = await fetch(`${siteUrl}/analysis/enqueue`, {
     method: "POST",

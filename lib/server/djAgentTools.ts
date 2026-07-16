@@ -19,6 +19,36 @@ type AnalysisScheduler = (
   trackIds: number[],
   priority?: number,
 ) => Promise<AnalysisEnqueueResult | null>;
+type ViewerAuth = {
+  token?: string;
+  user?: { isAnonymous?: boolean; soundcloudAccessToken?: string } | null;
+};
+
+async function loadCurrentViewerAuth(): Promise<ViewerAuth> {
+  const { convexAuthNextjsToken } = await import("@convex-dev/auth/nextjs/server");
+  const token = await convexAuthNextjsToken();
+  if (!token) return {};
+  const user = await fetchQuery(api.users.viewer, {}, { token });
+  return { token, user };
+}
+
+export function createViewerAnalysisScheduler(
+  loadViewer: () => Promise<ViewerAuth> = loadCurrentViewerAuth,
+  enqueue: typeof enqueueTrackAnalyses = enqueueTrackAnalyses,
+): AnalysisScheduler {
+  return async (trackIds, priority = 0) => {
+    let token: string | undefined;
+    try {
+      const viewer = await loadViewer();
+      if (viewer.token && viewer.user && !viewer.user.isAnonymous && viewer.user.soundcloudAccessToken) {
+        token = viewer.token;
+      }
+    } catch {
+      // Public/anonymous requests continue through service-authenticated queue.
+    }
+    return enqueue(trackIds, priority, token);
+  };
+}
 
 export function createTrackAnalysisReader(load: AnalysisLoader) {
   const cache = new Map<string, Promise<TrackAnalysis | null>>();
@@ -40,7 +70,9 @@ export function createTrackAnalysisReader(load: AnalysisLoader) {
   };
 }
 
-export function createDJAgentTools(scheduleAnalysis: AnalysisScheduler = enqueueTrackAnalyses) {
+export function createDJAgentTools(
+  scheduleAnalysis: AnalysisScheduler = createViewerAnalysisScheduler(),
+) {
   const readAnalysis = createTrackAnalysisReader(async (trackId) => {
     const analysis = await fetchQuery(api.trackAnalysis.getBySoundCloudId, {
       trackId,

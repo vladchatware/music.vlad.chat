@@ -42,32 +42,34 @@ async function waitUnlessStopping(ms: number) {
 
 async function runSlot(slot: number) {
   while (!stopping) {
-    let accessToken: string;
     try {
-      // Authenticate before claiming. A global SoundCloud auth outage must not
-      // consume retry attempts across the whole queue.
-      accessToken = await authGate.acquire();
-    } catch (error) {
-      const retryMs = error instanceof AuthBackoffError ? error.retryMs : 30_000;
-      console.error("analysis.worker.auth_failed", {
-        slot,
-        retryMs,
-        retryAt: new Date(Date.now() + retryMs).toISOString(),
-        message: error instanceof Error ? error.message : String(error),
-      });
-      await waitUnlessStopping(retryMs);
-      continue;
-    }
-
-    try {
-      const job = await queue.claim();
-      if (!job) {
+      const claimedJob = await queue.claim();
+      if (!claimedJob) {
         await wait(pollMs + Math.floor(Math.random() * Math.min(1000, pollMs)));
         continue;
       }
+      const { soundCloudAccessToken, ...job } = claimedJob;
       activeJobs += 1;
       console.info("analysis.job.started", { slot, trackId: job.sourceTrackId, attempt: job.attempt });
       try {
+        let accessToken = soundCloudAccessToken;
+        if (!accessToken) {
+          try {
+            accessToken = await authGate.acquire();
+          } catch (error) {
+            const retryMs = error instanceof AuthBackoffError ? error.retryMs : 30_000;
+            console.error("analysis.worker.auth_failed", {
+              slot,
+              retryMs,
+              retryAt: new Date(Date.now() + retryMs).toISOString(),
+              message: error instanceof Error ? error.message : String(error),
+            });
+            await queue.defer(job, retryMs, error);
+            // Keep polling: signed-user jobs can proceed while app auth is backed off.
+            await waitUnlessStopping(Math.min(pollMs, retryMs));
+            continue;
+          }
+        }
         const result = await analyzeInFreshProcess(job, accessToken);
         await queue.complete(job, result);
         console.info("analysis.job.completed", {

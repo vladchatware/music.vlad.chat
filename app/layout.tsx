@@ -12,7 +12,27 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Music Player',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://music.vlad.chat'),
+  title: 'music.vlad.chat',
+  description: 'An AI-powered virtual DJ for discovering and mixing music from SoundCloud.',
+  openGraph: {
+    type: 'website',
+    siteName: 'music.vlad.chat',
+    title: 'music.vlad.chat',
+    description: 'An AI-powered virtual DJ for discovering and mixing music from SoundCloud.',
+    images: [{
+      url: '/tracks/2260180544/opengraph-image?v=8',
+      width: 1200,
+      height: 630,
+      alt: 'Revibe track analysis',
+    }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'music.vlad.chat',
+    description: 'An AI-powered virtual DJ for discovering and mixing music from SoundCloud.',
+    images: ['/tracks/2260180544/opengraph-image?v=8'],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

@@ -7,6 +7,7 @@ export type AnalysisJob = {
   analysisVersion: string;
   attempt: number;
   leaseToken: string;
+  soundCloudAccessToken?: string;
 };
 
 export class AnalysisQueueClient {
@@ -59,6 +60,16 @@ export class AnalysisQueueClient {
       cacheKey: job.cacheKey,
       leaseToken: job.leaseToken,
       error: message.slice(0, 500),
+    });
+  }
+
+  async defer(job: AnalysisJob, retryMs: number, reason: unknown): Promise<void> {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    await this.post("/analysis/defer", {
+      cacheKey: job.cacheKey,
+      leaseToken: job.leaseToken,
+      retryMs,
+      reason: message.slice(0, 500),
     });
   }
 }

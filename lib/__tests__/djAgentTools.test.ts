@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createDJAgentTools, createTrackAnalysisReader } from "../server/djAgentTools";
+import {
+  createDJAgentTools,
+  createTrackAnalysisReader,
+  createViewerAnalysisScheduler,
+} from "../server/djAgentTools";
 
 describe("createTrackAnalysisReader", () => {
   it("caches duplicate single-track lookups for one request", async () => {
@@ -44,5 +48,27 @@ describe("schedule_track_analysis", () => {
       cached: 1,
     });
     expect(schedule).toHaveBeenCalledWith([11, 12, 13], 10);
+  });
+
+  it("uses signed-user credentials without chat-route wiring", async () => {
+    const enqueue = vi.fn(async () => ({ enqueued: 1, cached: 0, existing: 0 }));
+    const schedule = createViewerAnalysisScheduler(async () => ({
+      token: "request-token",
+      user: { isAnonymous: false, soundcloudAccessToken: "soundcloud-token" },
+    }), enqueue);
+
+    await schedule([11], 10);
+    expect(enqueue).toHaveBeenCalledWith([11], 10, "request-token");
+  });
+
+  it("keeps anonymous chat analytics on service queue", async () => {
+    const enqueue = vi.fn(async () => ({ enqueued: 1, cached: 0, existing: 0 }));
+    const schedule = createViewerAnalysisScheduler(async () => ({
+      token: "anonymous-token",
+      user: { isAnonymous: true },
+    }), enqueue);
+
+    await schedule([11], 10);
+    expect(enqueue).toHaveBeenCalledWith([11], 10, undefined);
   });
 });

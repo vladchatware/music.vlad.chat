@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const convex = vi.hoisted(() => ({ fetchMutation: vi.fn() }));
+vi.mock("convex/nextjs", () => convex);
+vi.mock("../../convex/_generated/api", () => ({
+  api: { trackAnalysis: { enqueueForViewer: "enqueueForViewer" } },
+}));
+
 import { enqueueTrackAnalysis, enqueueTrackAnalyses } from "../server/analysisQueue";
 import { TRACK_ANALYSIS_VERSION } from "../trackAnalysis";
 
@@ -7,6 +13,7 @@ const originalEnv = { ...process.env };
 
 afterEach(() => {
   vi.restoreAllMocks();
+  convex.fetchMutation.mockReset();
   process.env = { ...originalEnv };
 });
 
@@ -47,4 +54,23 @@ describe("enqueueTrackAnalysis", () => {
       trackIds: ["42", "43", "44"], priority: 10,
     });
   });
+
+  it("uses viewer-authenticated mutation when a Convex token is available", async () => {
+    process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
+    delete process.env.CONVEX_SITE_URL;
+    delete process.env.ANALYSIS_SERVICE_SECRET;
+    convex.fetchMutation.mockResolvedValue({ enqueued: 1, cached: 0, existing: 0 });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await expect(enqueueTrackAnalyses([42], 10, "convex-token")).resolves.toEqual({
+      enqueued: 1, cached: 0, existing: 0,
+    });
+    expect(convex.fetchMutation).toHaveBeenCalledWith("enqueueForViewer", {
+      trackIds: ["42"],
+      priority: 10,
+      analysisVersion: TRACK_ANALYSIS_VERSION,
+    }, { token: "convex-token" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
 });

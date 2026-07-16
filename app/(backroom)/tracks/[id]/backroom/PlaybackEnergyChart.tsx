@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
-import styles from "../../dashboard.module.css";
+import styles from "../../../backroom.module.css";
 
 type TrackSection = { startTime: number; endTime: number; type: string };
 

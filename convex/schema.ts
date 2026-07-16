@@ -39,6 +39,7 @@ export default defineSchema({
     source: v.literal("soundcloud"),
     sourceTrackId: v.string(),
     analysisVersion: v.string(),
+    requestedBy: v.optional(v.id("users")),
     status: v.union(
       v.literal("queued"),
       v.literal("processing"),
