@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ThreeEvent } from "@react-three/fiber";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
 import { useShallow } from "zustand/react/shallow";
 
 import { api } from "@/convex/_generated/api";
@@ -29,6 +30,9 @@ type MusicPlayerProps = {
 
 export default function MusicPlayer(props: MusicPlayerProps) {
   const { initialTrackId, playbackProfile = "default" } = props;
+  const router = useRouter();
+  const [likeOverrides, setLikeOverrides] = useState<Record<number, boolean>>({});
+  const [likePendingTrackId, setLikePendingTrackId] = useState<number | null>(null);
 
   const { transition, playback, analysis } = useMusicPlayerStore(
     useShallow((s) => ({
@@ -112,6 +116,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     pause,
     loadInitialTrack,
     cueNextTrack,
+    clearPendingNextTrackRequest,
   } = engine;
 
   // Presentation state shared with scene and overlay.
@@ -169,6 +174,9 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   );
 
   const { setPalette } = actions;
+  const activeTrackLiked = activeTrack
+    ? likeOverrides[activeTrack.id] ?? Boolean(activeTrack.user_favorite)
+    : false;
 
   useEffect(() => {
     const id = activeTrack?.id;
@@ -253,6 +261,18 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       djState.type === "planned" ||
       djState.type === "crossfading",
   });
+
+  const previousChatStatusRef = useRef(status);
+  useEffect(() => {
+    const previousStatus = previousChatStatusRef.current;
+    previousChatStatusRef.current = status;
+    const requestSettled =
+      (previousStatus === "submitted" || previousStatus === "streaming") &&
+      (status === "ready" || status === "error");
+    if (requestSettled && djState.type === "playing") {
+      clearPendingNextTrackRequest("chat_settled_without_cue");
+    }
+  }, [clearPendingNextTrackRequest, djState.type, status]);
 
   // Lock-screen / headset controls + metadata where supported.
   useEffect(() => {
@@ -449,6 +469,51 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     };
   }, [transition]);
 
+  const openActiveTrackBackroom = useCallback(() => {
+    if (!activeTrack) return;
+    router.push(`/tracks/${activeTrack.id}/backroom`);
+  }, [activeTrack, router]);
+
+  const togglePlaybackFromShape = useCallback(() => {
+    runDetached(togglePlay(), (error) => {
+      playbackDebug("player.shape_playback_toggle_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, [togglePlay]);
+
+  const toggleActiveTrackLike = useCallback(async () => {
+    if (!activeTrack || likePendingTrackId === activeTrack.id) return;
+    if (!user?.soundcloudAccessToken) {
+      const redirectTo = `${window.location.pathname}${window.location.search}`;
+      await signIn("soundcloud", { redirectTo });
+      return;
+    }
+
+    const trackId = activeTrack.id;
+    const wasLiked = likeOverrides[trackId] ?? Boolean(activeTrack.user_favorite);
+    const liked = !wasLiked;
+    setLikePendingTrackId(trackId);
+    setLikeOverrides((current) => ({ ...current, [trackId]: liked }));
+
+    try {
+      const response = await fetch(`/api/tracks/${trackId}/like`, {
+        method: liked ? "POST" : "DELETE",
+      });
+      if (!response.ok) throw new Error(`Like request failed (${response.status})`);
+      playbackDebug("player.shape_like_updated", { trackId, liked });
+    } catch (error) {
+      setLikeOverrides((current) => ({ ...current, [trackId]: wasLiked }));
+      playbackDebug("player.shape_like_failed", {
+        trackId,
+        liked,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setLikePendingTrackId((current) => current === trackId ? null : current);
+    }
+  }, [activeTrack, likeOverrides, likePendingTrackId, signIn, user?.soundcloudAccessToken]);
+
   return (
     <>
       <MusicPlayerScene
@@ -457,6 +522,15 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         audioEnergyRef={audioEnergyRef}
         isPlaybackActive={isPlaying || isTransitioning}
         transitionHighlight={transitionHighlight}
+        onHashtagClick={activeTrack ? openActiveTrackBackroom : undefined}
+        onPlayClick={activeTrack ? togglePlaybackFromShape : undefined}
+        isPlaying={isPlaying}
+        onLikeClick={
+          activeTrack && likePendingTrackId !== activeTrack.id
+            ? toggleActiveTrackLike
+            : undefined
+        }
+        isLiked={activeTrackLiked}
       >
         <MusicPlayerOverlay
           isAuthenticated={isAuthenticated}

@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import styles from "../../../backroom.module.css";
+import EnergyTimeline, { type TimelineSegment, type TrackSection } from "./EnergyTimeline";
 
-type TrackSection = { startTime: number; endTime: number; type: string };
 
 type Props = {
   trackId: string;
   durationSec: number;
   samples: number[];
   sections: TrackSection[];
+  segments: TimelineSegment[];
   playable: boolean;
 };
 
@@ -19,15 +20,12 @@ const formatTime = (seconds: number) => {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 };
 
-export default function PlaybackEnergyChart({ trackId, durationSec, samples, sections, playable }: Props) {
+export default function PlaybackEnergyChart({ trackId, durationSec, samples, sections, segments, playable }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const gradientId = useId().replaceAll(":", "");
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const points = samples.map((value, index) => `${samples.length <= 1 ? 0 : index / (samples.length - 1) * 100},${100 - value * 100}`).join(" ");
-  const progress = durationSec > 0 ? Math.min(1, currentTime / durationSec) : 0;
 
   useEffect(() => {
     if (!playing) return;
@@ -74,26 +72,7 @@ export default function PlaybackEnergyChart({ trackId, durationSec, samples, sec
       <span>{error ?? (playable ? "Click or drag chart to inspect" : "Track is not streamable")}</span>
     </div>
 
-    <div className={styles.interactivePlot} style={{ "--progress": progress } as React.CSSProperties}>
-      <svg className={styles.energyPlot} viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Track energy over time">
-        <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="currentColor" stopOpacity=".55" /><stop offset="1" stopColor="currentColor" stopOpacity="0" /></linearGradient></defs>
-        <polygon points={`0,100 ${points} 100,100`} fill={`url(#${gradientId})`} />
-        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.3" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <div className={styles.timeline}>{sections.map((section, index) => <div key={`${section.startTime}-${index}`} className={styles.sectionBlock} style={{ left: `${section.startTime / durationSec * 100}%`, width: `${(section.endTime - section.startTime) / durationSec * 100}%` }}><b>{section.type}</b><small>{formatTime(section.startTime)}</small></div>)}</div>
-      <div className={styles.playhead} aria-hidden="true"><i /></div>
-      <input
-        className={styles.timelineScrubber}
-        type="range"
-        min="0"
-        max={durationSec}
-        step="0.01"
-        value={currentTime}
-        onChange={(event) => seek(event.currentTarget.valueAsNumber)}
-        aria-label="Track position"
-        aria-valuetext={`${formatTime(currentTime)} of ${formatTime(durationSec)}`}
-      />
-    </div>
+    <EnergyTimeline durationSec={durationSec} samples={samples} sections={sections} segments={segments} currentTime={currentTime} onSeek={seek} ariaLabel="Track energy over time" />
 
     {playable && <audio
       ref={audioRef}

@@ -3,14 +3,18 @@ import { notFound } from "next/navigation";
 import { fetchQuery } from "convex/nextjs";
 
 import { api } from "@/convex/_generated/api";
+import { rankTransitionCandidates, suggestTransitionWindows, type DJPerformancePlan } from "@/lib/dj";
 import { TRACK_ANALYSIS_VERSION, type AnalysisSegment, type TrackAnalysis } from "@/lib/trackAnalysis";
 import { enqueueTrackAnalysis } from "@/lib/server/analysisQueue";
 import { track } from "@/soundcloud";
 import ThemeToggle from "../../../ThemeToggle";
 import styles from "../../../backroom.module.css";
 import PlaybackEnergyChart from "./PlaybackEnergyChart";
+import MixSuggestions from "./MixSuggestions";
+import MixCandidatePicker from "./MixCandidatePicker";
 
 export const metadata: Metadata = { title: "Track Analysis / Revibe" };
+const ENERGY_ARCS = ["preserve", "build", "release", "reset"] as const;
 
 const number = (value: number | null | undefined, digits = 2) => value == null ? "—" : value.toFixed(digits);
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -48,12 +52,34 @@ function Labels({ title, labels }: { title: string; labels: Array<{ label: strin
   </section>;
 }
 
-export default async function TrackBackroom({ params }: { params: Promise<{ id: string }> }) {
+export default async function TrackBackroom({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ with?: string; arc?: string }>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
   if (!/^\d+$/.test(id)) notFound();
-  const [soundcloudTrack, analysis] = await Promise.all([
+  const incomingId = typeof query.with === "string" && /^\d+$/.test(query.with) && query.with !== id
+    ? query.with
+    : null;
+  const energyArc: DJPerformancePlan["energyArc"] = ENERGY_ARCS.includes(query.arc as typeof ENERGY_ARCS[number])
+    ? query.arc as DJPerformancePlan["energyArc"]
+    : "preserve";
+  const [soundcloudTrack, analysis, incomingTrack, incomingAnalysis, candidateAnalyses] = await Promise.all([
     track(id).catch(() => null),
     fetchQuery(api.trackAnalysis.getBySoundCloudId, { trackId: id, analysisVersion: TRACK_ANALYSIS_VERSION }).catch(() => null),
+    incomingId ? track(incomingId).catch(() => null) : Promise.resolve(null),
+    incomingId
+      ? fetchQuery(api.trackAnalysis.getBySoundCloudId, { trackId: incomingId, analysisVersion: TRACK_ANALYSIS_VERSION }).catch(() => null)
+      : Promise.resolve(null),
+    fetchQuery(api.trackAnalysis.listCandidates, {
+      excludeTrackId: id,
+      analysisVersion: TRACK_ANALYSIS_VERSION,
+      limit: 20,
+    }).catch(() => []),
   ]);
   if (!soundcloudTrack && !analysis) notFound();
 
@@ -63,6 +89,48 @@ export default async function TrackBackroom({ params }: { params: Promise<{ id: 
   const segments = analysis?.segments ?? [];
   const sections = analysis?.structure.sections ?? [];
   const scheduled = analysis ? false : await enqueueTrackAnalysis(id, 100).catch(() => false);
+  const incomingScheduled = incomingId && !incomingAnalysis && incomingTrack
+    ? await enqueueTrackAnalysis(incomingId, 100).catch(() => false)
+    : false;
+  const suggestions = analysis && incomingAnalysis
+    ? suggestTransitionWindows({ outgoing: analysis, incoming: incomingAnalysis, energyArc })
+    : [];
+  const validCandidates = candidateAnalyses.filter((candidate): candidate is TrackAnalysis => Array.isArray(candidate.segments));
+  const rankedByArc = Object.fromEntries(ENERGY_ARCS.map((arc) => [arc, analysis
+    ? rankTransitionCandidates({ outgoing: analysis, candidates: validCandidates, energyArc: arc, limit: 6 })
+    : []
+  ])) as Record<typeof ENERGY_ARCS[number], ReturnType<typeof rankTransitionCandidates>>;
+  const candidateIds = [...new Set(ENERGY_ARCS.flatMap((arc) => rankedByArc[arc].map(({ analysis: candidate }) => candidate.sourceTrackId)))];
+  const candidateMetadata = new Map(await Promise.all(candidateIds.map(async (candidateId) => [
+    candidateId,
+    await track(candidateId).catch(() => null),
+  ] as const)));
+  const candidatesByArc = Object.fromEntries(ENERGY_ARCS.map((arc) => [arc, rankedByArc[arc].map(({ analysis: candidate, suggestions: candidateSuggestions }) => {
+    const metadata = candidateMetadata.get(candidate.sourceTrackId);
+    return {
+      track: {
+        id: candidate.sourceTrackId,
+        title: metadata?.title ?? `Track ${candidate.sourceTrackId}`,
+        artist: metadata?.user.username ?? "SoundCloud archive",
+        durationSec: candidate.durationSec,
+        samples: candidate.energy.samples,
+        sections: candidate.structure.sections,
+        segments: candidate.segments,
+      },
+      artworkUrl: metadata
+        ? metadata.artwork_url?.replace("-large", "-t500x500") ?? metadata.user.avatar_url
+        : null,
+      bpm: candidate.tempo.bpm,
+      camelotKey: candidate.tonal.camelotKey ?? candidate.tonal.key,
+      suggestions: candidateSuggestions,
+    };
+  })])) as Record<typeof ENERGY_ARCS[number], Array<{
+    track: { id: string; title: string; artist: string; durationSec: number; samples: number[]; sections: TrackAnalysis["structure"]["sections"]; segments: TrackAnalysis["segments"] };
+    artworkUrl: string | null;
+    bpm: number;
+    camelotKey: string;
+    suggestions: ReturnType<typeof suggestTransitionWindows>;
+  }>>;
 
   return <main className={styles.dashboard}>
     <div className={styles.noise} />
@@ -101,8 +169,24 @@ export default async function TrackBackroom({ params }: { params: Promise<{ id: 
       </section>
 
       <section className={styles.plotSection}>
-        <div className={styles.sectionHeading}><span>01</span><h2>Energy & structure</h2><p>Track-level movement with analyzed phrase boundaries.</p></div>
-        <PlaybackEnergyChart trackId={id} durationSec={analysis.durationSec} samples={analysis.energy.samples} sections={sections} playable={soundcloudTrack?.streamable !== false} />
+        <div className={styles.sectionHeading}><span>01</span><h2>Energy, structure & DJ map</h2><p>One clock for movement, phrase boundaries, and scored mix segments.</p></div>
+        <PlaybackEnergyChart trackId={id} durationSec={analysis.durationSec} samples={analysis.energy.samples} sections={sections} segments={segments} playable={soundcloudTrack?.streamable !== false} />
+        <div className={styles.cueSummary} style={{ marginTop: 28 }}>
+          <div><small>MIX IN</small><strong>{time(analysis.cuePoints.mixInSec)}</strong></div>
+          <div><small>MIX OUT</small><strong>{time(analysis.cuePoints.mixOutSec)}</strong></div>
+          <p>{analysis.cuePoints.reason}<b>{percent(analysis.cuePoints.confidence)} confidence</b></p>
+        </div>
+        <div className={styles.segmentTable} role="table">
+          <div className={styles.segmentHeader} role="row"><span>segment</span><span>time</span><span>energy</span><span>entry</span><span>exit</span><span>emotion</span></div>
+          {segments.map((segment) => <div className={styles.segmentRow} role="row" key={segment.id}>
+            <span><b>{segment.id}</b><small>{segment.section}</small></span>
+            <span>{time(segment.startSec)}—{time(segment.endSec)}</span>
+            <span>{percent(segment.energy)} <i className={segment.energySlope >= 0 ? styles.up : styles.down}>{segment.energySlope >= 0 ? "↗" : "↘"}</i></span>
+            <span>{percent(segment.entryQuality)}</span>
+            <span>{percent(segment.exitQuality)}</span>
+            <span>{dominantLabel(segment.mirexMood)}</span>
+          </div>)}
+        </div>
       </section>
 
       <section className={styles.semanticSection}>
@@ -128,24 +212,49 @@ export default async function TrackBackroom({ params }: { params: Promise<{ id: 
         </div>
       </section>
 
-      <section className={styles.cueSection}>
-        <div className={styles.sectionHeading}><span>04</span><h2>DJ map</h2><p>Suggested file cues and locally scored segment options.</p></div>
-        <div className={styles.cueSummary}>
-          <div><small>MIX IN</small><strong>{time(analysis.cuePoints.mixInSec)}</strong></div>
-          <div><small>MIX OUT</small><strong>{time(analysis.cuePoints.mixOutSec)}</strong></div>
-          <p>{analysis.cuePoints.reason}<b>{percent(analysis.cuePoints.confidence)} confidence</b></p>
-        </div>
-        <div className={styles.segmentTable} role="table">
-          <div className={styles.segmentHeader} role="row"><span>segment</span><span>time</span><span>energy</span><span>entry</span><span>exit</span><span>emotion</span></div>
-          {segments.map((segment) => <div className={styles.segmentRow} role="row" key={segment.id}>
-            <span><b>{segment.id}</b><small>{segment.section}</small></span>
-            <span>{time(segment.startSec)}—{time(segment.endSec)}</span>
-            <span>{percent(segment.energy)} <i className={segment.energySlope >= 0 ? styles.up : styles.down}>{segment.energySlope >= 0 ? "↗" : "↘"}</i></span>
-            <span>{percent(segment.entryQuality)}</span>
-            <span>{percent(segment.exitQuality)}</span>
-            <span>{dominantLabel(segment.mirexMood)}</span>
-          </div>)}
-        </div>
+      <section className={styles.mixSection}>
+        <div className={styles.sectionHeading}><span>04</span><h2>{incomingId ? "Mix suggestions" : "Suggested next tracks"}</h2><p>{incomingId ? "Two source clocks. One shared transition window." : "Ranked by best available transition from this track."}</p></div>
+        {!incomingId
+          ? <MixCandidatePicker
+              outgoing={{
+                id,
+                title: soundcloudTrack?.title ?? `Track ${id}`,
+                artist: soundcloudTrack?.user.username ?? "SoundCloud archive",
+                durationSec: analysis.durationSec,
+                samples: analysis.energy.samples,
+                sections: analysis.structure.sections,
+                segments: analysis.segments,
+              }}
+              initialEnergyArc={energyArc}
+              candidatesByArc={candidatesByArc}
+            />
+          : !incomingTrack && !incomingAnalysis
+          ? <div className={styles.mixUnavailable}><b>TRACK NOT FOUND</b><p>Could not load incoming SoundCloud track {incomingId}.</p></div>
+          : !incomingAnalysis
+            ? <div className={styles.mixUnavailable}><b>INCOMING ANALYSIS PENDING</b><p>{incomingScheduled ? "Analysis scheduled at high priority. Refresh after worker completes." : "Could not schedule analysis. Check queue configuration, then refresh."}</p></div>
+            : <MixSuggestions
+                outgoing={{
+                  id,
+                  title: soundcloudTrack?.title ?? `Track ${id}`,
+                  artist: soundcloudTrack?.user.username ?? "SoundCloud archive",
+                  durationSec: analysis.durationSec,
+                  samples: analysis.energy.samples,
+                  sections: analysis.structure.sections,
+                  segments: analysis.segments,
+                }}
+                incoming={{
+                  id: incomingId,
+                  title: incomingTrack?.title ?? `Track ${incomingId}`,
+                  artist: incomingTrack?.user.username ?? "SoundCloud archive",
+                  durationSec: incomingAnalysis.durationSec,
+                  samples: incomingAnalysis.energy.samples,
+                  sections: incomingAnalysis.structure.sections,
+                  segments: incomingAnalysis.segments,
+                }}
+                energyArc={energyArc}
+                suggestions={suggestions}
+                candidatesByArc={candidatesByArc}
+              />}
       </section>
 
       {(analysis.warnings.length > 0 || soundcloudTrack?.tag_list || !soundcloudTrack) && <footer className={styles.notes}>

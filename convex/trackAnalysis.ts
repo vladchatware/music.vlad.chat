@@ -4,6 +4,17 @@ import { trackAnalysisResultValidator } from "./trackAnalysisValidators";
 import { getAnalysisRetryPolicy, sanitizeAnalysisError } from "../lib/analysisQueuePolicy";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+
+function cleanResult<T extends { segments?: Array<Record<string, unknown>> }>(result: T) {
+  return {
+    ...result,
+    segments: result.segments?.map((segment) => {
+      const { mood: _mood, ...clean } = segment;
+      return clean;
+    }),
+  };
+}
 
 export const getBySoundCloudId = query({
   args: {
@@ -21,13 +32,29 @@ export const getBySoundCloudId = query({
       )
       .unique();
     if (!doc) return null;
-    return {
-      ...doc.result,
-      segments: doc.result.segments?.map((segment) => {
-        const { mood: _mood, ...clean } = segment as typeof segment & { mood?: unknown };
-        return clean;
-      }),
-    };
+    return cleanResult(doc.result);
+  },
+});
+
+export const listCandidates = query({
+  args: {
+    excludeTrackId: v.string(),
+    analysisVersion: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(30, Math.floor(args.limit ?? 20)));
+    const docs = await ctx.db
+      .query("trackAnalyses")
+      .withIndex("by_analysis_version_createdAt", (q) =>
+        q.eq("result.analysisVersion", args.analysisVersion),
+      )
+      .order("desc")
+      .take(limit + 1);
+    return docs
+      .filter((doc) => doc.result.sourceTrackId !== args.excludeTrackId)
+      .slice(0, limit)
+      .map((doc) => cleanResult(doc.result));
   },
 });
 
@@ -108,6 +135,14 @@ async function enqueueJobs(
       enqueued += 1;
     }
 
+    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+      event: "enqueue",
+      source: requestedBy ? "user" : "service",
+      ...(requestedBy ? { userId: String(requestedBy) } : {}),
+      enqueued,
+      cached,
+      existing,
+    });
     return { enqueued, cached, existing };
 }
 
@@ -136,6 +171,8 @@ export const claim = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    let expiredRetryable = 0;
+    let expiredDead = 0;
     const expired = await ctx.db
       .query("trackAnalysisJobs")
       .withIndex("by_status_priority_createdAt", (q) => q.eq("status", "processing"))
@@ -151,7 +188,23 @@ export const claim = internalMutation({
           lastError: "Worker lease expired",
           updatedAt: now,
         });
+        if (retry.dead) expiredDead += 1;
+        else expiredRetryable += 1;
       }
+    }
+    if (expiredRetryable > 0) {
+      await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+        event: "lease_expired",
+        count: expiredRetryable,
+        dead: false,
+      });
+    }
+    if (expiredDead > 0) {
+      await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+        event: "lease_expired",
+        count: expiredDead,
+        dead: true,
+      });
     }
 
     const findReady = async (status: "queued" | "failed") => {
@@ -175,6 +228,14 @@ export const claim = internalMutation({
     });
 
     const user = job.requestedBy ? await ctx.db.get(job.requestedBy) : null;
+    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+      event: "claimed",
+      source: job.requestedBy ? "user" : "service",
+      ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
+      trackId: job.sourceTrackId,
+      attempt: job.attempts + 1,
+      queueWaitMs: Math.max(0, now - job.createdAt),
+    });
     return {
       cacheKey: job.cacheKey,
       sourceTrackId: job.sourceTrackId,
@@ -237,7 +298,19 @@ export const complete = internalMutation({
         createdAt: Date.now(),
       });
     }
+    const completedAt = Date.now();
     await ctx.db.delete(job._id);
+    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+      event: "completed",
+      source: job.requestedBy ? "user" : "service",
+      ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
+      trackId: job.sourceTrackId,
+      attempt: job.attempts,
+      stored: !existing,
+      processingTimeMs: args.result.processingTimeMs,
+      totalTimeMs: Math.max(0, completedAt - job.createdAt),
+      semanticStatus: args.result.semantic?.status ?? "unavailable",
+    });
     return { stored: !existing };
   },
 });
@@ -267,6 +340,15 @@ export const fail = internalMutation({
       lastError: sanitizeAnalysisError(args.error),
       updatedAt: now,
     });
+    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+      event: "failed",
+      source: job.requestedBy ? "user" : "service",
+      ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
+      trackId: job.sourceTrackId,
+      attempt: job.attempts,
+      dead: retry.dead,
+      totalTimeMs: Math.max(0, now - job.createdAt),
+    });
     return { dead: retry.dead, attempts: job.attempts };
   },
 });
@@ -295,6 +377,13 @@ export const defer = internalMutation({
       nextAttemptAt: now + Math.min(30 * 60_000, Math.max(1_000, args.retryMs)),
       lastError: sanitizeAnalysisError(args.reason),
       updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+      event: "deferred",
+      source: job.requestedBy ? "user" : "service",
+      ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
+      trackId: job.sourceTrackId,
+      attempt: Math.max(0, job.attempts - 1),
     });
   },
 });

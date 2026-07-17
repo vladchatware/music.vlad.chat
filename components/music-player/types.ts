@@ -12,4 +12,5 @@ export type SoundCloudTrack = {
   genre?: string;
   bpm?: number;
   key_signature?: string;
+  user_favorite?: boolean;
 };

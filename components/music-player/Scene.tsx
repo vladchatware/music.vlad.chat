@@ -24,6 +24,11 @@ export function MusicPlayerScene({
   isPlaybackActive = false,
   transitionHighlight,
   backgroundPrompt,
+  onHashtagClick,
+  onPlayClick,
+  isPlaying = false,
+  onLikeClick,
+  isLiked = false,
   children
 }: {
   initialTrackId: string | number;
@@ -32,6 +37,11 @@ export function MusicPlayerScene({
   isPlaybackActive?: boolean;
   transitionHighlight?: { start01: number; end01: number; intensity?: number } | null;
   backgroundPrompt?: string;
+  onHashtagClick?: () => void;
+  onPlayClick?: () => void;
+  isPlaying?: boolean;
+  onLikeClick?: () => void;
+  isLiked?: boolean;
   children: ReactNode;
 }) {
   const { palette } = useMusicPlayerStore(
@@ -120,6 +130,11 @@ export function MusicPlayerScene({
             audioEnergyRef={audioEnergyRef}
             transitionProgress={transitionHighlight?.end01}
             palette={palette}
+            onHashtagClick={onHashtagClick}
+            onPlayClick={onPlayClick}
+            isPlaying={isPlaying}
+            onLikeClick={onLikeClick}
+            isLiked={isLiked}
           />
         </group>
 

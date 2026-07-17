@@ -276,6 +276,13 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   const isTransitioning = isTransitionActive(engineState.djState);
   const activeDeck = getActiveDeck(engineState.djState);
 
+  const clearPendingNextTrackRequest = useCallback((reason: string) => {
+    if (!revibeTriggeredRef.current) return false;
+    revibeTriggeredRef.current = false;
+    logEngine("engine.next_track_request.cleared", { reason });
+    return true;
+  }, [logEngine]);
+
   const phase = useMemo(() => {
     switch (engineState.djState.type) {
       case "idle":
@@ -313,5 +320,6 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     togglePlay,
     loadInitialTrack,
     cueNextTrack,
+    clearPendingNextTrackRequest,
   };
 }

@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -45,6 +45,35 @@ afterEach(() => {
 });
 
 describe("track analysis queue", () => {
+  it("lists current-version candidate analyses and excludes current track", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("trackAnalyses", {
+        cacheKey: "soundcloud:1:essentia-dj-v1",
+        result: result("1"),
+        createdAt: 1,
+      });
+      await ctx.db.insert("trackAnalyses", {
+        cacheKey: "soundcloud:2:essentia-dj-v1",
+        result: result("2"),
+        createdAt: 2,
+      });
+      await ctx.db.insert("trackAnalyses", {
+        cacheKey: "soundcloud:3:essentia-dj-v2",
+        result: { ...result("3"), analysisVersion: "essentia-dj-v2" },
+        createdAt: 3,
+      });
+    });
+
+    const candidates = await t.query(api.trackAnalysis.listCandidates, {
+      excludeTrackId: "1",
+      analysisVersion: "essentia-dj-v1",
+      limit: 10,
+    });
+
+    expect(candidates.map((candidate) => candidate.sourceTrackId)).toEqual(["2"]);
+  });
+
   it("protects HTTP queue endpoints and validates enqueue input", async () => {
     process.env.ANALYSIS_SERVICE_SECRET = "test-secret";
     process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
