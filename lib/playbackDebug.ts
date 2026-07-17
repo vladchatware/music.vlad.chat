@@ -23,16 +23,10 @@ declare global {
 }
 
 const MAX_EVENT_BUFFER = 800;
-const CLIENT_FLUSH_INTERVAL_MS = 1200;
-const CLIENT_MAX_BATCH = 80;
 
-let clientFlushTimer: ReturnType<typeof setTimeout> | null = null;
-let clientFlushInFlight = false;
-let visibilityFlushAttached = false;
 let runtimeErrorsAttached = false;
 let sequence = 0;
 const clientStartedAtMs = typeof performance === "undefined" ? null : performance.now();
-const clientPendingEvents: PlaybackDebugEntry[] = [];
 const telemetrySinks = new Set<PlaybackTelemetrySink>();
 let correlationContext: { chatSessionId?: string; turnId?: string } = {};
 
@@ -99,50 +93,6 @@ export const isPlaybackDebugEnabled = () => {
   return envEnabled || readBrowserFlag();
 };
 
-const flushClientEvents = async () => {
-  if (typeof window === "undefined") return;
-  if (clientFlushInFlight) return;
-  if (clientPendingEvents.length === 0) return;
-
-  clientFlushInFlight = true;
-  const batch = clientPendingEvents.splice(0, CLIENT_MAX_BATCH);
-  try {
-    await fetch("/api/debug/playback", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ source: "client", events: batch }),
-      keepalive: true,
-    });
-  } catch {
-    clientPendingEvents.unshift(...batch);
-  } finally {
-    clientFlushInFlight = false;
-    if (clientPendingEvents.length > 0) {
-      scheduleClientFlush();
-    }
-  }
-};
-
-const scheduleClientFlush = () => {
-  if (typeof window === "undefined") return;
-  if (clientFlushTimer) return;
-  clientFlushTimer = setTimeout(() => {
-    clientFlushTimer = null;
-    void flushClientEvents();
-  }, CLIENT_FLUSH_INTERVAL_MS);
-};
-
-const ensureVisibilityFlush = () => {
-  if (typeof window === "undefined") return;
-  if (visibilityFlushAttached) return;
-  visibilityFlushAttached = true;
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      void flushClientEvents();
-    }
-  });
-};
-
 const ensureRuntimeErrorCapture = () => {
   if (typeof window === "undefined" || runtimeErrorsAttached) return;
   runtimeErrorsAttached = true;
@@ -160,8 +110,6 @@ const ensureRuntimeErrorCapture = () => {
 };
 
 export const playbackDebug = (event: string, payload?: DebugPayload) => {
-  if (!isPlaybackDebugEnabled()) return;
-
   const entry: PlaybackDebugEntry = {
     schemaVersion: 1,
     ts: new Date().toISOString(),
@@ -176,7 +124,8 @@ export const playbackDebug = (event: string, payload?: DebugPayload) => {
     payload,
   };
 
-  if (typeof window !== "undefined") {
+  const debugEnabled = isPlaybackDebugEnabled();
+  if (debugEnabled && typeof window !== "undefined") {
     if (!window.__MUSIC_PLAYER_DEBUG__) {
       window.__MUSIC_PLAYER_DEBUG__ = { events: [] };
     }
@@ -186,13 +135,6 @@ export const playbackDebug = (event: string, payload?: DebugPayload) => {
       events.shift();
     }
 
-    clientPendingEvents.push(entry);
-    if (clientPendingEvents.length >= CLIENT_MAX_BATCH) {
-      void flushClientEvents();
-    } else {
-      scheduleClientFlush();
-    }
-    ensureVisibilityFlush();
     ensureRuntimeErrorCapture();
   }
 
@@ -204,20 +146,17 @@ export const playbackDebug = (event: string, payload?: DebugPayload) => {
     }
   }
 
-  if (payload !== undefined) {
-    console.log(`[mp-debug] ${event}`, payload);
-  } else {
-    console.log(`[mp-debug] ${event}`);
+  if (debugEnabled) {
+    if (payload !== undefined) {
+      console.log(`[mp-debug] ${event}`, payload);
+    } else {
+      console.log(`[mp-debug] ${event}`);
+    }
   }
-};
-
-export const flushPlaybackDebugClient = async () => {
-  await flushClientEvents();
 };
 
 export const clearPlaybackDebugBuffer = () => {
   if (typeof window === "undefined") return;
   if (!window.__MUSIC_PLAYER_DEBUG__) return;
   window.__MUSIC_PLAYER_DEBUG__.events = [];
-  clientPendingEvents.length = 0;
 };

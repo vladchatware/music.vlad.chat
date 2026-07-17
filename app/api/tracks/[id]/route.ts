@@ -1,4 +1,5 @@
 import { NextResponse, NextRequest } from 'next/server'
+import * as Sentry from '@sentry/nextjs'
 import { track, refreshUserToken } from '../../../../soundcloud'
 import { fetchQuery, fetchMutation } from "convex/nextjs"
 import { api } from '../../../../convex/_generated/api'
@@ -65,6 +66,9 @@ export async function GET(req: NextRequest, { params }) {
     return NextResponse.json(_track)
   } catch (e) {
     if (getErrorStatus(e) === 429) {
+      Sentry.metrics.count('soundcloud.rate_limit', 1, {
+        attributes: { operation: 'track_metadata' },
+      })
       const headers = new Headers()
       const retryAfterMs = getErrorRetryAfterMs(e)
       if (retryAfterMs !== null) headers.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)))

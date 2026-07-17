@@ -125,6 +125,15 @@ SITE_URL=http://localhost:3000
 # SoundCloud (if needed)
 SOUNDCLOUD_CLIENT_ID=<your-soundcloud-client-id>
 SOUNDCLOUD_CLIENT_SECRET=<your-soundcloud-client-secret>
+
+# Sentry runtime (use the same DSN for browser, server, and edge)
+NEXT_PUBLIC_SENTRY_DSN=<your-sentry-dsn>
+SENTRY_DSN=<your-sentry-dsn>
+
+# Sentry source maps (build-time; keep the auth token secret)
+SENTRY_ORG=<your-sentry-org-slug>
+SENTRY_PROJECT=<your-sentry-project-slug>
+SENTRY_AUTH_TOKEN=<your-sentry-auth-token>
 ```
 
 4. Set up Convex:
@@ -177,20 +186,18 @@ music.vlad.chat/
 - `bun dev` - Start development server with Turbopack
 - `bun build` - Build for production with Turbopack
 - `bun start` - Start production server
-- `bun run debug:playback` - Summarize captured runtime sessions, transitions, and failures
 
 ## Playback diagnostics
 
 Enable locally with `?mpDebug=1` or `localStorage.musicPlayerDebug = "true"`. Events remain
-available in `window.__MUSIC_PLAYER_DEBUG__.events`, batch to `logs/playback-debug.ndjson`, and
+available in `window.__MUSIC_PLAYER_DEBUG__.events` and emit as Sentry logs and metrics. Events
 include runtime session ID, chat session ID, AI turn ID, order, and elapsed time. AI generation and
 deck events share correlation IDs, allowing one trace from prompt through player tool to transition
-outcome. Run `bun run debug:playback` after a performance.
-Report contains captured facts only; it does not infer performance quality.
+outcome.
 
-Production endpoint stays disabled unless `PLAYBACK_DEBUG=true`. `addPlaybackTelemetrySink()` in
-`lib/playbackDebug.ts` is integration seam for Sentry: forward each structured entry as breadcrumb
-or captured event without changing DJ engine instrumentation. AI SDK telemetry is enabled under
+`addPlaybackTelemetrySink()` in
+`lib/playbackDebug.ts` forwards each structured entry to Sentry without changing DJ engine
+instrumentation. AI SDK telemetry is enabled under
 function ID `ai-dj-chat`; prompt/output recording remains off unless
 `AI_TELEMETRY_RECORD_CONTENT=true` because chat content may contain private data.
 
