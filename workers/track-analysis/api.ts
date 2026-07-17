@@ -8,6 +8,12 @@ export type AnalysisJob = {
   attempt: number;
   leaseToken: string;
   soundCloudAccessToken?: string;
+  createdAt?: number;
+  sentryTrace?: string;
+  sentryBaggage?: string;
+  messageId?: string;
+  messageBodySize?: number;
+  sentAt?: number;
 };
 
 export class AnalysisQueueClient {

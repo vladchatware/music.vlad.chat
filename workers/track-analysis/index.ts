@@ -3,14 +3,18 @@ import { getConvexSiteUrl } from "./config";
 import { analyzeInFreshProcess } from "./analysisProcessClient";
 import { readAccessToken } from "../../soundcloud";
 import { AuthBackoffError, SoundCloudAuthGate } from "./authBackoff";
+import { processWithQueueTrace } from "./queueTracing";
 import * as Sentry from "@sentry/node";
 
+const configuredTracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "1");
 Sentry.init({
   dsn: process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN,
   environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "analysis-worker",
   enableLogs: true,
   enableMetrics: true,
-  tracesSampleRate: 0,
+  tracesSampleRate: Number.isFinite(configuredTracesSampleRate)
+    ? Math.max(0, Math.min(1, configuredTracesSampleRate))
+    : 1,
 });
 
 const secret = process.env.ANALYSIS_SERVICE_SECRET;
@@ -95,34 +99,36 @@ async function runSlot(slot: number) {
       recordWorkerState();
       console.info("analysis.job.started", { slot, trackId: job.sourceTrackId, attempt: job.attempt });
       try {
-        let accessToken = soundCloudAccessToken;
-        if (!accessToken) {
-          try {
-            accessToken = await authGate.acquire();
-          } catch (error) {
-            const retryMs = error instanceof AuthBackoffError ? error.retryMs : 30_000;
-            console.error("analysis.worker.auth_failed", {
-              slot,
-              retryMs,
-              retryAt: new Date(Date.now() + retryMs).toISOString(),
-              message: error instanceof Error ? error.message : String(error),
-            });
-            captureWorkerException("soundcloud_auth", error, { slot, retryMs });
-            Sentry.metrics.count("analysis.worker.auth_error", 1, {
-              attributes: workerMetricAttributes,
-            });
-            await queue.defer(job, retryMs, error);
-            // Keep polling: signed-user jobs can proceed while app auth is backed off.
-            await waitUnlessStopping(Math.min(pollMs, retryMs));
-            continue;
+        await processWithQueueTrace(job, async () => {
+          let accessToken = soundCloudAccessToken;
+          if (!accessToken) {
+            try {
+              accessToken = await authGate.acquire();
+            } catch (error) {
+              const retryMs = error instanceof AuthBackoffError ? error.retryMs : 30_000;
+              console.error("analysis.worker.auth_failed", {
+                slot,
+                retryMs,
+                retryAt: new Date(Date.now() + retryMs).toISOString(),
+                message: error instanceof Error ? error.message : String(error),
+              });
+              captureWorkerException("soundcloud_auth", error, { slot, retryMs });
+              Sentry.metrics.count("analysis.worker.auth_error", 1, {
+                attributes: workerMetricAttributes,
+              });
+              await queue.defer(job, retryMs, error);
+              // Keep polling: signed-user jobs can proceed while app auth is backed off.
+              await waitUnlessStopping(Math.min(pollMs, retryMs));
+              return;
+            }
           }
-        }
-        const result = await analyzeInFreshProcess(job, accessToken);
-        await queue.complete(job, result);
-        console.info("analysis.job.completed", {
-          slot,
-          trackId: job.sourceTrackId,
-          processingTimeMs: result.processingTimeMs,
+          const result = await analyzeInFreshProcess(job, accessToken);
+          await queue.complete(job, result);
+          console.info("analysis.job.completed", {
+            slot,
+            trackId: job.sourceTrackId,
+            processingTimeMs: result.processingTimeMs,
+          });
         });
       } catch (error) {
         console.error("analysis.job.failed", {
