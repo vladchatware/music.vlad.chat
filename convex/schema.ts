@@ -34,6 +34,17 @@ export default defineSchema({
       cachedInputTokens: v.optional(v.number()),
     })
   }),
+  payments: defineTable({
+    stripeEventId: v.string(),
+    checkoutSessionId: v.string(),
+    userId: v.id("users"),
+    amountTotal: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    tokens: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_stripe_event", ["stripeEventId"])
+    .index("by_checkout_session", ["checkoutSessionId"]),
   trackAnalysisJobs: defineTable({
     cacheKey: v.string(),
     source: v.literal("soundcloud"),
@@ -63,6 +74,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_cacheKey", ["cacheKey"])
+    .index("by_analysis_version_createdAt", ["result.analysisVersion", "createdAt"])
     .index("by_source_track_version", [
       "result.source",
       "result.sourceTrackId",

@@ -4,6 +4,7 @@ import { httpAction } from "./_generated/server";
 import Stripe from "stripe";
 import { internal } from "./_generated/api";
 import { TRACK_ANALYSIS_VERSION, type TrackAnalysis } from "../lib/trackAnalysis";
+import type { Id } from "./_generated/dataModel";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const webhook_secret = process.env.STRIPE_WEBHOOK_SECRET
@@ -43,21 +44,51 @@ http.route({
   method: 'POST',
   handler: httpAction(async (ctx, req) => {
     const signature = req.headers.get('stripe-signature')
+    if (!signature) return new Response(null, { status: 400 })
+    if (!webhook_secret) {
+      console.error("STRIPE_WEBHOOK_SECRET is not configured")
+      return new Response(null, { status: 500 })
+    }
     try {
       const payload = await req.text()
       const event = await stripe.webhooks.constructEventAsync(payload, signature, webhook_secret)
 
       switch (event.type) {
         case 'checkout.session.completed':
-          const { stripeId, tokens } = event.data.object.metadata
-          await ctx.runMutation(internal.users.topup, { stripeId, tokens: parseInt(tokens) })
+        case 'checkout.session.async_payment_succeeded': {
+          const session = event.data.object
+          if (session.payment_status !== "paid") break
+          const userId = session.metadata?.userId as Id<"users"> | undefined
+          const tokens = Number.parseInt(session.metadata?.tokens ?? "", 10)
+          if (!userId || !Number.isSafeInteger(tokens) || tokens <= 0) {
+            throw new Error("Paid checkout session has invalid credit metadata")
+          }
+          const result = await ctx.runMutation(internal.users.applyPayment, {
+            stripeEventId: event.id,
+            checkoutSessionId: session.id,
+            userId,
+            tokens,
+            amountTotal: session.amount_total ?? undefined,
+            currency: session.currency ?? undefined,
+          })
+          if (result.applied) {
+            await ctx.scheduler.runAfter(0, internal.telemetry.recordBusinessEvent, {
+              event: "commerce.payment.completed",
+              userId: String(result.userId),
+              amountTotal: session.amount_total ?? undefined,
+              currency: session.currency ?? undefined,
+              tokens,
+            })
+          }
           break;
+        }
         default:
           console.log(event.type)
       }
-    } catch (e) {
-      console.log(e.message)
-      return new Response(null, { status: 400 })
+    } catch (error) {
+      console.error("Stripe webhook failed", error)
+      const status = error instanceof Stripe.errors.StripeSignatureVerificationError ? 400 : 500
+      return new Response(null, { status })
     }
     return new Response(null, { status: 200 })
   })

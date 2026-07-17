@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -54,9 +54,20 @@ export const updateSoundcloudTokens = mutation({
 
 export const connect = mutation({
   args: { stripeId: v.string() },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx)
-    return ctx.db.patch(userId, { stripeId: args.stripeId })
+    if (userId === null) throw new ConvexError("Authentication required")
+    const user = await ctx.db.get("users", userId)
+    if (!user) throw new ConvexError("User not found")
+    if (user.stripeId === args.stripeId) return null
+    if (user.stripeId) throw new ConvexError("Stripe customer already connected")
+    const claimed = await ctx.db.query("users")
+      .withIndex("stripeId", (q) => q.eq("stripeId", args.stripeId))
+      .first()
+    if (claimed) throw new ConvexError("Stripe customer already connected")
+    await ctx.db.patch("users", userId, { stripeId: args.stripeId })
+    return null
   }
 })
 
@@ -126,10 +137,40 @@ export const resetTokens = internalMutation({
   }
 })
 
-export const topup = internalMutation({
-  args: { tokens: v.number(), stripeId: v.string() },
+export const applyPayment = internalMutation({
+  args: {
+    stripeEventId: v.string(),
+    checkoutSessionId: v.string(),
+    tokens: v.number(),
+    userId: v.id("users"),
+    amountTotal: v.optional(v.number()),
+    currency: v.optional(v.string()),
+  },
+  returns: v.object({ applied: v.boolean(), userId: v.id("users") }),
   handler: async (ctx, args) => {
-    const user = await ctx.db.query('users').withIndex('stripeId', q => q.eq('stripeId', args.stripeId)).first()
-    return ctx.db.patch(user._id, { tokens: user.tokens + args.tokens })
+    const existingEvent = await ctx.db.query("payments")
+      .withIndex("by_stripe_event", (q) => q.eq("stripeEventId", args.stripeEventId))
+      .first()
+    const existingSession = await ctx.db.query("payments")
+      .withIndex("by_checkout_session", (q) => q.eq("checkoutSessionId", args.checkoutSessionId))
+      .first()
+    const existing = existingEvent ?? existingSession
+    if (existing) return { applied: false, userId: existing.userId }
+
+    const user = await ctx.db.get("users", args.userId)
+    if (!user) throw new Error("Stripe customer is not connected to a user")
+    if (!Number.isSafeInteger(args.tokens) || args.tokens <= 0) throw new Error("Invalid token credit")
+
+    await ctx.db.insert("payments", {
+      stripeEventId: args.stripeEventId,
+      checkoutSessionId: args.checkoutSessionId,
+      userId: user._id,
+      amountTotal: args.amountTotal,
+      currency: args.currency,
+      tokens: args.tokens,
+      createdAt: Date.now(),
+    })
+    await ctx.db.patch("users", user._id, { tokens: (user.tokens ?? 0) + args.tokens })
+    return { applied: true, userId: user._id }
   }
 })
