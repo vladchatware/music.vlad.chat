@@ -105,7 +105,7 @@ export function createDJAgentTools(
       execute: ({ id, aspect }) => readAnalysis(id, aspect),
     },
     schedule_track_analysis: {
-      description: "Queue 1-8 promising SoundCloud candidate tracks for background analysis. Returns immediately; do not wait or repeatedly poll. Use results in later DJ turns via track_analysis.",
+      description: "Queue 1-8 strongest candidates returned by tracks search for background analysis, even when another liked track is already analyzed. Cached IDs are deduplicated. Call once before player, return immediately, and never wait or poll. Use results in later DJ turns via track_analysis.",
       inputSchema: z.object({
         ids: z.array(z.number().int().positive()).min(1).max(8),
       }).strict(),

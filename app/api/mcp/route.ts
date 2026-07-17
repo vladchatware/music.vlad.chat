@@ -5,6 +5,7 @@ import { playbackDebugServer as playbackDebug } from "@/lib/playbackDebugServer"
 import { fetchQuery } from "convex/nextjs"
 import { api } from "../../../convex/_generated/api"
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
+import { searchTrackCandidates } from '@/lib/server/soundcloudCandidateSearch'
 
 const MIN_PLAYABLE_TRACK_DURATION_MS = 90_000
 const MAX_PLAYABLE_TRACK_DURATION_MS = 10 * 60 * 1000
@@ -58,7 +59,7 @@ const handler = createMcpHandler(
 
     server.tool(
       'tracks',
-      'Search for tracks. Returns shuffled results. Prefer using "likes" tool first to get quality tracks matching user taste. Only use this for specific searches.',
+      'Search beyond the user\'s likes for new or similar tracks. Automatically broadens over-constrained searches. Copy every dj_state.playedTrackIds value into exclude_ids so only fresh candidates are returned.',
       {
         q: z.string(),
         limit: z.union([z.string(), z.number()]).optional(),
@@ -75,25 +76,32 @@ const handler = createMcpHandler(
         created_at: z.object({
           from: z.string().optional(),
           to: z.string().optional()
-        }).optional()
+        }).optional(),
+        exclude_ids: z.array(z.number().int().positive()).max(64).optional()
       }, async (query) => {
         const userToken = await getUserToken()
-        const res = await tracks({
-          q: query.q,
-          genres: query.genres,
-          tags: query.tags,
-          'bpm[from]': query.bpm?.from,
-          'bpm[to]': query.bpm?.to,
-          'duration[from]': query.duration?.from,
-          'duration[to]': query.duration?.to,
-          'created_at[from]': query.created_at?.from,
-          'created_at[to]': query.created_at?.to,
-        }, userToken)
-
-        const list: Track[] = Array.isArray(res) ? res : res?.collection ?? []
-        // Filter to transition-safe tracks only.
-        const streamableTracks = list.filter(isTransitionSafeTrack)
         const requestedLimit = Math.max(1, Math.min(12, Number.parseInt(String(query.limit ?? "12"), 10) || 12))
+        const search = async (candidateQuery: Record<string, unknown>) => {
+          const res = await tracks({
+            q: String(candidateQuery.q ?? query.q),
+            genres: typeof candidateQuery.genres === 'string' ? candidateQuery.genres : undefined,
+            tags: typeof candidateQuery.tags === 'string' ? candidateQuery.tags : undefined,
+            'bpm[from]': query.bpm?.from,
+            'bpm[to]': query.bpm?.to,
+            'duration[from]': query.duration?.from,
+            'duration[to]': query.duration?.to,
+            'created_at[from]': query.created_at?.from,
+            'created_at[to]': query.created_at?.to,
+          }, userToken)
+          return (Array.isArray(res) ? res : res?.collection ?? []) as Track[]
+        }
+        const streamableTracks = await searchTrackCandidates({
+          query: { q: query.q, genres: query.genres, tags: query.tags },
+          search,
+          isPlayable: isTransitionSafeTrack,
+          excludeIds: query.exclude_ids,
+          desiredCount: requestedLimit,
+        })
         const payload = streamableTracks.slice(0, requestedLimit).map(track => {
           const artist = track.user?.full_name ?? track.user?.username ?? 'Unknown'
           const followers = track.user?.followers_count ?? 0
@@ -136,11 +144,12 @@ const handler = createMcpHandler(
 
     server.tool(
       'likes',
-      'PRIMARY SOURCE: Get user\'s liked tracks - these are pre-vetted quality tracks that match user taste. Use this FIRST before searching. Play directly from likes or use as reference for similar music.',
+      'Get user liked tracks as taste seeds and candidates. Copy every dj_state.playedTrackIds value into exclude_ids so returned candidates are fresh. Mixed liked/similar requests also require tracks search.',
       {
         limit: z.union([z.string(), z.number()]).optional().default('20'),
+        exclude_ids: z.array(z.number().int().positive()).max(64).optional(),
       },
-      async ({ limit }) => {
+      async ({ limit, exclude_ids }) => {
         const startedAt = Date.now()
         const userToken = await getUserToken()
         const effectiveUserId = process.env.SOUNDCLOUD_USER_ID
@@ -168,7 +177,10 @@ const handler = createMcpHandler(
         const res = await likes(effectiveUserId, { limit: String(fetchLimit) }, userToken)
 
         // Filter to transition-safe tracks, then shuffle
-        const streamableTracks = res.filter(isTransitionSafeTrack)
+        const excludedIds = new Set(exclude_ids ?? [])
+        const streamableTracks = res.filter(
+          (track) => isTransitionSafeTrack(track) && !excludedIds.has(track.id),
+        )
         const shuffled = streamableTracks
           .map(value => ({ value, sort: Math.random() }))
           .sort((a, b) => a.sort - b.sort)
