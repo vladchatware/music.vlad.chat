@@ -6,6 +6,7 @@ import { fetchQuery } from "convex/nextjs"
 import { api } from "../../../convex/_generated/api"
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
 import { searchTrackCandidates } from '@/lib/server/soundcloudCandidateSearch'
+import { wrapMcpServerWithSentry } from '@sentry/node'
 
 const MIN_PLAYABLE_TRACK_DURATION_MS = 90_000
 const MAX_PLAYABLE_TRACK_DURATION_MS = 10 * 60 * 1000
@@ -32,6 +33,12 @@ const getUserToken = async (): Promise<string | undefined> => {
 
 const handler = createMcpHandler(
   (server) => {
+    const recordContent = process.env.AI_TELEMETRY_RECORD_CONTENT === 'true'
+    wrapMcpServerWithSentry(server, {
+      recordInputs: recordContent,
+      recordOutputs: recordContent,
+    })
+
     server.tool(
       'users',
       'List users',
