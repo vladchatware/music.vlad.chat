@@ -20,7 +20,8 @@ vi.mock("../../../../../convex/_generated/api", () => ({
   },
 }));
 
-import { GET, resolveStreamWithTimeout } from "./route";
+import { GET } from "./route";
+import { resolveStreamWithTimeout } from "./streamResolver";
 import { resolveTrackStreamUrl } from "../../../../../soundcloud";
 import { fetchQuery } from "convex/nextjs";
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";

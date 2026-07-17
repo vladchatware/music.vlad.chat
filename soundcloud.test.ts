@@ -44,3 +44,36 @@ describe("allLikes", () => {
     expect(fetchMock.mock.calls[1]?.[0].toString()).toBe("https://api.soundcloud.com/likes-next");
   });
 });
+
+describe("readAccessToken", () => {
+  it("coalesces concurrent client-credentials requests", async () => {
+    vi.stubEnv("CLIENT_ID", "client-id");
+    vi.stubEnv("CLIENT_SECRET", "client-secret");
+    vi.resetModules();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      access_token: "access-token",
+      expires_in: 3600,
+    })));
+    const { readAccessToken } = await import("./soundcloud");
+
+    await expect(Promise.all([readAccessToken(), readAccessToken(), readAccessToken()]))
+      .resolves.toEqual(["access-token", "access-token", "access-token"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it("backs off after token endpoint rate limiting", async () => {
+    vi.stubEnv("CLIENT_ID", "client-id");
+    vi.stubEnv("CLIENT_SECRET", "client-secret");
+    vi.resetModules();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 429 }),
+    );
+    const { readAccessToken } = await import("./soundcloud");
+
+    await expect(readAccessToken()).rejects.toMatchObject({ status: 429, retryAfterMs: 60_000 });
+    await expect(readAccessToken()).rejects.toMatchObject({ status: 429, retryAfterMs: 60_000 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+});
