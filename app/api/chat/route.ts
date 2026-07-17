@@ -12,6 +12,7 @@ import { checkDJAccess, recordDJUsage } from '@/lib/server/djAgentAccess';
 import { isLocalDJBypass } from '@/lib/server/localDJBypass';
 import { playbackDebugServer } from '@/lib/playbackDebugServer';
 import { createDJAgentStepPolicy, getLatestPlayedTrackIds } from '@/lib/server/djAgentPolicy';
+import { getMcpClientRequest } from '@/lib/server/mcpClientRequest';
 
 function cleanCorrelation(value: unknown) {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 128) : undefined;
@@ -41,8 +42,10 @@ export async function POST(req: NextRequest) {
   const denied = localBypass ? null : await checkDJAccess(user, token)
   if (denied) return new NextResponse(denied.message, { status: denied.status })
 
-  const url = process.env.NEXT_PUBLIC_SITE_URL
-  const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`))
+  const mcpRequest = getMcpClientRequest(req)
+  const transport = new StreamableHTTPClientTransport(mcpRequest.url, {
+    requestInit: mcpRequest.requestInit,
+  })
   const soundcloud = await createMCPClient({ transport })
 
   const soundcloudTools = await soundcloud.tools()
