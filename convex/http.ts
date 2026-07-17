@@ -102,6 +102,14 @@ analysisRoute("/analysis/enqueue", async (ctx, req) => {
       trackIds?: Array<string | number>;
       priority?: number;
       analysisVersion?: string;
+      traceContexts?: Array<{
+        trackId: string;
+        sentryTrace?: string;
+        sentryBaggage?: string;
+        messageId: string;
+        messageBodySize: number;
+        sentAt: number;
+      }>;
     };
     const trackIds = (body.trackIds ?? [body.trackId])
       .map((id) => String(id ?? ""))
@@ -113,6 +121,7 @@ analysisRoute("/analysis/enqueue", async (ctx, req) => {
       trackIds,
       priority: Number.isFinite(body.priority) ? Number(body.priority) : 0,
       analysisVersion: body.analysisVersion ?? TRACK_ANALYSIS_VERSION,
+      ...(body.traceContexts ? { traceContexts: body.traceContexts } : {}),
     });
     return json(result);
   } catch (error) {

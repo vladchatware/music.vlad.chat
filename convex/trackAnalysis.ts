@@ -62,11 +62,33 @@ const enqueueArgs = {
   trackIds: v.array(v.string()),
   analysisVersion: v.string(),
   priority: v.number(),
+  traceContexts: v.optional(v.array(v.object({
+    trackId: v.string(),
+    sentryTrace: v.optional(v.string()),
+    sentryBaggage: v.optional(v.string()),
+    messageId: v.string(),
+    messageBodySize: v.number(),
+    sentAt: v.number(),
+  }))),
+};
+
+type EnqueueArgs = {
+  trackIds: string[];
+  analysisVersion: string;
+  priority: number;
+  traceContexts?: Array<{
+    trackId: string;
+    sentryTrace?: string;
+    sentryBaggage?: string;
+    messageId: string;
+    messageBodySize: number;
+    sentAt: number;
+  }>;
 };
 
 async function enqueueJobs(
   ctx: MutationCtx,
-  args: { trackIds: string[]; analysisVersion: string; priority: number },
+  args: EnqueueArgs,
   requestedBy?: Id<"users">,
 ) {
     const now = Date.now();
@@ -77,6 +99,24 @@ async function enqueueJobs(
     for (const sourceTrackId of [...new Set(args.trackIds)].slice(0, 20)) {
       if (!/^\d+$/.test(sourceTrackId)) continue;
       const cacheKey = `soundcloud:${sourceTrackId}:${args.analysisVersion}`;
+      const incomingTrace = args.traceContexts?.find((trace) => trace.trackId === sourceTrackId);
+      const messageBodySize = incomingTrace && Number.isFinite(incomingTrace.messageBodySize)
+        ? Math.max(0, Math.min(1_000_000, incomingTrace.messageBodySize))
+        : 0;
+      const sentAt = incomingTrace && Number.isFinite(incomingTrace.sentAt)
+        ? Math.max(0, Math.min(now, incomingTrace.sentAt))
+        : now;
+      const queueMetadata = {
+        ...(incomingTrace?.sentryTrace
+          ? { sentryTrace: incomingTrace.sentryTrace.slice(0, 512) }
+          : {}),
+        ...(incomingTrace?.sentryBaggage
+          ? { sentryBaggage: incomingTrace.sentryBaggage.slice(0, 8_192) }
+          : {}),
+        messageId: cacheKey,
+        messageBodySize,
+        sentAt,
+      };
       const analysis = await ctx.db
         .query("trackAnalyses")
         .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
@@ -100,7 +140,9 @@ async function enqueueJobs(
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
+            ...queueMetadata,
             ...(requestedBy ? { requestedBy } : {}),
+            createdAt: now,
             updatedAt: now,
           });
           enqueued += 1;
@@ -129,6 +171,7 @@ async function enqueueJobs(
         priority: args.priority,
         attempts: 0,
         nextAttemptAt: now,
+        ...queueMetadata,
         createdAt: now,
         updatedAt: now,
       });
@@ -243,6 +286,12 @@ export const claim = internalMutation({
       attempt: job.attempts + 1,
       leaseToken: args.leaseToken,
       soundCloudAccessToken: user?.soundcloudAccessToken,
+      createdAt: job.createdAt,
+      sentryTrace: job.sentryTrace,
+      sentryBaggage: job.sentryBaggage,
+      messageId: job.messageId ?? job.cacheKey,
+      messageBodySize: job.messageBodySize,
+      sentAt: job.sentAt ?? job.createdAt,
     };
   },
 });

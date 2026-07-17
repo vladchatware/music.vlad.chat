@@ -1,7 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const convex = vi.hoisted(() => ({ fetchMutation: vi.fn() }));
+const sentry = vi.hoisted(() => {
+  const spans: Array<{
+    options: Record<string, unknown>;
+    end: ReturnType<typeof vi.fn>;
+    setStatus: ReturnType<typeof vi.fn>;
+  }> = [];
+  return {
+    spans,
+    startSpan: vi.fn((_options: Record<string, unknown>, callback: (span: unknown) => unknown) =>
+      callback({ setStatus: vi.fn() })),
+    startInactiveSpan: vi.fn((options: Record<string, unknown>) => {
+      const span = { options, end: vi.fn(), setStatus: vi.fn() };
+      spans.push(span);
+      return span;
+    }),
+    getTraceData: vi.fn(({ span }: { span: unknown }) => ({
+      "sentry-trace": `trace-${spans.indexOf(span as (typeof spans)[number])}`,
+      baggage: `baggage-${spans.indexOf(span as (typeof spans)[number])}`,
+    })),
+  };
+});
 vi.mock("convex/nextjs", () => convex);
+vi.mock("@sentry/nextjs", () => sentry);
 vi.mock("../../convex/_generated/api", () => ({
   api: { trackAnalysis: { enqueueForViewer: "enqueueForViewer" } },
 }));
@@ -14,6 +36,10 @@ const originalEnv = { ...process.env };
 afterEach(() => {
   vi.restoreAllMocks();
   convex.fetchMutation.mockReset();
+  sentry.spans.length = 0;
+  sentry.startSpan.mockClear();
+  sentry.startInactiveSpan.mockClear();
+  sentry.getTraceData.mockClear();
   process.env = { ...originalEnv };
 });
 
@@ -31,12 +57,33 @@ describe("enqueueTrackAnalysis", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("https://fixture.convex.site/analysis/enqueue");
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       headers: expect.objectContaining({ authorization: "Bearer secret" }),
-      body: JSON.stringify({
-        trackIds: ["42"],
-        priority: 100,
-        analysisVersion: TRACK_ANALYSIS_VERSION,
-      }),
     });
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      trackIds: ["42"],
+      priority: 100,
+      analysisVersion: TRACK_ANALYSIS_VERSION,
+      traceContexts: [{
+        trackId: "42",
+        sentryTrace: "trace-0",
+        sentryBaggage: "baggage-0",
+        messageId: `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
+        sentAt: expect.any(Number),
+        messageBodySize: expect.any(Number),
+      }],
+    });
+    expect(sentry.spans[0].options).toMatchObject({
+      name: "track-analysis publish",
+      op: "queue.publish",
+      attributes: {
+        "messaging.destination.name": "track-analysis",
+        "messaging.message.id": `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
+        "messaging.message.body.size": expect.any(Number),
+      },
+    });
+    expect(sentry.spans[0].setStatus).toHaveBeenCalledWith({ code: 1, message: "ok" });
+    expect(sentry.spans[0].end).toHaveBeenCalledOnce();
+    expect(sentry.startSpan).toHaveBeenCalledWith({ name: "track-analysis enqueue" }, expect.any(Function));
   });
 
   it("deduplicates and batches candidate tracks", async () => {
@@ -69,6 +116,14 @@ describe("enqueueTrackAnalysis", () => {
       trackIds: ["42"],
       priority: 10,
       analysisVersion: TRACK_ANALYSIS_VERSION,
+      traceContexts: [{
+        trackId: "42",
+        sentryTrace: "trace-0",
+        sentryBaggage: "baggage-0",
+        messageId: `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
+        sentAt: expect.any(Number),
+        messageBodySize: expect.any(Number),
+      }],
     }, { token: "convex-token" });
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -124,6 +124,40 @@ describe("track analysis queue", () => {
     expect(second).toBeNull();
   });
 
+  it("persists producer trace context and returns queue metadata when claimed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.trackAnalysis.enqueue, {
+      trackIds: ["420"],
+      analysisVersion: "essentia-dj-v1",
+      priority: 10,
+      traceContexts: [{
+        trackId: "420",
+        sentryTrace: "0123456789abcdef0123456789abcdef-0123456789abcdef-1",
+        sentryBaggage: "sentry-environment=preview",
+        messageId: "soundcloud:420:essentia-dj-v1",
+        messageBodySize: 128,
+        sentAt: Date.now() - 250,
+      }],
+    });
+
+    const job = await t.mutation(internal.trackAnalysis.claim, {
+      leaseToken: "lease-traced",
+      leaseDurationMs: 60_000,
+    });
+
+    expect(job).toMatchObject({
+      cacheKey: "soundcloud:420:essentia-dj-v1",
+      messageId: "soundcloud:420:essentia-dj-v1",
+      messageBodySize: 128,
+      sentAt: Date.now() - 250,
+      createdAt: Date.now(),
+      sentryTrace: "0123456789abcdef0123456789abcdef-0123456789abcdef-1",
+      sentryBaggage: "sentry-environment=preview",
+    });
+  });
+
   it("leases requesting user's SoundCloud access token to worker", async () => {
     const t = convexTest(schema, modules);
     const requestedBy = await t.run((ctx) => ctx.db.insert("users", {
