@@ -397,10 +397,7 @@ export const tracks = async (query: {
   })
 
   if (!res.ok) {
-    const body = await res.text()
-    const error = new Error(`SoundCloud API error ${res.status}: ${body || res.statusText}`)
-    ;(error as any).status = res.status
-    throw error
+    throw new Error(res.statusText)
   }
 
   const payload = await res.json()

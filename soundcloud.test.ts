@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { allLikes, resolveTrackStreamUrl, tracks } from "./soundcloud";
+import { allLikes, resolveTrackStreamUrl } from "./soundcloud";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -23,20 +23,6 @@ describe("resolveTrackStreamUrl", () => {
     expect(fetchMock.mock.calls[1][1]).toMatchObject({
       headers: expect.objectContaining({ Range: "bytes=0-0" }),
       redirect: "follow",
-    });
-  });
-});
-
-describe("tracks", () => {
-  it("preserves SoundCloud error status and response detail", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ error: "bpm[from] must be numeric" }),
-      { status: 400, statusText: "Bad Request" },
-    ));
-
-    await expect(tracks({ q: "house" }, "token")).rejects.toMatchObject({
-      status: 400,
-      message: expect.stringContaining("bpm[from] must be numeric"),
     });
   });
 });
