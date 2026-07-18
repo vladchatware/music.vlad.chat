@@ -51,9 +51,13 @@ export function buildRelaxedTrackQueries(query: SearchQuery): SearchQuery[] {
     : descriptorsFromQuery(query.q);
   const unique = [...new Set(descriptors.map((value) => value.toLowerCase()))].slice(0, 5);
   return [
-    { ...query, tags: undefined, genres: undefined },
+    { q: query.q },
     ...unique.map((q) => ({ q })),
   ];
+}
+
+function isBadRequest(error: unknown) {
+  return typeof error === "object" && error !== null && "status" in error && error.status === 400;
 }
 
 export async function searchTrackCandidates<T extends Candidate>(opts: {
@@ -71,7 +75,11 @@ export async function searchTrackCandidates<T extends Candidate>(opts: {
     }
   };
 
-  add(await opts.search(opts.query));
+  try {
+    add(await opts.search(opts.query));
+  } catch (error) {
+    if (!isBadRequest(error)) throw error;
+  }
   if (candidates.size >= opts.desiredCount) return [...candidates.values()];
 
   const fallbackResults = await Promise.all(

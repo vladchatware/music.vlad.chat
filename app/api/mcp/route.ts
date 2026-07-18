@@ -93,17 +93,27 @@ const handler = createMcpHandler(
             q: String(candidateQuery.q ?? query.q),
             genres: typeof candidateQuery.genres === 'string' ? candidateQuery.genres : undefined,
             tags: typeof candidateQuery.tags === 'string' ? candidateQuery.tags : undefined,
+            'bpm[from]': typeof candidateQuery['bpm[from]'] === 'string' ? candidateQuery['bpm[from]'] : undefined,
+            'bpm[to]': typeof candidateQuery['bpm[to]'] === 'string' ? candidateQuery['bpm[to]'] : undefined,
+            'duration[from]': typeof candidateQuery['duration[from]'] === 'string' ? candidateQuery['duration[from]'] : undefined,
+            'duration[to]': typeof candidateQuery['duration[to]'] === 'string' ? candidateQuery['duration[to]'] : undefined,
+            'created_at[from]': typeof candidateQuery['created_at[from]'] === 'string' ? candidateQuery['created_at[from]'] : undefined,
+            'created_at[to]': typeof candidateQuery['created_at[to]'] === 'string' ? candidateQuery['created_at[to]'] : undefined,
+          }, userToken)
+          return (Array.isArray(res) ? res : res?.collection ?? []) as Track[]
+        }
+        const streamableTracks = await searchTrackCandidates({
+          query: {
+            q: query.q,
+            genres: query.genres,
+            tags: query.tags,
             'bpm[from]': query.bpm?.from,
             'bpm[to]': query.bpm?.to,
             'duration[from]': query.duration?.from,
             'duration[to]': query.duration?.to,
             'created_at[from]': query.created_at?.from,
             'created_at[to]': query.created_at?.to,
-          }, userToken)
-          return (Array.isArray(res) ? res : res?.collection ?? []) as Track[]
-        }
-        const streamableTracks = await searchTrackCandidates({
-          query: { q: query.q, genres: query.genres, tags: query.tags },
+          },
           search,
           isPlayable: isTransitionSafeTrack,
           excludeIds: query.exclude_ids,
