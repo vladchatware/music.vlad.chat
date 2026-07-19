@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { type ThreeEvent } from "@react-three/fiber";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
-import { useRouter } from "next/navigation";
 import { useShallow } from "zustand/react/shallow";
 
 import { api } from "@/convex/_generated/api";
@@ -30,7 +29,6 @@ type MusicPlayerProps = {
 
 export default function MusicPlayer(props: MusicPlayerProps) {
   const { initialTrackId, playbackProfile = "default" } = props;
-  const router = useRouter();
   const [likeOverrides, setLikeOverrides] = useState<Record<number, boolean>>({});
   const [likePendingTrackId, setLikePendingTrackId] = useState<number | null>(null);
 
@@ -471,8 +469,8 @@ export default function MusicPlayer(props: MusicPlayerProps) {
 
   const openActiveTrackBackroom = useCallback(() => {
     if (!activeTrack) return;
-    router.push(`/tracks/${activeTrack.id}/backroom`);
-  }, [activeTrack, router]);
+    window.open(`/tracks/${activeTrack.id}/backroom`, "_blank", "noopener,noreferrer");
+  }, [activeTrack]);
 
   const togglePlaybackFromShape = useCallback(() => {
     runDetached(togglePlay(), (error) => {
