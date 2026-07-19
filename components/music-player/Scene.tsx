@@ -16,11 +16,14 @@ import { ScreenGrain } from "@/components/ScreenGrain";
 import { type CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
 import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
 import { useShallow } from "zustand/react/shallow";
+import { InstagramCrowd } from "@/components/live/InstagramCrowd";
+import type { AudioBeatSnapshot } from "@/lib/live/dancerMotion";
 
 export function MusicPlayerScene({
   initialTrackId,
   coordinateMapper,
   audioEnergyRef,
+  audioBeatRef,
   isPlaybackActive = false,
   transitionHighlight,
   backgroundPrompt,
@@ -29,11 +32,15 @@ export function MusicPlayerScene({
   isPlaying = false,
   onLikeClick,
   isLiked = false,
+  liveSessionKey,
+  onCanvasReady,
+  broadcastPortrait = false,
   children
 }: {
   initialTrackId: string | number;
   coordinateMapper: CoordinateMapper_Data;
   audioEnergyRef: React.MutableRefObject<number>;
+  audioBeatRef: React.MutableRefObject<AudioBeatSnapshot>;
   isPlaybackActive?: boolean;
   transitionHighlight?: { start01: number; end01: number; intensity?: number } | null;
   backgroundPrompt?: string;
@@ -42,6 +49,9 @@ export function MusicPlayerScene({
   isPlaying?: boolean;
   onLikeClick?: () => void;
   isLiked?: boolean;
+  liveSessionKey?: string;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  broadcastPortrait?: boolean;
   children: ReactNode;
 }) {
   const { palette } = useMusicPlayerStore(
@@ -55,7 +65,12 @@ export function MusicPlayerScene({
       shadows
       camera={{ position: [0, 0, 18], fov: 32.5 }}
       style={{
-        position: "fixed", top: 0, left: 0, width: "100vw", height: "100dvh",
+        position: "fixed",
+        top: 0,
+        left: broadcastPortrait ? "50%" : 0,
+        width: broadcastPortrait ? "min(100vw, calc(100dvh * 9 / 16))" : "100vw",
+        height: broadcastPortrait ? "min(100dvh, calc(100vw * 16 / 9))" : "100dvh",
+        transform: broadcastPortrait ? "translateX(-50%)" : undefined,
         touchAction: "none", zIndex: 0,
       }}
       gl={{
@@ -63,6 +78,7 @@ export function MusicPlayerScene({
         toneMapping: THREE.ACESFilmicToneMapping,
         powerPreference: "high-performance"
       }}
+      onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}
     >
       {/* HDRI Environment provides the global lighting and reflections */}
       <Environment
@@ -137,6 +153,10 @@ export function MusicPlayerScene({
             isLiked={isLiked}
           />
         </group>
+
+        {liveSessionKey && (
+          <InstagramCrowd sessionKey={liveSessionKey} audioBeatRef={audioBeatRef} />
+        )}
 
         {/* 
             PERFORMANCE GRAIN

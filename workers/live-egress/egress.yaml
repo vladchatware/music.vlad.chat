@@ -1,0 +1,16 @@
+redis:
+  address: redis:6379
+
+# LIVEKIT_API_KEY, LIVEKIT_API_SECRET, and LIVEKIT_WS_URL come from Compose.
+insecure: true
+health_port: 8080
+prometheus_port: 9090
+
+logging:
+  level: info
+  json: true
+
+# Participant egress performs one H.264/AAC transcode for Instagram RTMPS.
+# Keep defaults until worker capacity has been measured with real 1080x1920 input.
+session_limits:
+  stream_output_max_duration: 12h

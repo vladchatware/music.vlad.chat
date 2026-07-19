@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { internal } from "./_generated/api";
 import { TRACK_ANALYSIS_VERSION, type TrackAnalysis } from "../lib/trackAnalysis";
 import type { Id } from "./_generated/dataModel";
+import { extractInstagramLiveComments, verifyMetaSignature } from "../lib/instagramLive";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const webhook_secret = process.env.STRIPE_WEBHOOK_SECRET
@@ -38,6 +39,52 @@ function analysisRoute(
 }
 
 auth.addHttpRoutes(http);
+
+http.route({
+  path: "/instagram/webhook",
+  method: "GET",
+  handler: httpAction(async (_ctx, req) => {
+    const url = new URL(req.url);
+    const mode = url.searchParams.get("hub.mode");
+    const token = url.searchParams.get("hub.verify_token");
+    const challenge = url.searchParams.get("hub.challenge");
+    if (
+      mode !== "subscribe" ||
+      !challenge ||
+      !process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ||
+      token !== process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN
+    ) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    return new Response(challenge, { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/instagram/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const body = await req.text();
+    const appSecret = process.env.INSTAGRAM_APP_SECRET ?? "";
+    const valid = await verifyMetaSignature(
+      body,
+      req.headers.get("x-hub-signature-256"),
+      appSecret,
+    );
+    if (!valid) return new Response("Invalid signature", { status: 401 });
+
+    let deliveries;
+    try {
+      deliveries = extractInstagramLiveComments(JSON.parse(body));
+    } catch {
+      return new Response("Invalid JSON", { status: 400 });
+    }
+    for (const delivery of deliveries) {
+      await ctx.runMutation(internal.liveStreams.ingestComments, delivery);
+    }
+    return new Response("EVENT_RECEIVED", { status: 200 });
+  }),
+});
 
 http.route({
   path: '/webhook',

@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as liveStreams from "../liveStreams.js";
 import type * as telemetry from "../telemetry.js";
 import type * as trackAnalysis from "../trackAnalysis.js";
 import type * as trackAnalysisValidators from "../trackAnalysisValidators.js";
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crons: typeof crons;
   http: typeof http;
+  liveStreams: typeof liveStreams;
   telemetry: typeof telemetry;
   trackAnalysis: typeof trackAnalysis;
   trackAnalysisValidators: typeof trackAnalysisValidators;

@@ -5,7 +5,14 @@ import { useEffect, useRef, type MutableRefObject } from "react";
 import type FFTAnalyzer from "@/lib/analyzers/ftt";
 import type { BPMDetector } from "@/lib/analyzers/bpm-detector";
 import {
+  getPlaybackBeatSnapshot,
+  type AudioBeatSnapshot,
+  type BeatAmplitudeRange,
+  updateBeatAmplitude,
+} from "@/lib/live/dancerMotion";
+import {
   evaluatePerformanceLoop,
+  getActiveDeck,
   getCrossfaderGains,
   isGoodTransitionMoment,
   type DJEvent,
@@ -37,6 +44,7 @@ type PlaybackLoopOptions = {
   bpmDetectorRef: MutableRefObject<BPMDetector | null>;
   energyHistoryRef: MutableRefObject<number[]>;
   audioEnergyRef: MutableRefObject<number>;
+  audioBeatRef: MutableRefObject<AudioBeatSnapshot>;
   revibeTriggeredRef: MutableRefObject<boolean>;
   transitionPlanRef: MutableRefObject<TransitionPlan | null>;
   effectiveCrossfadeDurationSecRef: MutableRefObject<number | null>;
@@ -71,6 +79,7 @@ type PlaybackLoopOptions = {
 export function usePlaybackLoop(options: PlaybackLoopOptions): void {
   const latestOptionsRef = useRef(options);
   const lastPublishAtRef = useRef(0);
+  const beatAmplitudeRangeRef = useRef<BeatAmplitudeRange | null>(null);
   const heardTrackRef = useRef<{ trackId: number; startedAtMs: number } | null>(null);
   latestOptionsRef.current = options;
 
@@ -85,6 +94,7 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
         bpmDetectorRef,
         energyHistoryRef,
         audioEnergyRef,
+        audioBeatRef,
         revibeTriggeredRef,
         transitionPlanRef,
         effectiveCrossfadeDurationSecRef,
@@ -128,6 +138,15 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
 
         const bpm = detector.hasReliableBPM() ? detector.getBPM() : null;
         const beatPhase = detector.getBeatPhase();
+        const amplitude = updateBeatAmplitude(beatAmplitudeRangeRef.current, bassEnergy);
+        beatAmplitudeRangeRef.current = amplitude.range;
+        audioBeatRef.current = getPlaybackBeatSnapshot({
+          beatGrid: getActiveDeck(state)?.beatGrid ?? null,
+          currentTimeSec: analysisDeck.currentTime,
+          strength: amplitude.strength,
+          fallbackPhase: beatPhase,
+          fallbackTracked: detector.getBeatInterval() > 0,
+        });
         const timeToNextBeat = detector.getTimeToNextBeat();
         const stillDuration = detector.getCurrentStillDuration();
         let section: TrackSection = "unknown";

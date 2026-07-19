@@ -22,14 +22,25 @@ import { useAudioVisualization } from "./engine/useAudioVisualization";
 import { runDetached } from "./engine/asyncSafety";
 import { getSegmentRuntimeContext } from "./engine/runtimeModel";
 import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
+import type { BroadcastSources } from "@/components/live/useLiveKitBroadcast";
 
 type MusicPlayerProps = {
   initialTrackId: string | number;
   playbackProfile?: "default" | "trackFocus";
+  liveSessionKey?: string;
+  onBroadcastSourcesReady?: (sources: BroadcastSources) => void;
+  broadcastPortrait?: boolean;
 };
 
 export default function MusicPlayer(props: MusicPlayerProps) {
-  const { initialTrackId, playbackProfile = "default" } = props;
+  const {
+    initialTrackId,
+    playbackProfile = "default",
+    liveSessionKey,
+    onBroadcastSourcesReady,
+    broadcastPortrait = false,
+  } = props;
+  const [broadcastCanvas, setBroadcastCanvas] = useState<HTMLCanvasElement | null>(null);
   const [likeOverrides, setLikeOverrides] = useState<Record<number, boolean>>({});
   const [likePendingTrackId, setLikePendingTrackId] = useState<number | null>(null);
 
@@ -109,7 +120,9 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     activeDeck,
     analyzerRef,
     bpmDetectorRef,
+    broadcastAudioStreamRef,
     audioEnergyRef,
+    audioBeatRef,
     togglePlay,
     play,
     pause,
@@ -117,6 +130,14 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     cueNextTrack,
     clearPendingNextTrackRequest,
   } = engine;
+
+  useEffect(() => {
+    if (!broadcastCanvas || !broadcastAudioStreamRef.current || !onBroadcastSourcesReady) return;
+    onBroadcastSourcesReady({
+      canvas: broadcastCanvas,
+      audioStream: broadcastAudioStreamRef.current,
+    });
+  }, [broadcastAudioStreamRef, broadcastCanvas, onBroadcastSourcesReady]);
 
   // Presentation state shared with scene and overlay.
   const { trackA, trackB, activeTrack, actions } = useMusicPlayerStore(
@@ -536,6 +557,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         initialTrackId={initialTrackId}
         coordinateMapper={coordinateMapper}
         audioEnergyRef={audioEnergyRef}
+        audioBeatRef={audioBeatRef}
         isPlaybackActive={isPlaying || isTransitioning}
         transitionHighlight={transitionHighlight}
         onHashtagClick={activeTrack ? openActiveTrackBackroom : undefined}
@@ -547,6 +569,9 @@ export default function MusicPlayer(props: MusicPlayerProps) {
             : undefined
         }
         isLiked={activeTrackLiked}
+        liveSessionKey={liveSessionKey}
+        onCanvasReady={setBroadcastCanvas}
+        broadcastPortrait={broadcastPortrait}
       >
         <MusicPlayerOverlay
           isAuthenticated={isAuthenticated}
