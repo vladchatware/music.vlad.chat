@@ -16,6 +16,7 @@ import { MusicPlayerOverlay } from "./Overlay";
 import { useRevibeChat, type PlayerToolInput } from "./chat/useRevibeChat";
 import { buildRevibePrompt } from "./chat/prompt";
 import { type SoundCloudTrack } from "./types";
+import { getPlayerEntryAction } from "./interactionPolicy";
 import { useDJEngine } from "./engine/useDJEngine";
 import { useAudioVisualization } from "./engine/useAudioVisualization";
 import { runDetached } from "./engine/asyncSafety";
@@ -346,11 +347,28 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         djState: djState.type,
       });
 
-      if (isAuthenticated === false) {
-        if (!isAutoRequest) {
+      const entryAction = getPlayerEntryAction({
+        isAutoRequest,
+        isAuthenticated,
+        needsUserInteraction,
+        hasTrack: Boolean(trackA?.id),
+      });
+      switch (entryAction) {
+        case "ignore":
+          return;
+        case "signInAndContinue":
           await signIn("anonymous");
+          break;
+        case "loadAndPlay": {
+          const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
+          await loadInitialTrack(initialTrack);
+          await play();
+          return;
         }
-        return;
+        case "togglePlayback":
+          return togglePlay();
+        case "continue":
+          break;
       }
 
       if (status === "streaming") {
@@ -361,18 +379,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           });
         }
         return;
-      }
-
-      if (needsUserInteraction) {
-        if (isAutoRequest) return;
-        // If the user clicks Play before initial track is loaded, load + autoplay it.
-        if (!trackA?.id) {
-          const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
-          await loadInitialTrack(initialTrack);
-          await play();
-          return;
-        }
-        return togglePlay();
       }
 
       const currentTrack = activeTrack as SoundCloudTrack | null;
