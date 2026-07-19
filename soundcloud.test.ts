@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { allLikes, resolveTrackStreamUrl } from "./soundcloud";
+import { allLikes, resolveTrackStreamUrl, track } from "./soundcloud";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -23,6 +23,19 @@ describe("resolveTrackStreamUrl", () => {
     expect(fetchMock.mock.calls[1][1]).toMatchObject({
       headers: expect.objectContaining({ Range: "bytes=0-0" }),
       redirect: "follow",
+    });
+  });
+});
+
+describe("track", () => {
+  it("uses SoundCloud's supported 500px artwork rendition", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: 42,
+      artwork_url: "https://i1.sndcdn.com/artworks-example-large.jpg",
+    })));
+
+    await expect(track(42, "token")).resolves.toMatchObject({
+      artwork_url: "https://i1.sndcdn.com/artworks-example-t500x500.jpg",
     });
   });
 });
