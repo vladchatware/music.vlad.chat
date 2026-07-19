@@ -359,12 +359,24 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         case "signInAndContinue":
           await signIn("anonymous");
           break;
+        case "loadPlayAndSignIn": {
+          const playbackRequest = (async () => {
+            const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
+            await loadInitialTrack(initialTrack);
+            await play();
+          })();
+          await Promise.all([playbackRequest, signIn("anonymous")]);
+          return;
+        }
         case "loadAndPlay": {
           const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
           await loadInitialTrack(initialTrack);
           await play();
           return;
         }
+        case "togglePlaybackAndSignIn":
+          await Promise.all([togglePlay(), signIn("anonymous")]);
+          return;
         case "togglePlayback":
           return togglePlay();
         case "continue":
