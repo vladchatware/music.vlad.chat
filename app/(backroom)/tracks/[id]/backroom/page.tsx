@@ -5,13 +5,14 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { rankTransitionCandidates, suggestTransitionWindows, type DJPerformancePlan } from "@/lib/dj";
 import { TRACK_ANALYSIS_VERSION, type AnalysisSegment, type TrackAnalysis } from "@/lib/trackAnalysis";
-import { enqueueTrackAnalysis } from "@/lib/server/analysisQueue";
+
 import { track } from "@/soundcloud";
 import ThemeToggle from "../../../ThemeToggle";
 import styles from "../../../backroom.module.css";
 import PlaybackEnergyChart from "./PlaybackEnergyChart";
 import MixSuggestions from "./MixSuggestions";
 import MixCandidatePicker from "./MixCandidatePicker";
+import { AnalysisEnqueue } from "./AnalysisEnqueue";
 
 export const metadata: Metadata = { title: "Track Analysis / Revibe" };
 const ENERGY_ARCS = ["preserve", "build", "release", "reset"] as const;
@@ -88,10 +89,6 @@ export default async function TrackBackroom({
     : null;
   const segments = analysis?.segments ?? [];
   const sections = analysis?.structure.sections ?? [];
-  const scheduled = analysis ? false : await enqueueTrackAnalysis(id, 100).catch(() => false);
-  const incomingScheduled = incomingId && !incomingAnalysis && incomingTrack
-    ? await enqueueTrackAnalysis(incomingId, 100).catch(() => false)
-    : false;
   const suggestions = analysis && incomingAnalysis
     ? suggestTransitionWindows({ outgoing: analysis, incoming: incomingAnalysis, energyArc })
     : [];
@@ -160,7 +157,7 @@ export default async function TrackBackroom({
       </div>
     </section>
 
-    {!analysis ? <section className={styles.emptyState}><b>ANALYSIS NOT READY</b><p>{scheduled ? "Analysis scheduled at high priority. Run worker, then refresh." : "Could not schedule analysis. Check queue configuration, then refresh."}</p></section> : <>
+    {!analysis ? <AnalysisEnqueue trackId={id} scheduled={false} /> : <>
       <section className={styles.metrics}>
         <article><small>TEMPO</small><strong>{number(analysis.tempo.bpm, 1)}</strong><span>BPM · {percent(analysis.tempo.confidence)} confidence</span></article>
         <article><small>TONAL CENTER</small><strong>{analysis.tonal.camelotKey ?? analysis.tonal.key}</strong><span>{analysis.tonal.key} {analysis.tonal.scale} · {percent(analysis.tonal.confidence)}</span></article>
@@ -231,7 +228,7 @@ export default async function TrackBackroom({
           : !incomingTrack && !incomingAnalysis
           ? <div className={styles.mixUnavailable}><b>TRACK NOT FOUND</b><p>Could not load incoming SoundCloud track {incomingId}.</p></div>
           : !incomingAnalysis
-            ? <div className={styles.mixUnavailable}><b>INCOMING ANALYSIS PENDING</b><p>{incomingScheduled ? "Analysis scheduled at high priority. Refresh after worker completes." : "Could not schedule analysis. Check queue configuration, then refresh."}</p></div>
+            ? <div className={styles.mixUnavailable}><b>INCOMING ANALYSIS PENDING</b><p><a href={`/tracks/${incomingId}/backroom`} style={{color: 'inherit'}}>Visit the incoming track's backroom</a> to analyze it.</p></div>
             : <MixSuggestions
                 outgoing={{
                   id,
