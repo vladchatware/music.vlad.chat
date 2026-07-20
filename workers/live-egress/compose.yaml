@@ -1,0 +1,64 @@
+name: music-live-egress
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [media]
+
+  livekit:
+    image: ${LIVEKIT_SERVER_IMAGE:-livekit/livekit-server:v1.13.1}
+    restart: unless-stopped
+    command:
+      - --config
+      - /etc/livekit/livekit.yaml
+      - --node-ip
+      - ${LIVEKIT_NODE_IP:-127.0.0.1}
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit/livekit.yaml:ro
+    ports:
+      - "${LIVEKIT_HTTP_PORT:-7880}:7880"
+      - "${LIVEKIT_RTC_TCP_PORT:-7881}:7881/tcp"
+      - "${LIVEKIT_RTC_UDP_PORT:-7882}:7882/udp"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [media]
+
+  egress:
+    image: ${LIVEKIT_EGRESS_IMAGE:-livekit/egress:v1.12.0}
+    restart: unless-stopped
+    # Required by current LiveKit Egress image even when this project uses
+    # participant egress rather than browser-based room composite egress.
+    cap_add: [SYS_ADMIN]
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress/egress.yaml
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}
+      LIVEKIT_WS_URL: ws://livekit:7880
+    volumes:
+      - ./egress.yaml:/etc/egress/egress.yaml:ro
+    ports:
+      - "127.0.0.1:${EGRESS_HEALTH_PORT:-8081}:8080"
+      - "127.0.0.1:${EGRESS_PROMETHEUS_PORT:-9091}:9090"
+    depends_on:
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    stop_grace_period: 30s
+    networks: [media]
+
+networks:
+  media:
+    driver: bridge

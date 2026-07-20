@@ -4,13 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ANALYSIS_SAMPLE_RATE } from "./config";
 
-export const FFMPEG_DECODE_TIMEOUT_MS = 10 * 60_000;
-export const ffmpegDecodeSpawnOptions = {
-  stdio: ["ignore", "ignore", "pipe"] as ["ignore", "ignore", "pipe"],
-  timeout: FFMPEG_DECODE_TIMEOUT_MS,
-  killSignal: "SIGKILL" as const,
-};
-
 export async function decodeUrlToMonoPcm(audioUrl: string): Promise<Float32Array> {
   const dir = await mkdtemp(join(tmpdir(), "music-vlad-analysis-"));
   const outputPath = join(dir, "audio.f32le");
@@ -33,7 +26,7 @@ export async function decodeUrlToMonoPcm(audioUrl: string): Promise<Float32Array
         "f32le",
         outputPath,
       ],
-      ffmpegDecodeSpawnOptions,
+      { stdio: ["ignore", "ignore", "pipe"] },
     );
     let stderr = "";
     child.stderr.setEncoding("utf8");

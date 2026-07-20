@@ -18,6 +18,7 @@ import {
 } from "@/lib/trackAnalysis";
 
 import { playbackDebug } from "@/lib/playbackDebug";
+import type { AudioBeatSnapshot } from "@/lib/live/dancerMotion";
 import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 import {
   createDJEngineStore,
@@ -89,6 +90,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
 
   const energyHistoryRef = useRef<number[]>([]);
   const audioEnergyRef = useRef(0);
+  const audioBeatRef = useRef<AudioBeatSnapshot>({ phase: 0, strength: 0, tracked: false });
   const {
     diagnosticsRef,
     pendingTransitionMetricRef,
@@ -199,6 +201,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     bpmDetectorRef,
     energyHistoryRef,
     audioEnergyRef,
+    audioBeatRef,
     revibeTriggeredRef,
     transitionPlanRef,
     effectiveCrossfadeDurationSecRef,
@@ -313,7 +316,9 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     activeDeck,
     analyzerRef,
     bpmDetectorRef,
+    broadcastAudioStreamRef: audioGraph.broadcastAudioStreamRef,
     audioEnergyRef,
+    audioBeatRef,
 
     play,
     pause,

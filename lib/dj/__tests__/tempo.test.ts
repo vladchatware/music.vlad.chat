@@ -144,6 +144,19 @@ describe('getBeatAtTime', () => {
     expect(getBeatAtTime(grid, 2.0).index).toBe(4);
   });
 
+  it('continues beat phase after the final explicit marker', () => {
+    const finiteGrid = {
+      bpm: 120,
+      beatsPerBar: 4,
+      firstDownbeat: 0,
+      confidence: 1,
+      beats: [0, 0.5, 1],
+    };
+
+    expect(getBeatAtTime(finiteGrid, 1.25)).toMatchObject({ index: 2, phase: 0.5 });
+    expect(getBeatAtTime(finiteGrid, 1.5)).toMatchObject({ index: 3, phase: 0 });
+  });
+
   it('returns correct beat phase', () => {
     expect(getBeatAtTime(grid, 0).phase).toBe(0);
     expect(getBeatAtTime(grid, 0.25).phase).toBeCloseTo(0.5, 2);

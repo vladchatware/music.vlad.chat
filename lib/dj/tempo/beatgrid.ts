@@ -135,8 +135,31 @@ export function getBeatAtTime(grid: BeatGrid, timeSec: AudioTimeSec): {
 } {
   // If we have explicit beat markers, use binary search
   if (grid.beats && grid.beats.length > 0) {
+    const firstBeatTime = grid.beats[0];
+    const lastBeatIndex = grid.beats.length - 1;
+    const lastBeatTime = grid.beats[lastBeatIndex];
+    const beatDuration = getBeatDuration(grid);
+
+    if (timeSec < firstBeatTime) {
+      const position = (timeSec - firstBeatTime) / beatDuration;
+      const wholeBeats = Math.floor(position);
+      return {
+        index: wholeBeats,
+        phase: position - wholeBeats,
+      };
+    }
+
+    if (timeSec >= lastBeatTime) {
+      const position = (timeSec - lastBeatTime) / beatDuration;
+      const wholeBeats = Math.floor(position);
+      return {
+        index: lastBeatIndex + wholeBeats,
+        phase: position - wholeBeats,
+      };
+    }
+
     let low = 0;
-    let high = grid.beats.length - 1;
+    let high = lastBeatIndex;
     
     while (low < high) {
       const mid = Math.floor((low + high + 1) / 2);
@@ -148,7 +171,7 @@ export function getBeatAtTime(grid: BeatGrid, timeSec: AudioTimeSec): {
     }
     
     const beatTime = grid.beats[low];
-    const nextBeatTime = grid.beats[low + 1] ?? beatTime + getBeatDuration(grid);
+    const nextBeatTime = grid.beats[low + 1];
     const phase = (timeSec - beatTime) / (nextBeatTime - beatTime);
     
     return {

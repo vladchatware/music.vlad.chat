@@ -25,6 +25,7 @@ export function useDeckAudioGraph(
   const eqControllerARef = useRef<EQController | null>(null);
   const eqControllerBRef = useRef<EQController | null>(null);
   const masterMixRef = useRef<GainNode | null>(null);
+  const broadcastAudioStreamRef = useRef<MediaStream | null>(null);
   const deckStatusRef = useRef<Record<DeckId, DeckStatus>>({
     A: { canPlay: false, metadataLoaded: false, isPlaying: false, lastError: null },
     B: { canPlay: false, metadataLoaded: false, isPlaying: false, lastError: null },
@@ -144,6 +145,7 @@ export function useDeckAudioGraph(
       const eqA = new EQController(context);
       const eqB = new EQController(context);
       const masterMix = context.createGain();
+      const broadcastDestination = context.createMediaStreamDestination();
       masterMix.gain.value = 1;
 
       eqA.connectSource(sourceA);
@@ -151,10 +153,12 @@ export function useDeckAudioGraph(
       eqA.connectDestination(masterMix);
       eqB.connectDestination(masterMix);
       masterMix.connect(context.destination);
+      masterMix.connect(broadcastDestination);
 
       eqControllerARef.current = eqA;
       eqControllerBRef.current = eqB;
       masterMixRef.current = masterMix;
+      broadcastAudioStreamRef.current = broadcastDestination.stream;
       analyzerARef.current = new FFTAnalyzer(sourceA, context, 0);
       analyzerBRef.current = new FFTAnalyzer(sourceB, context, 0);
       analyzerRef.current = new FFTAnalyzer(masterMix, context, 0);
@@ -186,6 +190,7 @@ export function useDeckAudioGraph(
       eqControllerARef.current = null;
       eqControllerBRef.current = null;
       masterMixRef.current = null;
+      broadcastAudioStreamRef.current = null;
       bpmDetectorRef.current = null;
       audioContextRef.current = null;
     };
@@ -202,6 +207,7 @@ export function useDeckAudioGraph(
     eqControllerARef,
     eqControllerBRef,
     masterMixRef,
+    broadcastAudioStreamRef,
     activeDeckRef,
     deckStatusRef,
     getDeckElement,

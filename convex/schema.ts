@@ -45,6 +45,40 @@ export default defineSchema({
   })
     .index("by_stripe_event", ["stripeEventId"])
     .index("by_checkout_session", ["checkoutSessionId"]),
+  liveSessions: defineTable({
+    sessionKey: v.string(),
+    ownerId: v.id("users"),
+    instagramAccountId: v.optional(v.string()),
+    platformStatus: v.union(
+      v.literal("waiting"),
+      v.literal("live"),
+      v.literal("ended"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_session_key", ["sessionKey"])
+    .index("by_instagram_account_updated", ["instagramAccountId", "updatedAt"])
+    .index("by_owner_updated", ["ownerId", "updatedAt"]),
+  liveParticipants: defineTable({
+    sessionId: v.id("liveSessions"),
+    instagramUserId: v.optional(v.string()),
+    username: v.string(),
+    lastComment: v.string(),
+    commentCount: v.number(),
+    joinedAt: v.number(),
+    lastCommentAt: v.number(),
+  })
+    .index("by_session_user", ["sessionId", "instagramUserId"])
+    .index("by_session_username", ["sessionId", "username"])
+    .index("by_session_activity", ["sessionId", "lastCommentAt"]),
+  liveCommentEvents: defineTable({
+    sessionId: v.id("liveSessions"),
+    commentId: v.string(),
+    receivedAt: v.number(),
+  })
+    .index("by_comment_id", ["commentId"])
+    .index("by_session_received", ["sessionId", "receivedAt"]),
   trackAnalysisJobs: defineTable({
     cacheKey: v.string(),
     source: v.literal("soundcloud"),
@@ -72,8 +106,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_cacheKey", ["cacheKey"])
-    .index("by_status_priority_createdAt", ["status", "priority", "createdAt"])
-    .index("by_status_nextAttemptAt", ["status", "nextAttemptAt"]),
+    .index("by_status_priority_createdAt", ["status", "priority", "createdAt"]),
   trackAnalyses: defineTable({
     cacheKey: v.string(),
     result: trackAnalysisResultValidator,
