@@ -3,6 +3,16 @@ import { Float, MeshTransmissionMaterial, useFBO, useGLTF } from '@react-three/d
 import { useFrame } from '@react-three/fiber'
 import { useRef } from 'react'
 
+const clownPalette = {
+  nose: '#ff1744',
+  cheek: '#ff6f91',
+  hat: '#f9d423',
+  hatBand: '#ff4e50',
+  bowTie: '#00c2ff',
+  pomPom: '#ffffff',
+  shoe: '#ff1744',
+}
+
 function LiquidGlassMaterial({ buffer }: { buffer: THREE.Texture }) {
   return (
     <MeshTransmissionMaterial
@@ -43,11 +53,21 @@ export function Floating({
   const thumbsup = thumbsupNodes.Thumbsup as THREE.Mesh
   const comment = commentNodes.Comment as THREE.Mesh
   const glassGroup = useRef<THREE.Group>(null)
+  const clownGroup = useRef<THREE.Group>(null)
   const transmissionBuffer = useFBO(512, 512)
 
-  useFrame(({ gl, scene, camera }) => {
+  useFrame(({ gl, scene, camera, clock }) => {
     const group = glassGroup.current
     if (!group) return
+
+    const clown = clownGroup.current
+    if (clown) {
+      const energy = audioEnergyRef?.current ?? 0
+      const bounce = Math.sin(clock.elapsedTime * 8) * (0.08 + energy * 0.18)
+      clown.position.y = bounce
+      clown.rotation.z = Math.sin(clock.elapsedTime * 5) * (0.12 + energy * 0.18)
+      clown.scale.setScalar(1 + energy * 0.08)
+    }
 
     const previousTarget = gl.getRenderTarget()
     const previousToneMapping = gl.toneMapping
@@ -64,6 +84,62 @@ export function Floating({
 
   return (
     <group ref={glassGroup} {...props} dispose={null}>
+      <Float speed={2.8} rotationIntensity={0.55} floatIntensity={0.75}>
+        <group ref={clownGroup} position={[0, 0.25, -1.15]} scale={0.9}>
+          <mesh position={[0, 0.2, 0]} scale={[0.95, 0.95, 0.32]}>
+            <sphereGeometry args={[1, 32, 32]} />
+            <LiquidGlassMaterial buffer={transmissionBuffer.texture} />
+          </mesh>
+          <mesh position={[0, 0.22, 0.34]}>
+            <sphereGeometry args={[0.23, 24, 24]} />
+            <meshStandardMaterial color={clownPalette.nose} emissive={clownPalette.nose} emissiveIntensity={0.45} roughness={0.35} />
+          </mesh>
+          <mesh position={[-0.43, 0.2, 0.35]} scale={[1, 0.72, 0.4]}>
+            <sphereGeometry args={[0.18, 18, 18]} />
+            <meshStandardMaterial color={clownPalette.cheek} emissive={clownPalette.cheek} emissiveIntensity={0.25} transparent opacity={0.8} />
+          </mesh>
+          <mesh position={[0.43, 0.2, 0.35]} scale={[1, 0.72, 0.4]}>
+            <sphereGeometry args={[0.18, 18, 18]} />
+            <meshStandardMaterial color={clownPalette.cheek} emissive={clownPalette.cheek} emissiveIntensity={0.25} transparent opacity={0.8} />
+          </mesh>
+          <mesh position={[-0.28, 0.53, 0.36]}>
+            <sphereGeometry args={[0.07, 16, 16]} />
+            <meshStandardMaterial color="black" roughness={0.2} />
+          </mesh>
+          <mesh position={[0.28, 0.53, 0.36]}>
+            <sphereGeometry args={[0.07, 16, 16]} />
+            <meshStandardMaterial color="black" roughness={0.2} />
+          </mesh>
+          <mesh position={[0, 1.05, 0]} rotation={[0, 0, -0.12]}>
+            <coneGeometry args={[0.42, 0.95, 32]} />
+            <meshStandardMaterial color={clownPalette.hat} emissive={clownPalette.hat} emissiveIntensity={0.2} roughness={0.45} />
+          </mesh>
+          <mesh position={[0, 0.68, 0]} rotation={[Math.PI / 2, 0, -0.12]}>
+            <torusGeometry args={[0.42, 0.055, 12, 32]} />
+            <meshStandardMaterial color={clownPalette.hatBand} emissive={clownPalette.hatBand} emissiveIntensity={0.35} />
+          </mesh>
+          <mesh position={[0.08, 1.54, 0]}>
+            <sphereGeometry args={[0.13, 16, 16]} />
+            <meshStandardMaterial color={clownPalette.pomPom} emissive={clownPalette.pomPom} emissiveIntensity={0.5} />
+          </mesh>
+          <mesh position={[-0.22, -0.85, 0.15]} rotation={[0, 0, 0.75]} scale={[1.25, 0.8, 0.35]}>
+            <sphereGeometry args={[0.25, 16, 16]} />
+            <meshStandardMaterial color={clownPalette.bowTie} emissive={clownPalette.bowTie} emissiveIntensity={0.35} />
+          </mesh>
+          <mesh position={[0.22, -0.85, 0.15]} rotation={[0, 0, -0.75]} scale={[1.25, 0.8, 0.35]}>
+            <sphereGeometry args={[0.25, 16, 16]} />
+            <meshStandardMaterial color={clownPalette.bowTie} emissive={clownPalette.bowTie} emissiveIntensity={0.35} />
+          </mesh>
+          <mesh position={[-0.52, -1.05, 0.05]} rotation={[0, 0, -0.2]} scale={[1.55, 0.65, 0.45]}>
+            <sphereGeometry args={[0.22, 16, 16]} />
+            <meshStandardMaterial color={clownPalette.shoe} emissive={clownPalette.shoe} emissiveIntensity={0.35} />
+          </mesh>
+          <mesh position={[0.52, -1.05, 0.05]} rotation={[0, 0, 0.2]} scale={[1.55, 0.65, 0.45]}>
+            <sphereGeometry args={[0.22, 16, 16]} />
+            <meshStandardMaterial color={clownPalette.shoe} emissive={clownPalette.shoe} emissiveIntensity={0.35} />
+          </mesh>
+        </group>
+      </Float>
       <Float>
         <mesh
           geometry={hashtag.geometry}
