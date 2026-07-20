@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    maxWorkers: 4,
     include: ['**/*.test.ts', '**/*.spec.ts'],
     exclude: ['node_modules', '.next', 'convex/_generated'],
     coverage: {

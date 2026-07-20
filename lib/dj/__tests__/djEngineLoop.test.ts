@@ -42,7 +42,7 @@ function createMockAnalysis(): AnalysisSnapshot {
   return {
     bpm: 120,
     bpmSource: 'detected',
-    section: 'playing',
+    section: 'unknown',
     overallEnergy: 0.5,
     bassEnergy: 0.4,
     stillDurationMs: 0,
@@ -53,7 +53,7 @@ function createMockAnalysis(): AnalysisSnapshot {
 }
 
 function dispatch(state: DJState, event: DJEvent): DJState {
-  return djReducer(state, event).state;
+  return djReducer(state, event);
 }
 
 // =============================================================================
@@ -213,8 +213,10 @@ describe('DJ Engine Loop Continuity', () => {
       }
 
       // Second transition: B -> A (with a new track)
-      const newDeckA = createMockDeckSnapshot('A', 118);
-      newDeckA.track = { id: 3, title: 'New Track A', bpm: 118 };
+      const newDeckA: DeckSnapshot = {
+        ...createMockDeckSnapshot('A', 118),
+        track: { id: 3, title: 'New Track A', bpm: 118 },
+      };
       state = dispatch(state, { type: 'CUE_READY', deck: newDeckA });
       
       if (state.type === 'cueing') {
@@ -290,8 +292,10 @@ describe('DJ Engine Loop Continuity', () => {
 
       // Update analysis multiple times
       for (let i = 0; i < 10; i++) {
-        const analysis = createMockAnalysis();
-        analysis.overallEnergy = i / 10;
+        const analysis: AnalysisSnapshot = {
+          ...createMockAnalysis(),
+          overallEnergy: i / 10,
+        };
         state = dispatch(state, { type: 'ANALYSIS_UPDATE', analysis });
         
         expect(state.type).toBe('playing');
@@ -309,8 +313,7 @@ describe('DJ Engine Loop Continuity', () => {
       state = dispatch(state, { type: 'TRACK_LOADED', deck: createMockDeckSnapshot('A') });
       state = dispatch(state, { type: 'PLAY' });
       
-      const analysis = createMockAnalysis();
-      analysis.bpm = 128;
+      const analysis: AnalysisSnapshot = { ...createMockAnalysis(), bpm: 128 };
       state = dispatch(state, { type: 'ANALYSIS_UPDATE', analysis });
 
       // Start cueing - analysis should be preserved
@@ -323,15 +326,15 @@ describe('DJ Engine Loop Continuity', () => {
 
   describe('Transition Timing', () => {
     it('isGoodTransitionMoment should return true at planned start boundary', () => {
+      const basePlan = createTransitionPlan({
+        outgoingDeck: createMockDeckSnapshot('A'),
+        incomingDeck: createMockDeckSnapshot('B'),
+        currentTimeSec: 30,
+        analysis: createMockAnalysis(),
+      });
       const plan = {
-        startBoundary: { beatIndex: 0, timeSec: 60 },
-        crossfadeDurationSec: 32,
-        crossfadeBars: 8,
-        tempoAdjustment: { targetPlaybackRate: 1, feasible: true, percentChange: 0 },
-        phaseOffset: { offsetMs: 0, alignedToBar: true },
-        harmonicCompatibility: { compatibility: 1, relationship: 'same' as const, suggestedPitchShift: 0 },
-        energyScore: { energyMatch: 1, momentumMatch: 1, contrastScore: 0.5 },
-        eqCurve: { duration: 32, outgoing: [], incoming: [] },
+        ...basePlan,
+        startBoundary: { ...basePlan.startBoundary, timeSec: 60 },
       };
 
       // Exactly at transition time

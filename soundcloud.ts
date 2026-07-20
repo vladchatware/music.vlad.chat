@@ -1,5 +1,9 @@
 import { playbackDebugServer as playbackDebug } from "./lib/playbackDebugServer"
-const { CLIENT_ID, CLIENT_SECRET } = process.env;
+const CLIENT_ID = process.env.CLIENT_ID ?? process.env.SOUNDCLOUD_CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET ?? process.env.SOUNDCLOUD_CLIENT_SECRET;
+const SEEDED_ACCESS_TOKEN = process.env.SOUNDCLOUD_ACCESS_TOKEN;
+const SEEDED_REFRESH_TOKEN = process.env.SOUNDCLOUD_REFRESH_TOKEN;
+const SEEDED_EXPIRES_AT = Number(process.env.SOUNDCLOUD_ACCESS_TOKEN_EXPIRES_AT);
 
 
 
@@ -7,7 +11,39 @@ const credentials: {
   access_token?: string,
   refresh_token?: string,
   expires_at?: number
-} = {}
+} = {
+  access_token: SEEDED_ACCESS_TOKEN,
+  refresh_token: SEEDED_REFRESH_TOKEN,
+  expires_at: Number.isFinite(SEEDED_EXPIRES_AT) ? SEEDED_EXPIRES_AT : undefined,
+}
+
+let accessTokenRequest: Promise<string> | undefined
+let authRetryAt = 0
+let authRetryError: SoundCloudAuthError | undefined
+
+export class SoundCloudAuthError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message)
+    this.name = 'SoundCloudAuthError'
+  }
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get('retry-after')
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const date = Date.parse(value)
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined
+}
+
+function authRetryAfterMs(response: Response): number | undefined {
+  return retryAfterMs(response) ?? (response.status === 429 ? 60_000 : undefined)
+}
 
 const buildQueryString = (query: Record<string, string | undefined>) => {
   const params = new URLSearchParams()
@@ -140,23 +176,29 @@ export type Playlist = {
   tracks: Track[],
 }
 
-const readAccessToken = async () => {
-  try {
-    if (!credentials.access_token) return getAccessToken()
-
-    if (credentials.access_token && Date.now() < credentials.expires_at) {
-      return credentials.access_token
-    }
-
-    if (credentials.refresh_token && Date.now() > credentials.expires_at) {
-      console.log('token expired, refreshing')
-      return refreshToken(credentials.refresh_token)
-    }
-
-  } catch (e) {
-    console.log('error', e)
-    return null
+export const readAccessToken = async () => {
+  if (credentials.access_token && Date.now() < (credentials.expires_at ?? 0)) {
+    return credentials.access_token
   }
+
+  if (authRetryError && Date.now() < authRetryAt) throw authRetryError
+  if (accessTokenRequest) return accessTokenRequest
+
+  const refreshTokenValue = credentials.refresh_token
+  credentials.access_token = undefined
+  accessTokenRequest = (refreshTokenValue
+    ? refreshToken(refreshTokenValue)
+    : getAccessToken()
+  ).catch((error) => {
+    if (error instanceof SoundCloudAuthError && error.status === 429) {
+      authRetryError = error
+      authRetryAt = Date.now() + (error.retryAfterMs ?? 60_000)
+    }
+    throw error
+  }).finally(() => {
+    accessTokenRequest = undefined
+  })
+  return accessTokenRequest
 }
 
 export const getAccessToken = async () => {
@@ -177,10 +219,12 @@ export const getAccessToken = async () => {
   })
 
   if (!response.ok) {
-    console.log(response.statusText)
-    const error = await response.json()
-    console.log(error)
-    throw new Error(`Authentication failed with status: ${response.status}`);
+    await response.body?.cancel()
+    throw new SoundCloudAuthError(
+      `Authentication failed with status: ${response.status}`,
+      response.status,
+      authRetryAfterMs(response),
+    );
   }
 
   const data = await response.json();
@@ -203,7 +247,12 @@ export const refreshToken = async (refresh_token) => {
   })
 
   if (!response.ok) {
-    throw new Error(`Authentication failed with status: ${response.status}`);
+    await response.body?.cancel()
+    throw new SoundCloudAuthError(
+      `Authentication failed with status: ${response.status}`,
+      response.status,
+      authRetryAfterMs(response),
+    );
   }
   const data = await response.json();
 
@@ -268,18 +317,41 @@ export const track = async (id: string | number, userToken?: string) => {
   }
 
   const track = await res.json()
-  track.artwork_url = track.artwork_url?.replace('large', 'original')
+  track.artwork_url = track.artwork_url?.replace('-large.', '-t500x500.')
   return track
+}
+
+export const setTrackLiked = async (
+  id: string | number,
+  liked: boolean,
+  userToken: string,
+) => {
+  const res = await fetch(
+    `https://api.soundcloud.com/likes/tracks/soundcloud:tracks:${id}`,
+    {
+      method: liked ? 'POST' : 'DELETE',
+      headers: { Authorization: `Bearer ${userToken}` },
+    },
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    const error = new Error(`SoundCloud API error ${res.status}: ${body}`)
+    ;(error as any).status = res.status
+    throw error
+  }
+  await res.body?.cancel()
 }
 
 export const resolveTrackStreamUrl = async (
   id: string | number,
   userToken?: string,
+  timeoutMs = 8_000,
 ): Promise<string> => {
   const access_token = userToken ?? await readAccessToken()
   if (!access_token) throw new Error('No access token available')
   const res = await fetch(`https://api.soundcloud.com/tracks/soundcloud:tracks:${id}/streams`, {
     headers: { Authorization: `Bearer ${access_token}` },
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) {
     const body = await res.text()
@@ -290,10 +362,16 @@ export const resolveTrackStreamUrl = async (
   const body = await res.json() as { http_mp3_128_url?: string }
   if (!body.http_mp3_128_url) throw new Error('No full stream URL in response')
   const cdn = await fetch(body.http_mp3_128_url, {
-    headers: { Authorization: `Bearer ${access_token}` },
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+      Range: 'bytes=0-0',
+    },
     redirect: 'follow',
+    signal: AbortSignal.timeout(timeoutMs),
   })
-  return cdn.url
+  const resolvedUrl = cdn.url
+  await cdn.body?.cancel()
+  return resolvedUrl
 }
 
 export const tracks = async (query: {
@@ -376,4 +454,34 @@ export const likes = async (userId: string, query?: {
   }
 
   return res.json() as Promise<Track[]>
+}
+
+export async function allLikes(userId: string, userToken?: string): Promise<Track[]> {
+  const accessToken = userToken ?? await readAccessToken();
+  let nextUrl: string | null = `https://api.soundcloud.com/users/${encodeURIComponent(userId)}/likes/tracks?linked_partitioning=true&limit=200`;
+  const tracks: Track[] = [];
+  const visited = new Set<string>();
+
+  while (nextUrl) {
+    if (visited.has(nextUrl)) throw new Error("SoundCloud likes pagination loop detected");
+    visited.add(nextUrl);
+    const url = new URL(nextUrl);
+    if (url.origin !== "https://api.soundcloud.com") {
+      throw new Error("SoundCloud likes pagination returned an unsafe URL");
+    }
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`SoundCloud likes failed (${response.status})`);
+    const page = await response.json() as Track[] | { collection?: Track[]; next_href?: string | null };
+    if (Array.isArray(page)) {
+      tracks.push(...page);
+      break;
+    }
+    tracks.push(...(page.collection ?? []));
+    nextUrl = page.next_href ?? null;
+  }
+
+  return tracks;
 }

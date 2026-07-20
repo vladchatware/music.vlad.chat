@@ -1,4 +1,5 @@
 node_modules
+.DS_Store
 .env
 public/gemma2-2b-it-gpu-int8.bin
 soundcloud.json
@@ -11,3 +12,5 @@ soundcloud.json
 .vercel
 
 coverage/
+logs/*.ndjson
+workers/track-analysis/models/

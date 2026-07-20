@@ -24,3 +24,10 @@ export * from './eq';
 
 // Engine (state machine + planner)
 export * from './engine';
+
+// Declarative agent performance plans
+export * from './performance';
+
+// Analyzed segment pairing
+export * from './segments/scoring';
+export * from './segments/suggestions';

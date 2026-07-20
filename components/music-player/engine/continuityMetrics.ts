@@ -1,10 +1,10 @@
 export const MIN_AUTO_CUE_PLAY_SEC = 90;
 export const MIN_AUTO_CUE_PROGRESS = 0.7;
-export const MIN_AUTO_CUE_REMAINING_SEC = 25;
+export const MIN_AUTO_CUE_REMAINING_SEC = 75;
 export const SHORT_TRACK_CLASSIFIER_SEC = 70;
-export const SHORT_TRACK_MIN_HOLD_SEC = 16;
-export const SHORT_TRACK_MIN_PROGRESS = 0.5;
-export const SHORT_TRACK_MIN_REMAINING_SEC = 6;
+export const SHORT_TRACK_MIN_HOLD_SEC = 4;
+export const SHORT_TRACK_MIN_PROGRESS = 0.1;
+export const SHORT_TRACK_MIN_REMAINING_SEC = 45;
 export const DEFAULT_ABRUPT_MISMATCH_THRESHOLD = 0.35;
 export const PLANNED_TRANSITION_TIMEOUT_MS = 12000;
 export const MAX_PLANNED_REPLANS = 2;
@@ -31,6 +31,7 @@ export function computeCrossfadeProgressByClock(opts: {
 
 export function shouldTriggerAutoCue(opts: {
   currentTimeSec: number;
+  listenedSec?: number;
   durationSec?: number;
   progress01: number;
   alreadyTriggered: boolean;
@@ -58,30 +59,24 @@ export function shouldTriggerAutoCue(opts: {
       ? (opts.durationSec as number)
       : null;
   const remainingSec = durationSec !== null ? durationSec - opts.currentTimeSec : null;
-
-  const isHighEnergy = opts.section === "culmination";
+  const listenedSec = Math.max(0, opts.listenedSec ?? opts.currentTimeSec);
 
   // Short effective streams (e.g. 30s previews) should breathe longer before queueing.
   // Keep this classifier independent of long-track hold constants to avoid accidental early cueing.
   if (durationSec !== null && durationSec <= SHORT_TRACK_CLASSIFIER_SEC) {
     return (
-      opts.currentTimeSec >= shortTrackMinHoldSec &&
+      listenedSec >= shortTrackMinHoldSec &&
       opts.progress01 >= shortTrackMinProgress &&
       remainingSec !== null &&
       remainingSec <= shortTrackMinRemainingSec
     );
   }
 
-  const byHoldAndProgress = opts.currentTimeSec >= minPlaySec && opts.progress01 >= minProgress;
-  if (byHoldAndProgress) {
-    if (!isHighEnergy) return true;
-  }
+  const byHoldAndProgress = listenedSec >= minPlaySec && opts.progress01 >= minProgress;
+  if (byHoldAndProgress) return true;
 
   if (remainingSec !== null) {
-    if (remainingSec <= minRemainingSec) {
-      if (isHighEnergy && remainingSec > 8) return false;
-      return true;
-    }
+    if (listenedSec >= Math.min(30, minPlaySec) && remainingSec <= minRemainingSec) return true;
   }
 
   return false;
@@ -201,4 +196,13 @@ export function evaluatePlannedTimeout(opts: {
   if (opts.plannedAtMs === null) return "none";
   if (opts.nowMs - opts.plannedAtMs <= timeoutMs) return "none";
   return opts.replanCount < maxReplans ? "replan" : "abort";
+}
+
+export function shouldEvaluatePlannedTimeout(opts: {
+  currentTimeSec: number;
+  plannedStartSec: number;
+  toleranceSec?: number;
+}): boolean {
+  const toleranceSec = opts.toleranceSec ?? 0.25;
+  return opts.currentTimeSec > opts.plannedStartSec + toleranceSec;
 }

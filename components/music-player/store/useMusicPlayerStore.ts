@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import * as THREE from "three";
 
-import { engineReducer, initialEngineState, type EngineAction } from "../engine/stateMachine";
 import type { SoundCloudTrack } from "../types";
 
 export type TrackSection = "unknown" | "intro" | "comeup" | "culmination" | "breakdown";
@@ -9,10 +8,6 @@ export type BpmSource = "metadata" | "detector" | "fallback";
 export type TransitionState = "none" | "planned" | "crossfading";
 
 export type MusicPlayerStore = {
-  // Engine UI state
-  phase: typeof initialEngineState.phase;
-  loading: boolean;
-
   // Internal singleton lifecycle tracking (to avoid StrictMode double-invoke resets).
   _mountCount: number;
   _resetTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -32,9 +27,6 @@ export type MusicPlayerStore = {
     bassEnergy: number;
     stillDurationMs: number;
     dropDetected: boolean;
-    transitionSignal: boolean;
-    transitionSignalReason: "drop" | "highEnergy" | "still" | "trackEndedWhileCueing" | "none";
-    lastTransitionSignalAtMs: number | null;
   };
 
   // Playback snapshot for visualization + planning
@@ -57,7 +49,6 @@ export type MusicPlayerStore = {
   palette: THREE.Color[];
 
   actions: {
-    dispatchEngine: (action: EngineAction) => void;
     setTrackA: (track: SoundCloudTrack | null) => void;
     setTrackB: (track: SoundCloudTrack | null) => void;
     setActiveTrack: (track: SoundCloudTrack | null) => void;
@@ -92,8 +83,6 @@ function normalizePalette(colors: THREE.Color[]): THREE.Color[] {
 }
 
 export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
-  ...initialEngineState,
-
   _mountCount: 0,
   _resetTimeoutId: null,
 
@@ -110,9 +99,6 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
     bassEnergy: 0,
     stillDurationMs: 0,
     dropDetected: false,
-    transitionSignal: false,
-    transitionSignalReason: "none",
-    lastTransitionSignalAtMs: null,
   },
 
   playback: {
@@ -132,12 +118,6 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
   palette: createDefaultPalette(),
 
   actions: {
-    dispatchEngine: (action) =>
-      set((state) => {
-        const nextEngine = engineReducer({ phase: state.phase, loading: state.loading }, action);
-        return nextEngine;
-      }),
-
     setTrackA: (track) => set({ trackA: track }),
     setTrackB: (track) => set({ trackB: track }),
     setActiveTrack: (track) => set({ activeTrack: track }),
@@ -201,7 +181,6 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
       set((state) => {
         if (state._resetTimeoutId) clearTimeout(state._resetTimeoutId);
         return {
-          ...initialEngineState,
           _mountCount: 0,
           _resetTimeoutId: null,
           trackA: null,
@@ -217,9 +196,6 @@ export const useMusicPlayerStore = create<MusicPlayerStore>()((set, get) => ({
             bassEnergy: 0,
             stillDurationMs: 0,
             dropDetected: false,
-            transitionSignal: false,
-            transitionSignalReason: "none",
-            lastTransitionSignalAtMs: null,
           },
           playback: {
             currentTimeSec: 0,

@@ -1,0 +1,67 @@
+.chartArea {
+  position: relative;
+}
+
+.energySvg {
+  display: block;
+}
+
+.segmentTimeline {
+  position: relative;
+  height: 44px;
+  margin-top: -16px;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--section) 72%, transparent);
+}
+
+.segmentRailLabel {
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  right: 6px;
+  color: var(--muted);
+  font: 7px "Courier New", monospace;
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+
+.segmentBlock {
+  position: absolute;
+  inset-block: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 7px 5px;
+  color: var(--muted);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+  font-family: "Courier New", monospace;
+}
+
+.segmentBlock b,
+.segmentBlock small {
+  display: block;
+  white-space: nowrap;
+}
+
+.segmentBlock b {
+  color: var(--ink);
+  font-size: 8px;
+}
+
+.segmentBlock small {
+  margin-top: 4px;
+  font-size: 6px;
+  text-transform: uppercase;
+}
+
+.segmentBlock[data-active="true"] {
+  z-index: 1;
+  border-color: var(--acid);
+  background: color-mix(in srgb, var(--acid) 25%, var(--section));
+}
+
+[data-deck="incoming"] .segmentBlock[data-active="true"] {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 25%, var(--section));
+}

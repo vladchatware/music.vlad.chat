@@ -21,6 +21,7 @@ vi.mock("../../../../../convex/_generated/api", () => ({
 }));
 
 import { GET } from "./route";
+import { resolveStreamWithTimeout } from "./streamResolver";
 import { resolveTrackStreamUrl } from "../../../../../soundcloud";
 import { fetchQuery } from "convex/nextjs";
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
@@ -78,6 +79,14 @@ describe("GET /api/tracks/[id]/stream", () => {
     expect(res.status).toBe(502);
     await expect(res.json()).resolves.toEqual({
       error: "Failed to resolve track stream URL",
+    });
+  });
+
+  it("bounds the complete auth and stream resolution chain", async () => {
+    vi.mocked(resolveTrackStreamUrl).mockImplementation(() => new Promise(() => {}));
+
+    await expect(resolveStreamWithTimeout("999", undefined, 10)).rejects.toMatchObject({
+      name: "TimeoutError",
     });
   });
 });

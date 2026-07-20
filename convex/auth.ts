@@ -2,6 +2,7 @@ import { convexAuth } from "@convex-dev/auth/server";
 import type { AuthProviderConfig } from "@convex-dev/auth/server";
 import { Anonymous } from "@convex-dev/auth/providers/Anonymous"
 import { MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 const Soundcloud: AuthProviderConfig = (options) => {
   return {
@@ -44,12 +45,21 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     Soundcloud,
   ],
   callbacks: {
-    async afterUserCreatedOrUpdated(ctx: MutationCtx, { userId }) {
-      await ctx.db.patch(userId, {
-        trialMessages: 10,
-        trialTokens: 16000000,
-        tokens: 0
+    async afterUserCreatedOrUpdated(ctx: MutationCtx, { userId, existingUserId, provider, type }) {
+      const user = await ctx.db.get("users", userId)
+      await ctx.db.patch("users", userId, {
+        trialMessages: user?.trialMessages ?? 10,
+        trialTokens: user?.trialTokens ?? 16000000,
+        tokens: user?.tokens ?? 0,
       })
+      if (existingUserId === null) {
+        await ctx.scheduler.runAfter(0, internal.telemetry.recordBusinessEvent, {
+          event: "auth.user_created",
+          userId: String(userId),
+          provider: provider.id,
+          authType: type,
+        })
+      }
     }
   }
 });

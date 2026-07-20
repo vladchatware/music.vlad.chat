@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values"
 import { authTables } from "@convex-dev/auth/server";
+import { trackAnalysisResultValidator } from "./trackAnalysisValidators";
 
 export default defineSchema({
   ...authTables,
@@ -32,5 +33,57 @@ export default defineSchema({
       reasoningTokens: v.optional(v.number()),
       cachedInputTokens: v.optional(v.number()),
     })
+  }),
+  payments: defineTable({
+    stripeEventId: v.string(),
+    checkoutSessionId: v.string(),
+    userId: v.id("users"),
+    amountTotal: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    tokens: v.number(),
+    createdAt: v.number(),
   })
+    .index("by_stripe_event", ["stripeEventId"])
+    .index("by_checkout_session", ["checkoutSessionId"]),
+  trackAnalysisJobs: defineTable({
+    cacheKey: v.string(),
+    source: v.literal("soundcloud"),
+    sourceTrackId: v.string(),
+    analysisVersion: v.string(),
+    requestedBy: v.optional(v.id("users")),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("processing"),
+      v.literal("failed"),
+      v.literal("dead"),
+    ),
+    priority: v.number(),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    sentryTrace: v.optional(v.string()),
+    sentryBaggage: v.optional(v.string()),
+    messageId: v.optional(v.string()),
+    messageBodySize: v.optional(v.number()),
+    sentAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_cacheKey", ["cacheKey"])
+    .index("by_status_priority_createdAt", ["status", "priority", "createdAt"])
+    .index("by_status_nextAttemptAt", ["status", "nextAttemptAt"]),
+  trackAnalyses: defineTable({
+    cacheKey: v.string(),
+    result: trackAnalysisResultValidator,
+    createdAt: v.number(),
+  })
+    .index("by_cacheKey", ["cacheKey"])
+    .index("by_analysis_version_createdAt", ["result.analysisVersion", "createdAt"])
+    .index("by_source_track_version", [
+      "result.source",
+      "result.sourceTrackId",
+      "result.analysisVersion",
+    ]),
 });

@@ -1,4 +1,4 @@
-import { appendPlaybackLogs, type PlaybackLogEntry } from "./playbackLogStore";
+import * as Sentry from "@sentry/nextjs";
 
 type DebugPayload = Record<string, unknown> | undefined;
 
@@ -16,19 +16,23 @@ export const isServerPlaybackDebugEnabled = () => {
 };
 
 export const playbackDebugServer = (event: string, payload?: DebugPayload) => {
-  if (!isServerPlaybackDebugEnabled()) return;
-
-  const entry: PlaybackLogEntry = {
-    ts: new Date().toISOString(),
+  const attributes = {
     event,
-    payload,
+    ...(typeof payload?.chatSessionId === "string"
+      ? { conversation_id: payload.chatSessionId }
+      : {}),
+    ...(typeof payload?.turnId === "string" ? { turn_id: payload.turnId } : {}),
+    ...(payload ? { payload: JSON.stringify(payload).slice(0, 8_000) } : {}),
   };
+  const isFailure = /error|failed|rejected|unhandled/i.test(event);
+  if (isFailure) Sentry.logger.error(`Playback: ${event}`, attributes);
+  else Sentry.logger.info(`Playback: ${event}`, attributes);
 
-  if (payload !== undefined) {
-    console.log(`[mp-debug] ${event}`, payload);
-  } else {
-    console.log(`[mp-debug] ${event}`);
+  if (isServerPlaybackDebugEnabled()) {
+    if (payload !== undefined) {
+      console.log(`[mp-debug] ${event}`, payload);
+    } else {
+      console.log(`[mp-debug] ${event}`);
+    }
   }
-
-  void appendPlaybackLogs([entry], "server");
 };

@@ -34,6 +34,12 @@ export class CoordinateMapper_Data extends CoordinateMapperBase {
   }
   public data: Float32Array;
 
+  public resize(size: number): void {
+    if (size === this.data.length) return;
+    this._params = { ...this._params, size };
+    this.data = new Float32Array(size);
+  }
+
   /**
    *
    * @param amplitude - the maximum amplitude of the scaled output.

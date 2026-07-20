@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { Instance, Instances } from '@react-three/drei'
 import { useMemo, useRef } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, type ThreeElements } from '@react-three/fiber'
 
-interface GridProps {
+type GridProps = ThreeElements["group"] & {
   size?: number
   cellSize?: number
   sectionSize?: number
@@ -14,7 +14,12 @@ interface GridProps {
   audioEnergyRef?: React.MutableRefObject<number>
   transitionProgress?: number
   palette?: THREE.Color[]
-  [key: string]: any
+}
+
+type GridLine = {
+  position: [number, number, number]
+  rotation: [number, number, number]
+  scale: [number, number, number]
 }
 
 export function PhysicalGrid({
@@ -33,8 +38,8 @@ export function PhysicalGrid({
   const groupRef = useRef<THREE.Group>(null)
 
   const { minor, major } = useMemo(() => {
-    const minorLines = []
-    const majorLines = []
+    const minorLines: GridLine[] = []
+    const majorLines: GridLine[] = []
     const half = size / 2
 
     // Generate Minor Lines (Cells)
@@ -124,9 +129,9 @@ export function PhysicalGrid({
         {minor.map((data, i) => (
           <Instance
             key={`minor-${i}`}
-            position={data.position as any}
-            rotation={data.rotation as any}
-            scale={data.scale as any}
+            position={data.position}
+            rotation={data.rotation}
+            scale={data.scale}
           />
         ))}
       </Instances>
@@ -146,13 +151,12 @@ export function PhysicalGrid({
         {major.map((data, i) => (
           <Instance
             key={`major-${i}`}
-            position={data.position as any}
-            rotation={data.rotation as any}
-            scale={data.scale as any}
+            position={data.position}
+            rotation={data.rotation}
+            scale={data.scale}
           />
         ))}
       </Instances>
     </group>
   )
 }
-

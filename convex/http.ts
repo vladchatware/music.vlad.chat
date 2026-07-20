@@ -3,11 +3,39 @@ import { auth } from "./auth";
 import { httpAction } from "./_generated/server";
 import Stripe from "stripe";
 import { internal } from "./_generated/api";
+import { TRACK_ANALYSIS_VERSION, type TrackAnalysis } from "../lib/trackAnalysis";
+import type { Id } from "./_generated/dataModel";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const webhook_secret = process.env.STRIPE_WEBHOOK_SECRET
 
 const http = httpRouter();
+
+type DeepMutable<T> = T extends readonly (infer Item)[]
+  ? DeepMutable<Item>[]
+  : T extends object
+    ? { -readonly [Key in keyof T]: DeepMutable<T[Key]> }
+    : T;
+
+function isAnalysisServiceAuthorized(req: Request): boolean {
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  if (!secret) return false;
+  return req.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function analysisRoute(
+  path: string,
+  handler: Parameters<typeof httpAction>[0],
+) {
+  http.route({ path, method: "POST", handler: httpAction(handler) });
+}
 
 auth.addHttpRoutes(http);
 
@@ -16,25 +44,158 @@ http.route({
   method: 'POST',
   handler: httpAction(async (ctx, req) => {
     const signature = req.headers.get('stripe-signature')
+    if (!signature) return new Response(null, { status: 400 })
+    if (!webhook_secret) {
+      console.error("STRIPE_WEBHOOK_SECRET is not configured")
+      return new Response(null, { status: 500 })
+    }
     try {
       const payload = await req.text()
       const event = await stripe.webhooks.constructEventAsync(payload, signature, webhook_secret)
 
       switch (event.type) {
         case 'checkout.session.completed':
-          const { stripeId, tokens } = event.data.object.metadata
-          await ctx.runMutation(internal.users.topup, { stripeId, tokens: parseInt(tokens) })
+        case 'checkout.session.async_payment_succeeded': {
+          const session = event.data.object
+          if (session.payment_status !== "paid") break
+          const userId = session.metadata?.userId as Id<"users"> | undefined
+          const tokens = Number.parseInt(session.metadata?.tokens ?? "", 10)
+          if (!userId || !Number.isSafeInteger(tokens) || tokens <= 0) {
+            throw new Error("Paid checkout session has invalid credit metadata")
+          }
+          const result = await ctx.runMutation(internal.users.applyPayment, {
+            stripeEventId: event.id,
+            checkoutSessionId: session.id,
+            userId,
+            tokens,
+            amountTotal: session.amount_total ?? undefined,
+            currency: session.currency ?? undefined,
+          })
+          if (result.applied) {
+            await ctx.scheduler.runAfter(0, internal.telemetry.recordBusinessEvent, {
+              event: "commerce.payment.completed",
+              userId: String(result.userId),
+              amountTotal: session.amount_total ?? undefined,
+              currency: session.currency ?? undefined,
+              tokens,
+            })
+          }
           break;
+        }
         default:
           console.log(event.type)
       }
-    } catch (e) {
-      console.log(e.message)
-      return new Response(null, { status: 400 })
+    } catch (error) {
+      console.error("Stripe webhook failed", error)
+      const status = error instanceof Stripe.errors.StripeSignatureVerificationError ? 400 : 500
+      return new Response(null, { status })
     }
     return new Response(null, { status: 200 })
   })
 })
 
-export default http;
+analysisRoute("/analysis/enqueue", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      trackId?: string | number;
+      trackIds?: Array<string | number>;
+      priority?: number;
+      analysisVersion?: string;
+      traceContexts?: Array<{
+        trackId: string;
+        sentryTrace?: string;
+        sentryBaggage?: string;
+        messageId: string;
+        messageBodySize: number;
+        sentAt: number;
+      }>;
+    };
+    const trackIds = (body.trackIds ?? [body.trackId])
+      .map((id) => String(id ?? ""))
+      .filter((id) => /^\d+$/.test(id));
+    if (trackIds.length === 0 || trackIds.length > 20) {
+      return json({ error: "trackIds must contain 1-20 positive numeric IDs" }, 400);
+    }
+    const result = await ctx.runMutation(internal.trackAnalysis.enqueue, {
+      trackIds,
+      priority: Number.isFinite(body.priority) ? Number(body.priority) : 0,
+      analysisVersion: body.analysisVersion ?? TRACK_ANALYSIS_VERSION,
+      ...(body.traceContexts ? { traceContexts: body.traceContexts } : {}),
+    });
+    return json(result);
+  } catch (error) {
+    console.error("Analysis enqueue failed", error);
+    return json({ error: "Invalid enqueue request" }, 400);
+  }
+});
 
+analysisRoute("/analysis/claim", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json().catch(() => ({}))) as { leaseDurationMs?: number };
+    const leaseDurationMs = Math.min(
+      30 * 60_000,
+      Math.max(60_000, Number(body.leaseDurationMs) || 15 * 60_000),
+    );
+    const job = await ctx.runMutation(internal.trackAnalysis.claim, {
+      leaseToken: crypto.randomUUID(),
+      leaseDurationMs,
+    });
+    return json({ job });
+  } catch (error) {
+    console.error("Analysis claim failed", error);
+    return json({ error: "Failed to claim analysis job" }, 500);
+  }
+});
+
+analysisRoute("/analysis/complete", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      cacheKey: string;
+      leaseToken: string;
+      result: DeepMutable<TrackAnalysis>;
+    };
+    const result = await ctx.runMutation(internal.trackAnalysis.complete, body);
+    return json(result);
+  } catch (error) {
+    console.error("Analysis completion failed", error);
+    return json({ error: "Invalid completion request" }, 400);
+  }
+});
+
+analysisRoute("/analysis/fail", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      cacheKey: string;
+      leaseToken: string;
+      error: string;
+    };
+    const result = await ctx.runMutation(internal.trackAnalysis.fail, body);
+    return json(result);
+  } catch (error) {
+    console.error("Analysis failure report failed", error);
+    return json({ error: "Invalid failure request" }, 400);
+  }
+});
+
+analysisRoute("/analysis/defer", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as {
+      cacheKey: string;
+      leaseToken: string;
+      retryMs: number;
+      reason: string;
+    };
+    await ctx.runMutation(internal.trackAnalysis.defer, body);
+    return json({ deferred: true });
+  } catch (error) {
+    console.error("Analysis deferral failed", error);
+    return json({ error: "Invalid deferral request" }, 400);
+  }
+});
+
+export default http;

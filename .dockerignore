@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+coverage
+logs
+*.tsbuildinfo
+workers/track-analysis/models

@@ -80,7 +80,8 @@ function findBestBoundary(
   currentTimeSec: AudioTimeSec,
   crossfadeDurationSec: DurationSec,
   trackDuration: DurationSec,
-  phraseBars: number
+  phraseBars: number,
+  preferredExitSec?: number,
 ): BeatBoundary {
   // Get the next phrase boundary
   let boundaryTime = getNextPhraseBoundary(grid, currentTimeSec, phraseBars);
@@ -89,6 +90,17 @@ function findBestBoundary(
   const minBoundary = currentTimeSec + 2; // At least 2 seconds from now
   if (boundaryTime < minBoundary) {
     boundaryTime = getNextPhraseBoundary(grid, boundaryTime + 0.1, phraseBars);
+  }
+
+  if (preferredExitSec !== undefined && preferredExitSec >= minBoundary) {
+    const preferredBoundary = getNextPhraseBoundary(
+      grid,
+      Math.max(currentTimeSec, preferredExitSec - 0.1),
+      Math.min(4, phraseBars),
+    );
+    if (preferredBoundary + crossfadeDurationSec <= trackDuration) {
+      boundaryTime = preferredBoundary;
+    }
   }
   
   // Ensure we don't exceed track duration
@@ -231,6 +243,7 @@ export function createTransitionPlan(
   // Get effective beat grids
   const outgoingGrid = getEffectiveBeatGrid(outgoingDeck);
   const incomingGrid = getEffectiveBeatGrid(incomingDeck);
+  const incomingEntrySec = incomingDeck.cuePoints?.mixInSec ?? 0;
   
   // Calculate tempo match
   const tempoMatch = opts.useTempoMatching
@@ -239,7 +252,7 @@ export function createTransitionPlan(
         incomingGrid,
         DEFAULT_TEMPO_CONSTRAINTS,
         currentTimeSec,
-        0 // Start from beginning of incoming track
+        incomingEntrySec,
       )
     : {
         targetPlaybackRate: 1,
@@ -266,7 +279,8 @@ export function createTransitionPlan(
     currentTimeSec,
     crossfadeDurationSec,
     trackDuration,
-    phraseBars
+    phraseBars,
+    outgoingDeck.cuePoints?.mixOutSec,
   );
   
   // Calculate harmonic compatibility
@@ -284,7 +298,7 @@ export function createTransitionPlan(
     outgoingDeck.energyCurve,
     incomingDeck.energyCurve,
     startBoundary.timeSec,
-    0 // Entry point in incoming track
+    incomingEntrySec,
   );
   
   // Create EQ curve
