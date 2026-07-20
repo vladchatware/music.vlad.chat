@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { internal } from "./_generated/api";
+import { normalizeBillableUsage } from "./users";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -48,5 +49,22 @@ describe("payment credit ledger", () => {
       userId,
       tokens: 0,
     })).rejects.toThrow("Invalid token credit");
+  });
+});
+
+describe("usage accounting", () => {
+  it("rejects negative or fractional token usage", () => {
+    expect(() => normalizeBillableUsage({ totalTokens: -1 })).toThrow("Invalid token usage");
+    expect(() => normalizeBillableUsage({ totalTokens: 1.5 })).toThrow("Invalid token usage");
+  });
+
+  it("normalizes omitted usage counters to zero", () => {
+    expect(normalizeBillableUsage({})).toEqual({
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+    });
   });
 });

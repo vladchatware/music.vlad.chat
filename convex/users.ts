@@ -2,6 +2,28 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
+type BillableUsage = {
+  totalTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+};
+
+export function normalizeBillableUsage(usage: BillableUsage) {
+  const normalized = {
+    totalTokens: usage.totalTokens ?? 0,
+    inputTokens: usage.inputTokens ?? 0,
+    outputTokens: usage.outputTokens ?? 0,
+    reasoningTokens: usage.reasoningTokens ?? 0,
+    cachedInputTokens: usage.cachedInputTokens ?? 0,
+  };
+  if (Object.values(normalized).some((value) => !Number.isSafeInteger(value) || value < 0)) {
+    throw new Error("Invalid token usage");
+  }
+  return normalized;
+}
+
 export const viewer = query({
   args: {},
   handler: async (ctx) => {
@@ -96,14 +118,15 @@ export const usage = mutation({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     const user = await ctx.db.get(userId)
+    const usage = normalizeBillableUsage(args.usage)
 
     if (user.isAnonymous && user.trialMessages > 0) {
       await ctx.db.patch(userId, { trialMessages: user.trialMessages - 1 })
     } else {
-      const trialTokens = user.trialTokens - args.usage.totalTokens
+      const trialTokens = (user.trialTokens ?? 0) - usage.totalTokens
 
       if (trialTokens <= 0) {
-        const tokens = user.tokens - Math.abs(trialTokens)
+        const tokens = (user.tokens ?? 0) - Math.abs(trialTokens)
         await ctx.db.patch(userId, { trialTokens: 0, tokens })
       } else {
         await ctx.db.patch(userId, { trialTokens })
@@ -112,6 +135,7 @@ export const usage = mutation({
 
     return ctx.db.insert('usage', {
       ...args,
+      usage,
       userId
     })
   },

@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { decodeUrlToMonoPcm } from "./decode";
+import {
+  decodeUrlToMonoPcm,
+  FFMPEG_DECODE_TIMEOUT_MS,
+  ffmpegDecodeSpawnOptions,
+} from "./decode";
 import { ANALYSIS_SAMPLE_RATE } from "./config";
 
 let fixtureDir: string | null = null;
@@ -14,6 +18,14 @@ afterEach(async () => {
 });
 
 describe("FFmpeg decoder", () => {
+  it("force-kills stalled FFmpeg decodes before the analysis lease expires", () => {
+    expect(FFMPEG_DECODE_TIMEOUT_MS).toBeLessThan(15 * 60_000);
+    expect(ffmpegDecodeSpawnOptions).toMatchObject({
+      timeout: FFMPEG_DECODE_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
+  });
+
   it("decodes input to mono 22.05 kHz PCM", async () => {
     fixtureDir = await mkdtemp(join(tmpdir(), "music-vlad-decode-test-"));
     const fixture = join(fixtureDir, "tone.wav");

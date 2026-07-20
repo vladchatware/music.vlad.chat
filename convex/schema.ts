@@ -72,7 +72,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_cacheKey", ["cacheKey"])
-    .index("by_status_priority_createdAt", ["status", "priority", "createdAt"]),
+    .index("by_status_priority_createdAt", ["status", "priority", "createdAt"])
+    .index("by_status_nextAttemptAt", ["status", "nextAttemptAt"]),
   trackAnalyses: defineTable({
     cacheKey: v.string(),
     result: trackAnalysisResultValidator,

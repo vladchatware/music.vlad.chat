@@ -253,10 +253,14 @@ export const claim = internalMutation({
     const findReady = async (status: "queued" | "failed") => {
       const candidates = await ctx.db
         .query("trackAnalysisJobs")
-        .withIndex("by_status_priority_createdAt", (q) => q.eq("status", status))
-        .order("desc")
-        .take(50);
-      return candidates.find((job) => job.nextAttemptAt <= now) ?? null;
+        .withIndex("by_status_nextAttemptAt", (q) =>
+          q.eq("status", status).lte("nextAttemptAt", now),
+        )
+        .order("asc")
+        .take(100);
+      return candidates.sort((a, b) =>
+        b.priority - a.priority || a.createdAt - b.createdAt,
+      )[0] ?? null;
     };
 
     const job = (await findReady("queued")) ?? (await findReady("failed"));

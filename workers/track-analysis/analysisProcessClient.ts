@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import type { TrackAnalysis } from "../../lib/trackAnalysis";
 import type { AnalysisJob } from "./api";
+import { ANALYSIS_PROCESS_TIMEOUT_MS } from "./config";
 
 type ProcessResult =
   | { ok: true; result: TrackAnalysis }
@@ -10,6 +11,7 @@ type AnalysisProcess = {
   exited: Promise<number>;
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
+  kill(signal?: NodeJS.Signals): void;
 };
 
 type SpawnAnalysisProcess = (job: AnalysisJob, accessToken: string) => AnalysisProcess;
@@ -31,13 +33,31 @@ export async function analyzeInFreshProcess(
   job: AnalysisJob,
   accessToken: string,
   spawn: SpawnAnalysisProcess = spawnAnalysisProcess,
+  timeoutMs = ANALYSIS_PROCESS_TIMEOUT_MS,
 ): Promise<TrackAnalysis> {
   const child = spawn(job, accessToken);
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`Analysis process timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  let exitCode: number;
+  let stdout: string;
+  let stderr: string;
+  try {
+    [exitCode, stdout, stderr] = await Promise.race([
+      Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]),
+      timeout,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   let message: ProcessResult | undefined;
   try {

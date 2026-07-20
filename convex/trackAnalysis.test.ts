@@ -124,6 +124,47 @@ describe("track analysis queue", () => {
     expect(second).toBeNull();
   });
 
+  it("claims ready work behind a deferred high-priority backlog", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 50; index += 1) {
+        await ctx.db.insert("trackAnalysisJobs", {
+          cacheKey: `soundcloud:${1000 + index}:essentia-dj-v1`,
+          source: "soundcloud",
+          sourceTrackId: String(1000 + index),
+          analysisVersion: "essentia-dj-v1",
+          status: "queued",
+          priority: 100,
+          attempts: 0,
+          nextAttemptAt: Date.now() + 60_000,
+          createdAt: Date.now() + index,
+          updatedAt: Date.now(),
+        });
+      }
+      await ctx.db.insert("trackAnalysisJobs", {
+        cacheKey: "soundcloud:42:essentia-dj-v1",
+        source: "soundcloud",
+        sourceTrackId: "42",
+        analysisVersion: "essentia-dj-v1",
+        status: "queued",
+        priority: 1,
+        attempts: 0,
+        nextAttemptAt: Date.now(),
+        createdAt: Date.now() - 1,
+        updatedAt: Date.now(),
+      });
+    });
+
+    const job = await t.mutation(internal.trackAnalysis.claim, {
+      leaseToken: "lease-ready",
+      leaseDurationMs: 60_000,
+    });
+
+    expect(job?.sourceTrackId).toBe("42");
+  });
+
   it("persists producer trace context and returns queue metadata when claimed", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
