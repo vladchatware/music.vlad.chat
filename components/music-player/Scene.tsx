@@ -1,7 +1,7 @@
 "use client"
 
-import React, { type ReactNode, useMemo } from "react";
-import { Canvas } from "@react-three/fiber";
+import React, { type ReactNode, useEffect, useMemo } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { Fullscreen } from "@react-three/uikit";
 import { Defaults } from "@react-three/uikit-default";
 import { Environment, SoftShadows, Text } from "@react-three/drei";
@@ -18,6 +18,25 @@ import { useMusicPlayerStore } from "./store/useMusicPlayerStore";
 import { useShallow } from "zustand/react/shallow";
 import { InstagramCrowd } from "@/components/live/InstagramCrowd";
 import type { AudioBeatSnapshot } from "@/lib/live/dancerMotion";
+
+const BROADCAST_WIDTH = 720;
+const BROADCAST_HEIGHT = 1280;
+
+function BroadcastResolutionSync() {
+  const size = useThree((state) => state.size);
+  const setDpr = useThree((state) => state.setDpr);
+
+  useEffect(() => {
+    if (!size.width || !size.height) return;
+    const targetDpr = Math.min(
+      BROADCAST_WIDTH / size.width,
+      BROADCAST_HEIGHT / size.height,
+    );
+    setDpr(Math.min(3, Math.max(0.5, targetDpr)));
+  }, [setDpr, size.height, size.width]);
+
+  return null;
+}
 
 export function MusicPlayerScene({
   initialTrackId,
@@ -80,6 +99,7 @@ export function MusicPlayerScene({
       }}
       onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}
     >
+      {broadcastPortrait ? <BroadcastResolutionSync /> : null}
       {/* HDRI Environment provides the global lighting and reflections */}
       <Environment
         key={envKey}

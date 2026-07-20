@@ -49,7 +49,7 @@ for (const model of SEMANTIC_MODELS) {
     } else if (model.kind === "archive") {
       const archive = join(temp, "model.zip");
       await download(model.url, archive, model.id);
-      await run(["unzip", "-jo", archive, "*.json", "*.bin", "-d", destination], `${model.id} unzip failed`);
+      await run(["unzip", "-jo", archive, "-d", destination], `${model.id} unzip failed`);
     } else {
       const source = join(temp, "model.pb");
       await download(model.url, source, model.id);

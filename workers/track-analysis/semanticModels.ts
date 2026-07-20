@@ -1,12 +1,18 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import * as tf from "@tensorflow/tfjs-node";
+import type { GraphModel, Tensor, Tensor3D } from "@tensorflow/tfjs";
 import { EssentiaModel, EssentiaWASM } from "essentia.js";
 import * as ort from "onnxruntime-node";
 
 import { EFFNET_HEADS, MUSICNN_HEADS } from "./modelCatalog";
 import { createLocalModelIOHandler } from "./modelArtifacts";
 import type { SemanticPredictor } from "./semanticInference";
+
+// tfjs-node does not publish a Windows binary for every release. Keep the
+// native backend in Linux workers and use the portable CPU backend locally.
+const tf = process.platform === "win32"
+  ? await import("@tensorflow/tfjs")
+  : await import("@tensorflow/tfjs-node");
 
 type MusicNnFeatures = {
   melSpectrum: number[][];
@@ -89,7 +95,7 @@ async function loadVoiceModel(root: string): Promise<MusicNnModel> {
   return model;
 }
 
-function batchFeatures(features: MusicNnFeatures): tf.Tensor3D {
+function batchFeatures(features: MusicNnFeatures): Tensor3D {
   const batches = Math.max(1, Math.ceil(features.frameSize / features.patchSize));
   return tf.tidy(() => {
     const source = tf.tensor2d(features.melSpectrum, [features.frameSize, features.melBandsSize]);
@@ -97,12 +103,12 @@ function batchFeatures(features: MusicNnFeatures): tf.Tensor3D {
     const padded = missingRows > 0
       ? tf.concat([source, tf.zeros([missingRows, features.melBandsSize])])
       : source;
-    return padded.reshape([batches, features.patchSize, features.melBandsSize]) as tf.Tensor3D;
+    return padded.reshape([batches, features.patchSize, features.melBandsSize]) as Tensor3D;
   });
 }
 
-async function rowsFrom(model: tf.GraphModel, input: tf.Tensor, output?: string): Promise<number[][]> {
-  const result = model.execute(input, output) as tf.Tensor;
+async function rowsFrom(model: GraphModel, input: Tensor, output?: string): Promise<number[][]> {
+  const result = model.execute(input, output) as Tensor;
   try {
     return await result.array() as number[][];
   } finally {
@@ -133,7 +139,7 @@ async function loadSemanticPredictor(root = defaultModelRoot()): Promise<Semanti
     const embeddings = backbone.execute({
       "model/Placeholder": featureTensor,
       "model/Placeholder_1": training,
-    }, "model/dense/BiasAdd") as tf.Tensor;
+    }, "model/dense/BiasAdd") as Tensor;
     try {
       const [danceRows, deamRows, mirexRows, voice] = await Promise.all([
         rowsFrom(headModels.danceability, embeddings),

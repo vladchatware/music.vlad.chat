@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   authenticated: vi.fn(),
+  createRoom: vi.fn(),
   startEgress: vi.fn(),
   addGrant: vi.fn(),
   toJwt: vi.fn(),
@@ -19,11 +20,14 @@ vi.mock("livekit-server-sdk", () => ({
   EgressClient: class {
     startParticipantEgress = mocks.startEgress;
   },
+  RoomServiceClient: class {
+    createRoom = mocks.createRoom;
+  },
   StreamOutput: class {
     constructor(public value: unknown) {}
   },
   StreamProtocol: { RTMP: 0 },
-  EncodingOptionsPreset: { PORTRAIT_H264_1080P_30: 6 },
+  EncodingOptionsPreset: { PORTRAIT_H264_720P_30: 4 },
 }));
 
 import { POST } from "./route";
@@ -31,6 +35,7 @@ import { POST } from "./route";
 describe("start Instagram broadcast", () => {
   beforeEach(() => {
     mocks.authenticated.mockResolvedValue(true);
+    mocks.createRoom.mockResolvedValue({ name: "instagram-ig_session_123" });
     mocks.startEgress.mockResolvedValue({ egressId: "EG_fixture" });
     mocks.toJwt.mockResolvedValue("livekit-jwt");
     process.env.LIVEKIT_URL = "https://livekit.example.com";
@@ -63,11 +68,15 @@ describe("start Instagram broadcast", () => {
     });
     expect(body.controlToken).toEqual(expect.any(String));
     expect(JSON.stringify(body)).not.toContain("secret-key");
+    expect(mocks.createRoom).toHaveBeenCalledWith({
+      name: "instagram-ig_session_123",
+      emptyTimeout: 60,
+    });
     expect(mocks.startEgress).toHaveBeenCalledWith(
       "instagram-ig_session_123",
       "broadcaster-ig_session_123",
       expect.objectContaining({ stream: expect.anything() }),
-      { encodingOptions: 6 },
+      { encodingOptions: 4 },
     );
   });
 

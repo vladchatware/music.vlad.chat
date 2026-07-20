@@ -3,6 +3,7 @@ import {
   AccessToken,
   EgressClient,
   EncodingOptionsPreset,
+  RoomServiceClient,
   StreamOutput,
   StreamProtocol,
 } from "livekit-server-sdk";
@@ -53,6 +54,11 @@ export async function POST(req: Request) {
       canPublishData: false,
     });
 
+    // Participant Egress can wait for this broadcaster to join and publish,
+    // but the room itself must exist before the egress request is submitted.
+    const rooms = new RoomServiceClient(config.url, config.apiKey, config.apiSecret);
+    await rooms.createRoom({ name: roomName, emptyTimeout: 60 });
+
     const egress = new EgressClient(config.url, config.apiKey, config.apiSecret);
     const egressInfo = await egress.startParticipantEgress(
       roomName,
@@ -63,7 +69,7 @@ export async function POST(req: Request) {
           urls: [rtmpsUrl],
         }),
       },
-      { encodingOptions: EncodingOptionsPreset.PORTRAIT_H264_1080P_30 },
+      { encodingOptions: EncodingOptionsPreset.PORTRAIT_H264_720P_30 },
     );
 
     return NextResponse.json({

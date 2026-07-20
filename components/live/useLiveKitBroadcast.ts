@@ -61,7 +61,7 @@ export function useLiveKitBroadcast() {
         publishDefaults: {
           videoCodec: "h264",
           simulcast: false,
-          videoEncoding: { maxBitrate: 6_000_000, maxFramerate: 30 },
+          videoEncoding: { maxBitrate: 3_500_000, maxFramerate: 30 },
           audioPreset: AudioPresets.musicHighQualityStereo,
           dtx: false,
           red: true,
