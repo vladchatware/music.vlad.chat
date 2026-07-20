@@ -1,30 +1,25 @@
-import {
-  convexAuthNextjsMiddleware,
-  nextjsMiddlewareRedirect,
-} from "@convex-dev/auth/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
-import { api } from "./convex/_generated/api";
+import { convexAuthNextjsMiddleware } from "@convex-dev/auth/nextjs/server";
+import { NextResponse } from "next/server";
 
-function isBackroom(pathname: string): boolean {
-  return pathname === "/backroom" || /^\/tracks\/[^/]+\/backroom(?:\/|$)/.test(pathname);
-}
+const ENCODED_DASHBOARD_QUERY = /^\/dashboard%3f/i;
 
-function backroomSignIn(request: Parameters<typeof nextjsMiddlewareRedirect>[0]) {
-  const returnTo = `${request.nextUrl.pathname}${request.nextUrl.search}`;
-  return nextjsMiddlewareRedirect(
-    request,
-    `/dashboard?returnTo=${encodeURIComponent(returnTo)}`,
-  );
+export function decodeDashboardUrl(pathname: string): string | null {
+  if (!ENCODED_DASHBOARD_QUERY.test(pathname)) return null;
+
+  try {
+    return decodeURIComponent(pathname.replace(ENCODED_DASHBOARD_QUERY, ""));
+  } catch {
+    return null;
+  }
 }
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
-  if (!isBackroom(request.nextUrl.pathname)) return;
-  if (process.env.NODE_ENV !== "production") return;
-  const token = await convexAuth.getToken();
-  if (!token) return backroomSignIn(request);
-  const user = await fetchQuery(api.users.viewer, {}, { token });
-  if (!user || user.isAnonymous || !user.soundcloudAccessToken) {
-    return backroomSignIn(request);
+  const dashboardQuery = decodeDashboardUrl(request.nextUrl.pathname);
+  if (dashboardQuery !== null) {
+    const destination = request.nextUrl.clone();
+    destination.pathname = "/dashboard";
+    destination.search = dashboardQuery;
+    return NextResponse.redirect(destination);
   }
 });
 

@@ -62,7 +62,6 @@ export async function GET(req: NextRequest, { params }) {
 
     const _track = await track(id)
     if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
-    await enqueueTrackAnalysis(id, 100).catch(() => false)
     return NextResponse.json(_track)
   } catch (e) {
     if (getErrorStatus(e) === 429) {
