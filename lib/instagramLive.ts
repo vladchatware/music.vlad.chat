@@ -9,7 +9,11 @@ export type InstagramLiveComment = {
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord | null {
-  return value && typeof value === "object" ? value as UnknownRecord : null;
+  if (value && typeof value === "object") return value as UnknownRecord;
+  if (typeof value === "string") {
+    try { return JSON.parse(value) as UnknownRecord; } catch { return null; }
+  }
+  return null;
 }
 
 function string(value: unknown): string | undefined {
