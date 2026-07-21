@@ -35,9 +35,7 @@ export const prepareSession = mutation({
     if (existingKey) {
       await ctx.db.patch(existingKey._id, {
         instagramAccountId: args.instagramAccountId,
-        platformStatus: existingKey.platformStatus === "ended"
-          ? "waiting"
-          : existingKey.platformStatus,
+        platformStatus: "live",
         updatedAt: now,
       });
       return { sessionId: existingKey._id, sessionKey: existingKey.sessionKey };
@@ -47,7 +45,7 @@ export const prepareSession = mutation({
       sessionKey: args.sessionKey,
       ownerId,
       instagramAccountId: args.instagramAccountId,
-      platformStatus: "waiting",
+      platformStatus: "live",
       createdAt: now,
       updatedAt: now,
     });
@@ -105,19 +103,15 @@ export const simulateComment = mutation({
       const sessionId = await ctx.db.insert("liveSessions", {
         sessionKey: args.sessionKey,
         ownerId,
-        platformStatus: "waiting",
+        platformStatus: "live",
         createdAt: now,
         updatedAt: now,
       });
       session = await ctx.db.get(sessionId);
-    } else if (session.platformStatus === "ended") {
+    } else {
       const updatedAt = Date.now();
-      await ctx.db.patch(session._id, { platformStatus: "waiting", updatedAt });
-      session = {
-        ...session,
-        platformStatus: "waiting" as const,
-        updatedAt,
-      };
+      await ctx.db.patch(session._id, { platformStatus: "live", updatedAt });
+      session = { ...session, platformStatus: "live" as const, updatedAt };
     }
     if (!session) throw new Error("Unable to create preview session");
     const username = normalizedUsername(args.username);
@@ -226,3 +220,5 @@ export const ingestComments = internalMutation({
     return { accepted };
   },
 });
+
+
