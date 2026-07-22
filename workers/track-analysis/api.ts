@@ -45,10 +45,12 @@ export class AnalysisQueueClient {
     return response.job;
   }
 
-  async enqueue(trackIds: Array<string | number>, priority = 0) {
+  async enqueue(trackIds: Array<string | number>, priority = 0, _requestedBy?: string, soundcloudUserId?: string, force?: boolean) {
     return this.post<{ enqueued: number; cached: number; existing: number }>("/analysis/enqueue", {
       trackIds: trackIds.map(String),
       priority,
+      ...(force ? { force: true } : {}),
+      ...(soundcloudUserId ? { soundcloudUserId } : {}),
     });
   }
 
@@ -60,12 +62,13 @@ export class AnalysisQueueClient {
     });
   }
 
-  async fail(job: AnalysisJob, error: unknown): Promise<void> {
+  async fail(job: AnalysisJob, error: unknown, noRetry?: boolean): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     await this.post("/analysis/fail", {
       cacheKey: job.cacheKey,
       leaseToken: job.leaseToken,
       error: message.slice(0, 500),
+      noRetry: noRetry ?? false,
     });
   }
 

@@ -13,6 +13,7 @@ import PlaybackEnergyChart from "./PlaybackEnergyChart";
 import MixSuggestions from "./MixSuggestions";
 import MixCandidatePicker from "./MixCandidatePicker";
 import { AnalysisEnqueue } from "./AnalysisEnqueue";
+import { AnalysisRedoButton } from "./AnalysisRedoButton";
 
 export const metadata: Metadata = { title: "Track Analysis / Revibe" };
 const ENERGY_ARCS = ["preserve", "build", "release", "reset"] as const;
@@ -136,6 +137,7 @@ export default async function TrackBackroom({
       <form action="/backroom" className={styles.miniLookup}><input name="id" inputMode="numeric" placeholder="Track ID" /><button>Inspect</button></form>
       <ThemeToggle />
       <span className={analysis ? styles.ready : styles.pending}>{analysis ? analysis.analysisVersion : "analysis pending"}</span>
+      {analysis && <AnalysisRedoButton trackId={id} />}
     </header>
 
     <section className={styles.hero}>

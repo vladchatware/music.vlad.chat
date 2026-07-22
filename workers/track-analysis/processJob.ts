@@ -20,18 +20,34 @@ type ProcessDependencies = {
   soundCloudAccessToken?: string;
 };
 
+function isNonStreamableError(error: unknown): boolean {
+  const err = error as { nonStreamable?: boolean; status?: number; message?: string } | null;
+  return err?.nonStreamable === true
+    || err?.status === 404
+    || err?.status === 410
+    || (typeof err?.message === 'string' && err.message.includes('No full stream URL'));
+}
+
 export async function processAnalysisJob(
   job: AnalysisJob,
   dependencies: ProcessDependencies = {},
 ): Promise<TrackAnalysis> {
   const startedAt = Date.now();
   const metadata = await track(job.sourceTrackId, dependencies.soundCloudAccessToken);
-  if (!metadata?.streamable) throw new Error("SoundCloud track is not streamable");
+  if (!metadata?.streamable) throw new Error("[NON_STREAMABLE] SoundCloud track is not streamable");
   const durationSec = Number(metadata.duration) / 1000;
   if (!Number.isFinite(durationSec) || durationSec <= 0) throw new Error("Invalid track duration");
   if (durationSec > MAX_TRACK_DURATION_SEC) throw new Error("Track exceeds 10 minute analysis limit");
 
-  const streamUrl = await resolveTrackStreamUrl(job.sourceTrackId, dependencies.soundCloudAccessToken);
+  let streamUrl: string;
+  try {
+    streamUrl = await resolveTrackStreamUrl(job.sourceTrackId, dependencies.soundCloudAccessToken);
+  } catch (error) {
+    if (isNonStreamableError(error)) {
+      throw new Error(`[NON_STREAMABLE] ${error instanceof Error ? error.message : String(error)}`);
+    }
+    throw error;
+  }
   const signal = await decodeUrlToMonoPcm(streamUrl);
   const decodedDurationSec = signal.length / 22_050;
   if (decodedDurationSec > MAX_TRACK_DURATION_SEC + 1) {

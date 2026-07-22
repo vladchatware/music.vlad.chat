@@ -21,6 +21,41 @@ let accessTokenRequest: Promise<string> | undefined
 let authRetryAt = 0
 let authRetryError: SoundCloudAuthError | undefined
 
+const MAX_CONCURRENT_REQUESTS = 16;
+let activeRequests = 0;
+let requestQueue: Array<() => void> = [];
+
+async function acquireRequestSlot(): Promise<void> {
+  if (activeRequests < MAX_CONCURRENT_REQUESTS) {
+    activeRequests += 1;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    requestQueue.push(() => {
+      activeRequests += 1;
+      resolve();
+    });
+  });
+}
+
+function releaseRequestSlot(): void {
+  const next = requestQueue.shift();
+  if (next) {
+    next();
+  } else {
+    activeRequests -= 1;
+  }
+}
+
+async function rateLimitedFetch(url: string, init?: RequestInit): Promise<Response> {
+  await acquireRequestSlot();
+  try {
+    return await fetch(url, init);
+  } finally {
+    releaseRequestSlot();
+  }
+}
+
 export class SoundCloudAuthError extends Error {
   constructor(
     message: string,
@@ -186,15 +221,18 @@ export const readAccessToken = async () => {
 
   const refreshTokenValue = credentials.refresh_token
   credentials.access_token = undefined
-  accessTokenRequest = (refreshTokenValue
-    ? refreshToken(refreshTokenValue)
-    : getAccessToken()
-  ).catch((error) => {
+  const tryRefresh = refreshTokenValue ? refreshToken(refreshTokenValue) : Promise.reject(new Error('No refresh token'))
+  accessTokenRequest = tryRefresh.catch((error) => {
     if (error instanceof SoundCloudAuthError && error.status === 429) {
       authRetryError = error
       authRetryAt = Date.now() + (error.retryAfterMs ?? 60_000)
+      throw error
     }
-    throw error
+    if (refreshTokenValue) {
+      console.warn('SoundCloud refresh token expired or invalid, falling back to client credentials grant', error instanceof Error ? error.message : String(error))
+      credentials.refresh_token = undefined
+    }
+    return getAccessToken()
   }).finally(() => {
     accessTokenRequest = undefined
   })
@@ -287,7 +325,7 @@ export const users = async (query: {
 }, userToken?: string) => {
   const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
-  const res = await fetch(`https://api.soundcloud.com/users${params ? `?${params}` : ''}`, {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/users${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
     }
@@ -304,7 +342,7 @@ export const users = async (query: {
 export const track = async (id: string | number, userToken?: string) => {
   const access_token = userToken ?? await readAccessToken()
   if (!access_token) throw new Error('No access token available')
-  const res = await fetch(`https://api.soundcloud.com/tracks/${id}`, {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/tracks/${id}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
     }
@@ -326,7 +364,7 @@ export const setTrackLiked = async (
   liked: boolean,
   userToken: string,
 ) => {
-  const res = await fetch(
+  const res = await rateLimitedFetch(
     `https://api.soundcloud.com/likes/tracks/soundcloud:tracks:${id}`,
     {
       method: liked ? 'POST' : 'DELETE',
@@ -345,11 +383,11 @@ export const setTrackLiked = async (
 export const resolveTrackStreamUrl = async (
   id: string | number,
   userToken?: string,
-  timeoutMs = 8_000,
+  timeoutMs = 15_000,
 ): Promise<string> => {
   const access_token = userToken ?? await readAccessToken()
   if (!access_token) throw new Error('No access token available')
-  const res = await fetch(`https://api.soundcloud.com/tracks/soundcloud:tracks:${id}/streams`, {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/tracks/soundcloud:tracks:${id}/streams`, {
     headers: { Authorization: `Bearer ${access_token}` },
     signal: AbortSignal.timeout(timeoutMs),
   })
@@ -357,11 +395,25 @@ export const resolveTrackStreamUrl = async (
     const body = await res.text()
     const e = new Error(`SoundCloud API error ${res.status}: ${body}`)
     ;(e as any).status = res.status
+    if (res.status === 429) {
+      ;(e as any).retryAfterMs = retryAfterMs(res) ?? 60_000
+    }
     throw e
   }
-  const body = await res.json() as { http_mp3_128_url?: string }
-  if (!body.http_mp3_128_url) throw new Error('No full stream URL in response')
-  const cdn = await fetch(body.http_mp3_128_url, {
+  const body = await res.json() as Record<string, unknown>
+  const streamUrl = (body.http_mp3_128_url ?? body.preview_mp3_128_url) as string | undefined
+  if (!streamUrl) {
+    const bodySnippet = JSON.stringify(body).slice(0, 500)
+    const isTokenIssue = body.error_description || body.error || body.errors
+    const errorMessage = isTokenIssue
+      ? `SoundCloud token error on stream: ${bodySnippet}`
+      : `No full stream URL in response: ${bodySnippet}`
+    const e = new Error(errorMessage)
+    ;(e as any).status = 200
+    ;(e as any).nonStreamable = !isTokenIssue
+    throw e
+  }
+  const cdn = await fetch(streamUrl, {
     headers: {
       Authorization: `Bearer ${access_token}`,
       Range: 'bytes=0-0',
@@ -369,6 +421,20 @@ export const resolveTrackStreamUrl = async (
     redirect: 'follow',
     signal: AbortSignal.timeout(timeoutMs),
   })
+  if (!cdn.ok) {
+    await cdn.body?.cancel()
+    if (cdn.status === 401 || cdn.status === 403) {
+      const e = new Error(`CDN auth error ${cdn.status} resolving stream URL`)
+      ;(e as any).status = cdn.status
+      throw e
+    }
+    if (cdn.status === 404 || cdn.status === 410) {
+      const e = new Error(`Stream URL returned ${cdn.status}`)
+      ;(e as any).status = cdn.status
+      ;(e as any).nonStreamable = true
+      throw e
+    }
+  }
   const resolvedUrl = cdn.url
   await cdn.body?.cancel()
   return resolvedUrl
@@ -390,7 +456,7 @@ export const tracks = async (query: {
 }, userToken?: string) => {
   const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
-  const res = await fetch(`https://api.soundcloud.com/tracks${params ? `?${params}` : ''}`, {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/tracks${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`
     }
@@ -411,7 +477,7 @@ export const playlists = async (query: {
 }, userToken?: string) => {
   const access_token = userToken ?? await readAccessToken()
   const params = buildQueryString(query)
-  const res = await fetch(`https://api.soundcloud.com/playlists${params ? `?${params}` : ''}`, {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/playlists${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
     }
@@ -436,7 +502,7 @@ export const likes = async (userId: string, query?: {
     limit: query?.limit ?? null,
     hasUserToken: Boolean(userToken),
   })
-  const res = await fetch(`https://api.soundcloud.com/users/${userId}/likes/tracks${params ? `?${params}` : ''}`, {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/users/${userId}/likes/tracks${params ? `?${params}` : ''}`, {
     headers: {
       Authorization: `Bearer ${access_token}`,
     }
@@ -469,7 +535,7 @@ export async function allLikes(userId: string, userToken?: string): Promise<Trac
     if (url.origin !== "https://api.soundcloud.com") {
       throw new Error("SoundCloud likes pagination returned an unsafe URL");
     }
-    const response = await fetch(url, {
+    const response = await rateLimitedFetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(10_000),
     });

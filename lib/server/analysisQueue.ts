@@ -29,8 +29,9 @@ export async function enqueueTrackAnalysis(
   trackId: string | number,
   priority = 0,
   convexToken?: string,
+  force?: boolean,
 ): Promise<boolean> {
-  const result = await enqueueTrackAnalyses([trackId], priority, convexToken);
+  const result = await enqueueTrackAnalyses([trackId], priority, convexToken, force);
   return result !== null;
 }
 
@@ -44,6 +45,7 @@ export async function enqueueTrackAnalyses(
   trackIds: Array<string | number>,
   priority = 0,
   convexToken?: string,
+  force?: boolean,
 ): Promise<AnalysisEnqueueResult | null> {
   if (process.env.DJ_ANALYSIS_QUEUE_ENABLED !== "true") return null;
   const normalized = [...new Set(trackIds.map(String).filter((id) => /^\d+$/.test(id)))].slice(0, 20);
@@ -89,6 +91,7 @@ export async function enqueueTrackAnalyses(
         result = await fetchMutation(api.trackAnalysis.enqueueForViewer, {
           trackIds: normalized,
           priority,
+          force,
           analysisVersion: TRACK_ANALYSIS_VERSION,
           traceContexts,
         }, { token: convexToken });
@@ -102,6 +105,7 @@ export async function enqueueTrackAnalyses(
           body: JSON.stringify({
             trackIds: normalized,
             priority,
+            force,
             analysisVersion: TRACK_ANALYSIS_VERSION,
             traceContexts,
           }),

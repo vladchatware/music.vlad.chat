@@ -62,6 +62,7 @@ const enqueueArgs = {
   trackIds: v.array(v.string()),
   analysisVersion: v.string(),
   priority: v.number(),
+  force: v.optional(v.boolean()),
   traceContexts: v.optional(v.array(v.object({
     trackId: v.string(),
     sentryTrace: v.optional(v.string()),
@@ -76,6 +77,7 @@ type EnqueueArgs = {
   trackIds: string[];
   analysisVersion: string;
   priority: number;
+  force?: boolean;
   traceContexts?: Array<{
     trackId: string;
     sentryTrace?: string;
@@ -122,8 +124,12 @@ async function enqueueJobs(
         .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
         .unique();
       if (analysis) {
-        cached += 1;
-        continue;
+        if (args.force) {
+          await ctx.db.delete(analysis._id);
+        } else {
+          cached += 1;
+          continue;
+        }
       }
 
       const job = await ctx.db
@@ -132,6 +138,10 @@ async function enqueueJobs(
         .unique();
       if (job) {
         if (job.status === "dead") {
+          if (job.lastError?.includes("[NON_STREAMABLE]")) {
+            existing += 1;
+            continue;
+          }
           await ctx.db.patch(job._id, {
             status: "queued",
             priority: Math.max(job.priority, args.priority),
@@ -190,8 +200,26 @@ async function enqueueJobs(
 }
 
 export const enqueue = internalMutation({
-  args: enqueueArgs,
-  handler: async (ctx, args) => enqueueJobs(ctx, args),
+  args: {
+    ...enqueueArgs,
+    soundcloudUserId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { soundcloudUserId, ...rest } = args;
+    let requestedBy: Id<"users"> | undefined;
+    if (soundcloudUserId) {
+      const account = await ctx.db
+        .query("authAccounts")
+        .withIndex("providerAndAccountId", (q) =>
+          q.eq("provider", "soundcloud").eq("providerAccountId", soundcloudUserId),
+        )
+        .unique();
+      if (account) {
+        requestedBy = account.userId as Id<"users">;
+      }
+    }
+    return enqueueJobs(ctx, rest, requestedBy);
+  },
 });
 
 export const enqueueForViewer = mutation({
@@ -369,6 +397,7 @@ export const fail = internalMutation({
     cacheKey: v.string(),
     leaseToken: v.string(),
     error: v.string(),
+    noRetry: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const job = await ctx.db
@@ -381,11 +410,12 @@ export const fail = internalMutation({
 
     const now = Date.now();
     const retry = getAnalysisRetryPolicy(job.attempts, now);
+    const dead = args.noRetry || retry.dead;
     await ctx.db.patch(job._id, {
-      status: retry.dead ? "dead" : "failed",
+      status: dead ? "dead" : "failed",
       leaseToken: undefined,
       leaseExpiresAt: undefined,
-      nextAttemptAt: retry.nextAttemptAt,
+      nextAttemptAt: dead ? Number.MAX_SAFE_INTEGER : retry.nextAttemptAt,
       lastError: sanitizeAnalysisError(args.error),
       updatedAt: now,
     });
@@ -395,10 +425,10 @@ export const fail = internalMutation({
       ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
       trackId: job.sourceTrackId,
       attempt: job.attempts,
-      dead: retry.dead,
+      dead,
       totalTimeMs: Math.max(0, now - job.createdAt),
     });
-    return { dead: retry.dead, attempts: job.attempts };
+    return { dead, attempts: job.attempts };
   },
 });
 

@@ -43,10 +43,12 @@ export async function GET(req: NextRequest, { params }) {
         const resolved = await fetchTrackWithUserRefresh(id, convexToken)
         const _track = resolved.track
         if (!_track) return NextResponse.json({ error: 'Track not found' }, { status: 404 })
+        const force = req.nextUrl.searchParams.get('force') === 'true'
         await enqueueTrackAnalysis(
           id,
           100,
           resolved.usedUserCredentials ? convexToken : undefined,
+          force,
         ).catch(() => false)
         return NextResponse.json(_track)
       } catch (e) {

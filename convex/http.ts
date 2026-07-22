@@ -144,21 +144,8 @@ http.route({
 analysisRoute("/analysis/enqueue", async (ctx, req) => {
   if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
   try {
-    const body = (await req.json()) as {
-      trackId?: string | number;
-      trackIds?: Array<string | number>;
-      priority?: number;
-      analysisVersion?: string;
-      traceContexts?: Array<{
-        trackId: string;
-        sentryTrace?: string;
-        sentryBaggage?: string;
-        messageId: string;
-        messageBodySize: number;
-        sentAt: number;
-      }>;
-    };
-    const trackIds = (body.trackIds ?? [body.trackId])
+    const body = (await req.json()) as Record<string, unknown>;
+    const trackIds = ((body.trackIds ?? [body.trackId]) as Array<string | number>)
       .map((id) => String(id ?? ""))
       .filter((id) => /^\d+$/.test(id));
     if (trackIds.length === 0 || trackIds.length > 20) {
@@ -167,8 +154,10 @@ analysisRoute("/analysis/enqueue", async (ctx, req) => {
     const result = await ctx.runMutation(internal.trackAnalysis.enqueue, {
       trackIds,
       priority: Number.isFinite(body.priority) ? Number(body.priority) : 0,
-      analysisVersion: body.analysisVersion ?? TRACK_ANALYSIS_VERSION,
-      ...(body.traceContexts ? { traceContexts: body.traceContexts } : {}),
+      force: body.force === true,
+      analysisVersion: (body.analysisVersion as string) ?? TRACK_ANALYSIS_VERSION,
+      ...(body.soundcloudUserId ? { soundcloudUserId: body.soundcloudUserId as string } : {}),
+      ...(body.traceContexts ? { traceContexts: body.traceContexts as any } : {}),
     });
     return json(result);
   } catch (error) {
@@ -215,15 +204,17 @@ analysisRoute("/analysis/complete", async (ctx, req) => {
 analysisRoute("/analysis/fail", async (ctx, req) => {
   if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
   try {
-    const body = (await req.json()) as {
-      cacheKey: string;
-      leaseToken: string;
-      error: string;
-    };
-    const result = await ctx.runMutation(internal.trackAnalysis.fail, body);
+    const raw = (await req.json()) as Record<string, unknown>;
+    console.log("analysis.fail.body", { cacheKey: raw.cacheKey, leaseToken: raw.leaseToken });
+    const result = await ctx.runMutation(internal.trackAnalysis.fail, {
+      cacheKey: raw.cacheKey as string,
+      leaseToken: raw.leaseToken as string,
+      error: (raw.error as string) ?? "",
+      ...(raw.noRetry === true ? { noRetry: true } : {}),
+    });
     return json(result);
   } catch (error) {
-    console.error("Analysis failure report failed", error);
+    console.error("Analysis failure report failed", error instanceof Error ? error.message : error);
     return json({ error: "Invalid failure request" }, 400);
   }
 });

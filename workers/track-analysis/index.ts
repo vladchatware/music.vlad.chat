@@ -131,20 +131,24 @@ async function runSlot(slot: number) {
           });
         });
       } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
         console.error("analysis.job.failed", {
           slot,
           trackId: job.sourceTrackId,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMsg,
         });
-        captureWorkerException("analyze", error, {
-          slot,
-          trackId: job.sourceTrackId,
-          attempt: job.attempt,
-        });
+        const isNonStreamable = errorMsg.includes("[NON_STREAMABLE]");
+        if (!isNonStreamable) {
+          captureWorkerException("analyze", error, {
+            slot,
+            trackId: job.sourceTrackId,
+            attempt: job.attempt,
+          });
+        }
         Sentry.metrics.count("analysis.worker.job_error", 1, {
           attributes: workerMetricAttributes,
         });
-        await queue.fail(job, error);
+        await queue.fail(job, error, isNonStreamable);
       } finally {
         activeJobs -= 1;
         recordWorkerState();
