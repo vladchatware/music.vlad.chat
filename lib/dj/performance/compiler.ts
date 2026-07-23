@@ -17,6 +17,8 @@ const EQ_PRESETS = {
   high_first: "highFirst",
 } as const;
 
+export const MIN_INCOMING_CONTINUITY_RUNWAY_SEC = 60;
+
 function durationOf(deck: PerformanceLiveState["outgoingDeck"]): number {
   return Math.max(1.5, deck.track.duration ?? 300);
 }
@@ -154,6 +156,14 @@ export function compilePerformancePlan(
       : "seconds" in blendDuration && typeof blendDuration.seconds === "number"
         ? blendDuration.seconds
         : 0.1;
+  const latestContinuitySafeEntry = Math.max(
+    0,
+    incomingDuration - requestedBlendSec - MIN_INCOMING_CONTINUITY_RUNWAY_SEC,
+  );
+  if (entrySec > latestContinuitySafeEntry) {
+    entrySec = latestContinuitySafeEntry;
+    adjustments.push("entry_clamped_for_continuity_runway");
+  }
   const maxRunway = Math.max(
     0.1,
     Math.min(32, outgoingDuration - minExit, incomingDuration - entrySec),

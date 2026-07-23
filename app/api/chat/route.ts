@@ -11,8 +11,28 @@ import { createDJAgentTools } from '@/lib/server/djAgentTools';
 import { checkDJAccess, recordDJUsage } from '@/lib/server/djAgentAccess';
 import { isLocalDJBypass } from '@/lib/server/localDJBypass';
 import { playbackDebugServer } from '@/lib/playbackDebugServer';
-import { createDJAgentStepPolicy, getLatestPlayedTrackIds } from '@/lib/server/djAgentPolicy';
+import {
+  createDJAgentStepPolicy,
+  getDiscoveredTrackIds,
+  getDJAgentMode,
+  hasDJToolCall,
+  hasDJToolCallAfterLatestRejectedPlayer,
+  getLatestCandidateTrackIds,
+  getLatestPlayedTrackIds,
+  getLatestSuccessfulPlayerTrackId,
+} from '@/lib/server/djAgentPolicy';
 import { getMcpClientRequest } from '@/lib/server/mcpClientRequest';
+import { resolveDJModel } from '@/lib/server/djModel';
+import { getDJLiveStateInstruction } from '@/lib/server/djLiveState';
+import { createDJToolCallBudget } from '@/lib/server/djToolCallBudget';
+import {
+  classifyAgentTurnOutcome,
+  DJ_PLAYER_DECISION_DEADLINE_MS,
+  getDJAgentToolChoice,
+  hasUsablePostPlayerAnalysis,
+  MAX_DJ_AGENT_STEPS,
+} from '@/lib/server/agentSessionLimit';
+import { repairMissingStreamPartStarts } from '@/lib/server/repairModelStream';
 
 function cleanCorrelation(value: unknown) {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 128) : undefined;
@@ -23,9 +43,22 @@ function cleanConversationId(value: string | undefined) {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, telemetry } = await req.json()
+  const { messages, telemetry, djState } = await req.json()
   const chatSessionId = cleanCorrelation(telemetry?.chatSessionId);
   const turnId = cleanCorrelation(telemetry?.turnId);
+  const agentSessionId = cleanCorrelation(telemetry?.agentSessionId);
+  const agentSessionRevision = Number.isSafeInteger(telemetry?.agentSessionRevision)
+    ? telemetry.agentSessionRevision as number
+    : undefined;
+  const activeTrackId = Number.isSafeInteger(telemetry?.activeTrackId)
+    ? telemetry.activeTrackId as number
+    : undefined;
+  const agentSessionElapsedMs = Number.isFinite(telemetry?.agentSessionElapsedMs)
+    ? Math.max(0, telemetry.agentSessionElapsedMs as number)
+    : 0;
+  const agentSessionRemainingMs = Number.isFinite(telemetry?.agentSessionRemainingMs)
+    ? Math.max(0, telemetry.agentSessionRemainingMs as number)
+    : undefined;
 
   const token = await convexAuthNextjsToken()
   const user = await fetchQuery(api.users.viewer, {}, { token })
@@ -49,7 +82,8 @@ export async function POST(req: NextRequest) {
   const soundcloud = await createMCPClient({ transport })
 
   const soundcloudTools = await soundcloud.tools()
-  const playedTrackIds = getLatestPlayedTrackIds(messages)
+  const episodeContext = [messages, djState]
+  const playedTrackIds = getLatestPlayedTrackIds(episodeContext)
   const bindPlayedExclusions = (remoteTool: (typeof soundcloudTools)[string]) => {
     if (!remoteTool?.execute || playedTrackIds.length === 0) return remoteTool
     const execute = remoteTool.execute
@@ -63,19 +97,155 @@ export async function POST(req: NextRequest) {
       },
     }
   }
+  const likesTool = soundcloudTools.likes ? bindPlayedExclusions(soundcloudTools.likes) : undefined
+  const tracksTool = soundcloudTools.tracks ? bindPlayedExclusions(soundcloudTools.tracks) : undefined
   const discoveryTools = {
-    ...(soundcloudTools.likes ? { likes: bindPlayedExclusions(soundcloudTools.likes) } : {}),
-    ...(soundcloudTools.tracks ? { tracks: bindPlayedExclusions(soundcloudTools.tracks) } : {}),
+    ...(likesTool?.execute ? {
+      likes: {
+        ...likesTool,
+        execute: createDJToolCallBudget({
+          toolName: 'likes',
+          maxCalls: 1,
+          execute: likesTool.execute,
+        }),
+      },
+    } : {}),
+    ...(tracksTool?.execute ? {
+      tracks: {
+        ...tracksTool,
+        execute: createDJToolCallBudget({
+          toolName: 'tracks',
+          maxCalls: 2,
+          execute: tracksTool.execute,
+        }),
+      },
+    } : {}),
   }
-  const tools = { ...discoveryTools, ...createDJAgentTools() } satisfies ToolSet
-  const stepPolicy = createDJAgentStepPolicy(messages)
-  const model = process.env.DJ_MODEL ?? 'openai/gpt-5.4-nano';
+  const agentMode = getDJAgentMode(episodeContext)
+  const liveStateInstruction = getDJLiveStateInstruction(djState)
+  const acceptedPlayerTrackId = getLatestSuccessfulPlayerTrackId(messages)
+  const preparedCandidatePool = agentMode === 'prepared_selection' || agentMode === 'post_player_preparation'
+  const postPlayerPreparation = agentMode === 'post_player_preparation'
+  const analysisScheduleWasRequired = postPlayerPreparation &&
+    !hasDJToolCall(messages, 'schedule_track_analysis')
+  const discoveredPlayerTrackIds = getDiscoveredTrackIds(messages)
+    .filter((id) => !playedTrackIds.includes(id))
+  const candidatePlayerTrackIds = [...new Set([
+    ...getLatestCandidateTrackIds(djState),
+    ...discoveredPlayerTrackIds,
+  ])].filter((id) => !playedTrackIds.includes(id))
+  const recoveryStateRefreshed = agentMode === 'recovery' &&
+    hasDJToolCallAfterLatestRejectedPlayer(messages, 'dj_state')
+  const hasSelectionEvidencePool = preparedCandidatePool || candidatePlayerTrackIds.length >= 2
+  const localAgentTools = createDJAgentTools(undefined, {
+    maxForegroundAnalyses: hasSelectionEvidencePool ? 4 : 1,
+    playerCandidateIds: candidatePlayerTrackIds,
+  })
+  const requireMcpTool = (name: string) => {
+    const remoteTool = soundcloudTools[name]
+    if (!remoteTool?.execute) throw new Error(`Required MCP tool unavailable: ${name}`)
+    return remoteTool
+  }
+  const trackAnalysisBase = requireMcpTool('track_analysis')
+  const compareAnalysisBase = requireMcpTool('compare_track_analysis')
+  const scheduleAnalysisBase = requireMcpTool('schedule_track_analysis')
+  const trackAnalysisTool = {
+    ...trackAnalysisBase,
+    execute: createDJToolCallBudget({
+      toolName: 'track_analysis',
+      maxCalls: 1,
+      execute: trackAnalysisBase.execute!,
+    }),
+  }
+  const compareAnalysisTool = {
+    ...compareAnalysisBase,
+    execute: createDJToolCallBudget({
+      toolName: 'compare_track_analysis',
+      maxCalls: 1,
+      execute: compareAnalysisBase.execute!,
+    }),
+  }
+  const scheduleAnalysisTool = {
+    ...scheduleAnalysisBase,
+    execute: createDJToolCallBudget({
+      toolName: 'schedule_track_analysis',
+      maxCalls: 1,
+      execute: scheduleAnalysisBase.execute!,
+    }),
+  }
+  const agentTools = {
+    ...(!liveStateInstruction || agentMode === 'recovery'
+      ? { dj_state: localAgentTools.dj_state }
+      : {}),
+    player: localAgentTools.player,
+    track_analysis: trackAnalysisTool,
+    compare_track_analysis: compareAnalysisTool,
+    schedule_track_analysis: scheduleAnalysisTool,
+  }
+  let postPlayerAnalysisScheduled = !analysisScheduleWasRequired
+  const preparedPoolTools = { player: agentTools.player }
+  const postPlayerAnalysisTool = {
+    ...agentTools.track_analysis,
+    description: `Analyze one prepared candidate for the transition after the queued track. Do not analyze the already accepted player track${acceptedPlayerTrackId ? ` ${acceptedPlayerTrackId}` : ''}.`,
+    execute: async (
+      input: unknown,
+      options: Parameters<typeof agentTools.track_analysis.execute>[1],
+    ) => {
+      const trackId = input && typeof input === 'object'
+        ? (input as { id?: unknown }).id
+        : undefined
+      if (trackId === acceptedPlayerTrackId) {
+        return {
+          status: 'rejected_selected_track' as const,
+          trackId: String(trackId),
+          instruction: 'Choose a different prepared candidate and call track_analysis once now.',
+        }
+      }
+      return agentTools.track_analysis.execute(input, options)
+    },
+  }
+  const postPlayerScheduleTool = {
+    ...agentTools.schedule_track_analysis,
+    execute: async (
+      input: unknown,
+      options: Parameters<typeof agentTools.schedule_track_analysis.execute>[1],
+    ) => {
+      const result = await agentTools.schedule_track_analysis.execute(input, options)
+      postPlayerAnalysisScheduled = true
+      return result
+    },
+  }
+  const tools: ToolSet = postPlayerPreparation
+    ? {
+        track_analysis: postPlayerAnalysisTool,
+        ...(analysisScheduleWasRequired
+          ? { schedule_track_analysis: postPlayerScheduleTool }
+          : {}),
+      }
+    : agentMode === 'recovery'
+      ? { ...discoveryTools, ...agentTools }
+    : preparedCandidatePool
+      ? preparedPoolTools
+      : { ...discoveryTools, ...agentTools }
+  const stepPolicy = createDJAgentStepPolicy(messages, {
+    hasInitialDJState: Boolean(liveStateInstruction),
+  })
+  const model = resolveDJModel(process.env.DJ_MODEL);
   const timeoutMs = Math.min(
     120_000,
-    Math.max(15_000, Number.parseInt(process.env.DJ_AGENT_TIMEOUT_MS ?? '45000', 10) || 45_000),
+    Math.max(15_000, Number.parseInt(process.env.DJ_AGENT_TIMEOUT_MS ?? '55000', 10) || 55_000),
   );
   const startedAt = performance.now();
-  const traceContext = { chatSessionId, turnId, model };
+  const traceContext = {
+    chatSessionId,
+    turnId,
+    agentSessionId,
+    agentSessionRevision,
+    activeTrackId,
+    agentSessionElapsedMs,
+    agentSessionRemainingMs,
+    model,
+  };
   const metricAttributes = {
     model,
     user_kind: user.isAnonymous ? 'anonymous' : 'authenticated',
@@ -116,12 +286,33 @@ export async function POST(req: NextRequest) {
   const agent = new ToolLoopAgent({
     id: 'ai-dj-chat',
     model,
-    instructions: systemMessage,
+    instructions: liveStateInstruction
+      ? `${systemMessage}\n\n${liveStateInstruction}`
+      : systemMessage,
     tools,
-    stopWhen: [hasToolCall('player'), stepCountIs(12)],
-    prepareStep: () => {
-      const toolChoice = stepPolicy.nextRequiredTool()
-      return toolChoice ? { toolChoice } : undefined
+    stopWhen: postPlayerPreparation
+      ? [hasUsablePostPlayerAnalysis, stepCountIs(analysisScheduleWasRequired ? 3 : 2)]
+      : [
+          hasToolCall('player'),
+          // End the transport response after discovery so the next continuation
+          // can rebuild player with an exact candidate-ID schema.
+          hasToolCall('likes'),
+          hasToolCall('tracks'),
+          stepCountIs(MAX_DJ_AGENT_STEPS),
+        ],
+    prepareStep: ({ stepNumber }) => {
+      const boundedChoice = getDJAgentToolChoice({
+        mode: agentMode,
+        stepNumber,
+        maxSteps: MAX_DJ_AGENT_STEPS,
+        policyChoice: undefined,
+        elapsedMs: agentSessionElapsedMs + performance.now() - startedAt,
+        decisionDeadlineMs: DJ_PLAYER_DECISION_DEADLINE_MS,
+        recoveryStateRefreshed,
+        postPlayerAnalysisScheduled,
+        postPlayerScheduleWasRequired: analysisScheduleWasRequired,
+      });
+      return boundedChoice ? { toolChoice: boundedChoice } : undefined
     },
     experimental_telemetry: {
       isEnabled: true,
@@ -150,8 +341,22 @@ export async function POST(req: NextRequest) {
     onFinish: async ({ totalUsage: usage, finishReason, steps }) => {
       const durationMs = performance.now() - startedAt;
       const finishAttributes = { ...metricAttributes, finish_reason: finishReason };
-      Sentry.logger.info('AI DJ turn finished', {
+      const toolNames = steps.flatMap((step) =>
+        step.toolCalls.map(({ toolName }) => toolName)
+      );
+      const turnOutcome = classifyAgentTurnOutcome({
+        stepCount: steps.length,
+        maxSteps: MAX_DJ_AGENT_STEPS,
+        toolNames,
+        finishReason,
+      });
+      const logTurn = turnOutcome.outcome === 'failed'
+        ? Sentry.logger.error
+        : Sentry.logger.info;
+      logTurn('AI DJ turn finished', {
         ...finishAttributes,
+        outcome: turnOutcome.outcome,
+        ...(turnOutcome.outcome === 'failed' ? { failure_reason: turnOutcome.reason } : {}),
         duration_ms: durationMs,
         step_count: steps.length,
         input_tokens: usage.inputTokens,
@@ -159,7 +364,15 @@ export async function POST(req: NextRequest) {
         total_tokens: usage.totalTokens,
         ...(turnId ? { turn_id: turnId } : {}),
       });
-      Sentry.metrics.count('ai.dj.turn.finished', 1, { attributes: finishAttributes });
+      Sentry.metrics.count(
+        turnOutcome.outcome === 'failed' ? 'ai.dj.turn.failed' : 'ai.dj.turn.finished',
+        1,
+        {
+          attributes: turnOutcome.outcome === 'failed'
+            ? { ...finishAttributes, reason: turnOutcome.reason }
+            : finishAttributes,
+        },
+      );
       Sentry.metrics.distribution('ai.dj.turn.duration', durationMs, {
         unit: 'millisecond',
         attributes: { ...metricAttributes, status: 'finished' },
@@ -175,6 +388,8 @@ export async function POST(req: NextRequest) {
       });
       playbackDebugServer('ai.dj.turn.finished', {
         ...traceContext,
+        outcome: turnOutcome.outcome,
+        ...(turnOutcome.outcome === 'failed' ? { failureReason: turnOutcome.reason } : {}),
         finishReason,
         stepCount: steps.length,
         inputTokens: usage.inputTokens,
@@ -193,6 +408,7 @@ export async function POST(req: NextRequest) {
     const result = await agent.stream({
       messages: await convertToModelMessages(messages),
       abortSignal: AbortSignal.timeout(timeoutMs),
+      experimental_transform: repairMissingStreamPartStarts(),
     });
     return result.toUIMessageStreamResponse({
       sendSources: true,

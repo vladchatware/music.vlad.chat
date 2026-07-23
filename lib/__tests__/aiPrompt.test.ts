@@ -45,4 +45,38 @@ describe("DJ system prompt", () => {
     expect(systemMessage).toContain("refresh candidates with likes or tracks using exclude_ids");
     expect(systemMessage).toContain("Never pick another stale candidate");
   });
+
+  it("includes a concrete fragment-score example", () => {
+    expect(systemMessage.indexOf("FIRST ENTRANCE OVERRIDE")).toBeLessThan(
+      systemMessage.indexOf("PERFORMANCE LOOP"),
+    );
+    expect(systemMessage).toContain(
+      "submit the PREPARED FIRST-WATER PERFORMANCE",
+    );
+    expect(systemMessage).toContain(
+      "This overrides discovery and single-transition planning",
+    );
+    expect(systemMessage).toContain("PREPARED FIRST-WATER PERFORMANCE");
+    expect(systemMessage).toContain("F001 water/origin");
+    expect(systemMessage).toContain("151178937");
+    expect(systemMessage).toContain("cue s0 0.000–5.119 s");
+    expect(systemMessage).toContain("F029 water/stride");
+    expect(systemMessage).toContain("BOUNDARY CONTRACT");
+    expect(systemMessage).not.toContain("F030");
+    expect(systemMessage).not.toContain("F454");
+    expect(systemMessage).not.toContain("SOURCE_1");
+  });
+
+  it("frames multi-track composition as one bounded atomic score", () => {
+    expect(systemMessage).toContain("hundreds of short fragments");
+    expect(systemMessage).toContain("Source count is not the horizon");
+    expect(systemMessage).toContain("Use one agent session");
+    expect(systemMessage).toContain("never create concurrent sessions");
+    expect(systemMessage).toContain("Motifs organize sources");
+    expect(systemMessage).toContain("Metric compatibility without an audible through-line");
+    expect(systemMessage).toContain("Density must have grammar");
+    expect(systemMessage).toContain("Do not commit the first merely valid sequence");
+    expect(systemMessage).toContain("failure outcome agent_holding_loop");
+    expect(systemMessage).toContain("at least 64 seconds of safe musical runway");
+  });
 });

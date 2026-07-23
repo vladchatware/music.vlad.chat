@@ -27,6 +27,12 @@ import type { SoundCloudTrack } from "../types";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 export type TransitionOutcome = "completed" | "aborted" | "failed_start";
+export type ExecutedEnergyArc = "build" | "preserve" | "release";
+
+export type TransitionCompletionSample = {
+  outgoingEnergyAtEnd: number;
+  incomingEnergyAtEnd: number;
+};
 
 export type DeckId = "A" | "B";
 
@@ -64,11 +70,31 @@ export interface DJEngineState {
 }
 
 export type TransitionMetric = {
+  outgoingTrackId: number;
+  incomingTrackId: number;
+  energyArc: DJPerformancePlan["energyArc"] | null;
+  incomingStartSec: number | null;
+  plannedExitSec: number;
+  blendDurationSec: number;
+  performanceSource: "agent" | "planner";
   handoffEnergyMismatch: number;
   isAbruptTransition: boolean;
+  outgoingEnergyAtStart: number;
+  incomingEnergyAtStart: number;
+  outgoingEnergyAtEnd: number | null;
+  incomingEnergyAtEnd: number | null;
+  incomingEnergyRise: number | null;
+  executedEnergyDelta: number | null;
+  executedEnergyArc: ExecutedEnergyArc | null;
+  arcContradiction: boolean | null;
   transitionOutcome: TransitionOutcome;
   atMs: number;
 };
+
+export type PendingTransitionMetric = Omit<
+  TransitionMetric,
+  "transitionOutcome" | "atMs"
+>;
 
 export type EngineDiagnostics = {
   transitionStartFailures: number;

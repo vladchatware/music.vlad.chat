@@ -22,7 +22,8 @@ declare global {
   }
 }
 
-const MAX_EVENT_BUFFER = 800;
+const MAX_EVENT_BUFFER = 250;
+const MAX_CONSOLE_PAYLOAD_CHARS = 8_000;
 
 let runtimeErrorsAttached = false;
 let sequence = 0;
@@ -63,6 +64,26 @@ const isTruthyFlag = (value: string | null | undefined) => {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+};
+
+export const formatPlaybackDebugPayload = (
+  payload: DebugPayload,
+  maxChars = MAX_CONSOLE_PAYLOAD_CHARS,
+) => {
+  const seen = new WeakSet<object>();
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(payload, (_key, value: unknown) => {
+      if (!value || typeof value !== "object") return value;
+      if (seen.has(value)) return "[Circular]";
+      seen.add(value);
+      return value;
+    });
+  } catch {
+    serialized = "[Unserializable payload]";
+  }
+  if (serialized.length <= maxChars) return serialized;
+  return `${serialized.slice(0, Math.max(0, maxChars - 1))}…`;
 };
 
 const readBrowserFlag = () => {
@@ -148,7 +169,7 @@ export const playbackDebug = (event: string, payload?: DebugPayload) => {
 
   if (debugEnabled) {
     if (payload !== undefined) {
-      console.log(`[mp-debug] ${event}`, payload);
+      console.log(`[mp-debug] ${event} ${formatPlaybackDebugPayload(payload)}`);
     } else {
       console.log(`[mp-debug] ${event}`);
     }

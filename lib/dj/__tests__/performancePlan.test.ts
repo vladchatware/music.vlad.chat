@@ -177,6 +177,28 @@ describe("compilePerformancePlan", () => {
     expect(compiled.diagnostics.accepted).toContain("segment_pair");
   });
 
+  it("keeps enough of a short incoming track for the next DJ decision", () => {
+    const compiled = compilePerformancePlan(
+      performance({
+        entry: { anchor: "time", timeSec: 40 },
+      }),
+      {
+        outgoingDeck: deck("A", 108),
+        incomingDeck: deck("B", 140, 100),
+        currentTimeSec: 20,
+      },
+    );
+
+    expect(
+      100 -
+        compiled.performance.incomingStartSec -
+        compiled.plan.crossfadeDurationSec,
+    ).toBeCloseTo(60, 5);
+    expect(compiled.diagnostics.adjustments).toContain(
+      "entry_clamped_for_continuity_runway",
+    );
+  });
+
   it("moves stale exits forward and clamps blend to available runway", () => {
     const compiled = compilePerformancePlan(
       performance({

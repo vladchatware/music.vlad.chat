@@ -90,4 +90,18 @@ describe("DJ agent step policy", () => {
       toolName: "schedule_track_analysis",
     });
   });
+
+  it("does not spend first tool round rereading state attached by client", () => {
+    const policy = createDJAgentStepPolicy(
+      [
+        {
+          role: "user",
+          parts: [{ type: "text", text: "PERFORMANCE EVENT: transition window approaching." }],
+        },
+      ],
+      { hasInitialDJState: true },
+    );
+
+    expect(policy.nextRequiredTool()).toBeUndefined();
+  });
 });

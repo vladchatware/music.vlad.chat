@@ -319,6 +319,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     broadcastAudioStreamRef: audioGraph.broadcastAudioStreamRef,
     audioEnergyRef,
     audioBeatRef,
+    diagnosticsRef,
 
     play,
     pause,

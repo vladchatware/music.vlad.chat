@@ -2,9 +2,12 @@
 
 import { useCallback, useRef } from "react";
 import { playbackDebug } from "@/lib/playbackDebug";
+import { classifyExecutedEnergyArc } from "./continuityMetrics";
 
 import type {
   EngineDiagnostics,
+  PendingTransitionMetric,
+  TransitionCompletionSample,
   TransitionMetric,
   TransitionOutcome,
 } from "./runtimeModel";
@@ -21,10 +24,7 @@ export function useEngineDiagnostics() {
     uninterruptedSegmentsSec: [],
     currentSegmentStartMs: null,
   });
-  const pendingTransitionMetricRef = useRef<{
-    handoffEnergyMismatch: number;
-    isAbruptTransition: boolean;
-  } | null>(null);
+  const pendingTransitionMetricRef = useRef<PendingTransitionMetric | null>(null);
 
   const finalizeCurrentListeningSegment = useCallback((atMs: number) => {
     const startedAt = diagnosticsRef.current.currentSegmentStartMs;
@@ -39,11 +39,41 @@ export function useEngineDiagnostics() {
     diagnosticsRef.current.currentSegmentStartMs ??= atMs;
   }, []);
 
-  const recordTransitionOutcome = useCallback((outcome: TransitionOutcome) => {
+  const recordTransitionOutcome = useCallback((
+    outcome: TransitionOutcome,
+    completionSample?: TransitionCompletionSample,
+  ) => {
     const pending = pendingTransitionMetricRef.current;
     if (!pending) return;
+    const hasCompletionSample =
+      outcome === "completed" && completionSample !== undefined;
+    const outgoingEnergyAtEnd = hasCompletionSample
+      ? completionSample.outgoingEnergyAtEnd
+      : null;
+    const incomingEnergyAtEnd = hasCompletionSample
+      ? completionSample.incomingEnergyAtEnd
+      : null;
+    const executedEnergyArc = incomingEnergyAtEnd === null
+      ? null
+      : classifyExecutedEnergyArc({
+          outgoingEnergyAtStart: pending.outgoingEnergyAtStart,
+          incomingEnergyAtEnd,
+        });
     const metric: TransitionMetric = {
       ...pending,
+      outgoingEnergyAtEnd,
+      incomingEnergyAtEnd,
+      incomingEnergyRise: incomingEnergyAtEnd === null
+        ? null
+        : incomingEnergyAtEnd - pending.incomingEnergyAtStart,
+      executedEnergyDelta: incomingEnergyAtEnd === null
+        ? null
+        : incomingEnergyAtEnd - pending.outgoingEnergyAtStart,
+      executedEnergyArc,
+      arcContradiction:
+        executedEnergyArc === null || pending.energyArc === null || pending.energyArc === "reset"
+          ? null
+          : pending.energyArc !== executedEnergyArc,
       transitionOutcome: outcome,
       atMs: performance.now(),
     };

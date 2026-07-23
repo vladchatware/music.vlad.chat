@@ -31,6 +31,7 @@ import {
   evaluatePlannedTimeout,
   shouldEvaluatePlannedTimeout,
   shouldTriggerAutoCue,
+  shouldTriggerAnalyzedAutoCue,
 } from "./continuityMetrics";
 import { sectionToAnalysis, type EngineDiagnostics } from "./runtimeModel";
 import { runDetached } from "./asyncSafety";
@@ -221,9 +222,12 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
           const analyzedMixOutSec = state.activeDeck.cuePoints?.mixOutSec;
           const shouldCueByAnalysis =
             typeof analyzedMixOutSec === "number" &&
-            !revibeTriggeredRef.current &&
-            listenedSec >= 30 &&
-            analysisDeck.currentTime >= Math.max(20, analyzedMixOutSec - 45);
+            shouldTriggerAnalyzedAutoCue({
+              currentTimeSec: analysisDeck.currentTime,
+              mixOutSec: analyzedMixOutSec,
+              listenedSec,
+              alreadyTriggered: revibeTriggeredRef.current,
+            });
           if (shouldCueByFallback || shouldCueByAnalysis) {
             revibeTriggeredRef.current = true;
             logEngine("engine.auto_cue.trigger", {

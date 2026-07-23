@@ -14,7 +14,19 @@ import { CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
 import { MusicPlayerScene } from "./Scene";
 import { MusicPlayerOverlay } from "./Overlay";
 import { useRevibeChat, type PlayerToolInput } from "./chat/useRevibeChat";
-import { buildRevibePrompt } from "./chat/prompt";
+import {
+  createContinuityIntentController,
+  classifyAgentSessionTerminal,
+  computePlaybackAgentSessionDeadlineAtMs,
+} from "./chat/continuityIntent";
+import { buildRevibePrompt, REVIBE_PROMPT } from "./chat/prompt";
+import {
+  appendConfirmedTransition,
+  appendPlayedTrack,
+  appendScheduledCandidates,
+  createPerformanceMemory,
+  type PerformanceMemoryTrack,
+} from "./chat/performanceMemory";
 import { type SoundCloudTrack } from "./types";
 import { getPlayerEntryAction } from "./interactionPolicy";
 import { useDJEngine } from "./engine/useDJEngine";
@@ -31,6 +43,15 @@ type MusicPlayerProps = {
   onBroadcastSourcesReady?: (sources: BroadcastSources) => void;
   broadcastPortrait?: boolean;
 };
+
+function compactPerformanceTrack(track: SoundCloudTrack): PerformanceMemoryTrack {
+  return {
+    id: track.id,
+    title: track.title ?? "Untitled",
+    artist: track.user?.username ?? track.user?.full_name ?? "Unknown artist",
+  };
+}
+
 
 export default function MusicPlayer(props: MusicPlayerProps) {
   const {
@@ -70,8 +91,13 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     ((e: Event | ThreeEvent<MouseEvent>) => Promise<void> | void) | null
   >(null);
   const initialLoadTrackKeyRef = useRef<string | null>(null);
-  const queuedAutoRevibeRef = useRef(false);
+  const agentSessionDeadlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentSessionController = useMemo(
+    () => createContinuityIntentController(),
+    [],
+  );
   const playedTrackIdsRef = useRef<number[]>([]);
+  const performanceMemoryRef = useRef(createPerformanceMemory(REVIBE_PROMPT));
   const autoCueConfig = useMemo(() => {
     if (playbackProfile !== "trackFocus") return undefined;
     // Track route: hold the current track's strongest section longer before queueing next.
@@ -128,7 +154,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     pause,
     loadInitialTrack,
     cueNextTrack,
-    clearPendingNextTrackRequest,
   } = engine;
 
   useEffect(() => {
@@ -153,44 +178,116 @@ export default function MusicPlayer(props: MusicPlayerProps) {
 
   const needsUserInteraction = phase === "needsGesture";
 
+  const clearAgentSessionDeadline = useCallback(() => {
+    if (!agentSessionDeadlineTimerRef.current) return;
+    clearTimeout(agentSessionDeadlineTimerRef.current);
+    agentSessionDeadlineTimerRef.current = null;
+  }, []);
+
   const onPlayerToolRequested = useCallback(
     async ({ id, performance: performancePlan }: PlayerToolInput) => {
-      queuedAutoRevibeRef.current = false;
-      if (playedTrackIdsRef.current.includes(id)) {
-        playbackDebug("player.tool_request.repeated_track_rejected", {
+      const agentSession = agentSessionController.getActive();
+      if (!agentSession) {
+        playbackDebug("dj.agent_session.failed", {
+          reason: "stale_session",
+          stage: "player_action",
           trackId: id,
-          playedTrackIds: playedTrackIdsRef.current,
         });
-        throw new Error(`Track ${id} already played in this session`);
+        throw new Error("Player action rejected without active agent session");
       }
-      const startedAt = performance.now();
-      playbackDebug("player.tool_request.begin", {
-        trackId: id,
-        state: djState.type,
-        performancePlan,
+      const actionStart = agentSessionController.beginPlayerAction({
+        sessionId: agentSession.id,
+        activeTrackId: activeTrack?.id ?? -1,
       });
-      const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
-      const shouldCue =
-        djState.type === "playing" ||
-        djState.type === "cueing" ||
-        djState.type === "planned" ||
-        djState.type === "crossfading";
+      if (actionStart.outcome === "failed") {
+        playbackDebug("dj.agent_session.failed", {
+          reason: actionStart.reason,
+          stage: "player_action",
+          agentSessionId: agentSession.id,
+          trackId: id,
+        });
+        throw new Error(`Player action rejected: ${actionStart.reason}`);
+      }
+      try {
+        if (playedTrackIdsRef.current.includes(id)) {
+          playbackDebug("player.tool_request.repeated_track_rejected", {
+            trackId: id,
+            playedTrackIds: playedTrackIdsRef.current,
+          });
+          throw new Error(`Track ${id} already played in this session`);
+        }
+        const startedAt = performance.now();
+        playbackDebug("player.tool_request.begin", {
+          trackId: id,
+          state: djState.type,
+          performancePlan,
+          agentSessionId: agentSession.id,
+        });
+        const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
+        const deadlineCheck = agentSessionController.enforceDeadline();
+        if (deadlineCheck.outcome === "failed") {
+          throw new Error(`Player action missed live deadline: ${deadlineCheck.reason}`);
+        }
+        const shouldCue =
+          djState.type === "playing" ||
+          djState.type === "cueing" ||
+          djState.type === "planned" ||
+          djState.type === "crossfading";
 
-      if (shouldCue) {
-        await cueNextTrack(newTrack, performancePlan);
-      } else {
-        await loadInitialTrack(newTrack);
-        await play();
+        if (shouldCue) {
+          await cueNextTrack(newTrack, performancePlan);
+        } else {
+          await loadInitialTrack(newTrack);
+          await play();
+        }
+        const completedDeadlineCheck = agentSessionController.enforceDeadline();
+        if (completedDeadlineCheck.outcome === "failed") {
+          throw new Error(
+            `Player action completed after live deadline: ${completedDeadlineCheck.reason}`,
+          );
+        }
+        if (shouldCue && activeTrack) {
+          performanceMemoryRef.current = appendConfirmedTransition(
+            performanceMemoryRef.current,
+            {
+              from: compactPerformanceTrack(activeTrack),
+              to: compactPerformanceTrack(newTrack),
+              energyArc: performancePlan.energyArc,
+              reason: performancePlan.reason,
+              outcome: "queued",
+            },
+          );
+        }
+        agentSessionController.resolvePlayerAction({
+          sessionId: agentSession.id,
+          activeTrackId: agentSession.activeTrackId,
+          succeeded: true,
+        });
+        playbackDebug("player.tool_request.done", {
+          trackId: id,
+          state: djState.type,
+          mode: shouldCue ? "cue" : "initial_play",
+          elapsedMs: Math.round(performance.now() - startedAt),
+          performanceReason: performancePlan.reason,
+          agentSessionId: agentSession.id,
+        });
+      } catch (error) {
+        agentSessionController.resolvePlayerAction({
+          sessionId: agentSession.id,
+          activeTrackId: agentSession.activeTrackId,
+          succeeded: false,
+        });
+        throw error;
       }
-      playbackDebug("player.tool_request.done", {
-        trackId: id,
-        state: djState.type,
-        mode: shouldCue ? "cue" : "initial_play",
-        elapsedMs: Math.round(performance.now() - startedAt),
-        performanceReason: performancePlan.reason,
-      });
     },
-    [cueNextTrack, djState.type, loadInitialTrack, play],
+    [
+      activeTrack?.id,
+      agentSessionController,
+      cueNextTrack,
+      djState.type,
+      loadInitialTrack,
+      play,
+    ],
   );
 
   const { setPalette } = actions;
@@ -204,6 +301,12 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     const history = playedTrackIdsRef.current.filter((trackId) => trackId !== id);
     history.push(id as number);
     playedTrackIdsRef.current = history.slice(-32);
+    if (activeTrack) {
+      performanceMemoryRef.current = appendPlayedTrack(
+        performanceMemoryRef.current,
+        compactPerformanceTrack(activeTrack),
+      );
+    }
   }, [activeTrack?.id]);
 
   const getDJState = useCallback(() => ({
@@ -253,6 +356,9 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     liveAnalysis: analysis,
     transition,
     playedTrackIds: playedTrackIdsRef.current,
+    performanceMemory: performanceMemoryRef.current,
+    lastTransitionOutcome:
+      engine.diagnosticsRef.current.transitionMetrics.at(-1) ?? null,
     capturedAtMs: Date.now(),
   }), [activeDeck, analysis, djState, playback.currentTimeSec, playback.durationSec, transition]);
 
@@ -273,26 +379,91 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     ), () => undefined);
   }, [activeTrack?.artwork_url, setPalette]);
 
-  const { messages, sendMessage, status } = useRevibeChat({
+  const finishAgentSession = useCallback((
+    outcome: "completed" | "error" | "aborted" | "agent_holding_loop",
+  ) => {
+    const session = agentSessionController.getActive();
+    if (!session) return;
+    const terminal = classifyAgentSessionTerminal({
+      outcome,
+      state: session.state,
+    });
+    if (terminal === "awaiting_continuation") {
+      playbackDebug("dj.agent_session.awaiting_plan", {
+        agentSessionId: session.id,
+      });
+      return;
+    }
+    agentSessionController.close(session.id, terminal);
+    clearAgentSessionDeadline();
+    playbackDebug(
+      terminal === "agent_holding_loop"
+        ? "dj.agent_session.failed"
+        : "dj.agent_session.closed",
+      {
+      agentSessionId: session.id,
+      terminal,
+      },
+    );
+  }, [agentSessionController, clearAgentSessionDeadline]);
+
+  const rememberScheduledCandidates = useCallback((trackIds: number[]) => {
+    performanceMemoryRef.current = appendScheduledCandidates(
+      performanceMemoryRef.current,
+      trackIds,
+    );
+  }, []);
+
+  const authorizeAgentContinuation = useCallback(() => {
+    const result = agentSessionController.recordContinuation();
+    if (result.outcome === "continued") return true;
+    clearAgentSessionDeadline();
+    playbackDebug("dj.agent_session.failed", {
+      reason: result.reason,
+      stage: "continuation",
+      count: "count" in result ? result.count : null,
+    });
+    return false;
+  }, [agentSessionController, clearAgentSessionDeadline]);
+
+  const observeAgentTransport = useCallback((transportStatus: "submitted" | "streaming" | "ready" | "error") => {
+    agentSessionController.observeTransport(transportStatus);
+  }, [agentSessionController]);
+
+  const { messages, sendMessage, status, stop } = useRevibeChat({
     onPlayerToolRequested,
     getDJState,
+    getAgentSession: agentSessionController.getActive,
+    onAgentContinuationRequested: authorizeAgentContinuation,
+    onAgentSessionFinished: finishAgentSession,
+    onScheduledCandidates: rememberScheduledCandidates,
+    onTransportStatus: observeAgentTransport,
     isTransitionBlocked: () =>
       djState.type === "cueing" ||
       djState.type === "planned" ||
       djState.type === "crossfading",
   });
 
-  const previousChatStatusRef = useRef(status);
   useEffect(() => {
-    const previousStatus = previousChatStatusRef.current;
-    previousChatStatusRef.current = status;
-    const requestSettled =
-      (previousStatus === "submitted" || previousStatus === "streaming") &&
-      (status === "ready" || status === "error");
-    if (requestSettled && djState.type === "playing") {
-      clearPendingNextTrackRequest("chat_settled_without_cue");
+    return () => {
+      clearAgentSessionDeadline();
+    };
+  }, [clearAgentSessionDeadline]);
+
+  useEffect(() => {
+    const session = agentSessionController.getActive();
+    if (!session || activeTrack?.id === session.activeTrackId) return;
+    agentSessionController.close(session.id, "aborted");
+    clearAgentSessionDeadline();
+    playbackDebug("dj.agent_session.closed", {
+      agentSessionId: session.id,
+      terminal: "aborted",
+      reason: "active_track_changed",
+    });
+    if (status === "submitted" || status === "streaming") {
+      stop();
     }
-  }, [clearPendingNextTrackRequest, djState.type, status]);
+  }, [activeTrack?.id, agentSessionController, clearAgentSessionDeadline, status, stop]);
 
   // Lock-screen / headset controls + metadata where supported.
   useEffect(() => {
@@ -404,17 +575,62 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           break;
       }
 
-      if (status === "streaming") {
-        if (isAutoRequest) {
-          queuedAutoRevibeRef.current = true;
-          playbackDebug("player.revibe.queued_while_streaming", {
-            eventType: e.type,
-          });
-        }
+      if (status === "submitted" || status === "streaming") {
+        playbackDebug("dj.agent_session.failed", {
+          reason: "agent_holding_loop",
+          stage: "session_open",
+          eventType: e.type,
+          transportStatus: status,
+        });
         return;
       }
 
       const currentTrack = activeTrack as SoundCloudTrack | null;
+      if (!currentTrack) return;
+      const nowMs = Date.now();
+      const remainingSec = Math.max(
+        0,
+        playback.durationSec - playback.currentTimeSec,
+      );
+      const sessionOpen = agentSessionController.open({
+        source: isAutoRequest ? "planning_window" : "user",
+        activeTrackId: currentTrack.id,
+        deadlineAtMs: computePlaybackAgentSessionDeadlineAtMs({
+          nowMs,
+          remainingSec,
+        }),
+      });
+      if (sessionOpen.outcome === "failed") {
+        playbackDebug("dj.agent_session.failed", {
+          reason: sessionOpen.reason,
+          stage: "session_open",
+          eventType: e.type,
+          activeAgentSessionId: sessionOpen.session.id,
+        });
+        return;
+      }
+
+      clearAgentSessionDeadline();
+      const deadlineDelayMs = Math.max(0, sessionOpen.session.deadlineAtMs - Date.now());
+      agentSessionDeadlineTimerRef.current = setTimeout(() => {
+        const activeSession = agentSessionController.getActive();
+        if (activeSession?.id !== sessionOpen.session.id) return;
+        const deadlineResult = agentSessionController.enforceDeadline();
+        if (deadlineResult.outcome !== "failed") return;
+        playbackDebug("dj.agent_session.failed", {
+          reason: deadlineResult.reason,
+          stage: "deadline",
+          agentSessionId: sessionOpen.session.id,
+        });
+        stop();
+      }, deadlineDelayMs);
+      playbackDebug("dj.agent_session.opened", {
+        agentSessionId: sessionOpen.session.id,
+        revision: sessionOpen.session.revision,
+        source: sessionOpen.session.source,
+        activeTrackId: sessionOpen.session.activeTrackId,
+        deadlineAtMs: sessionOpen.session.deadlineAtMs,
+      });
 
       let detectedBpm = currentTrack?.bpm ?? null;
       if (!detectedBpm && bpmDetectorRef.current?.hasReliableBPM()) {
@@ -427,15 +643,29 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         continuityMode: isAutoRequest,
       });
 
-      sendMessage({ role: "user", text: prompt });
-      playbackDebug("player.revibe.prompt_sent", {
-        eventType: e.type,
-        activeTrackId: currentTrack?.id ?? null,
-      });
+      try {
+        performanceMemoryRef.current = {
+          ...performanceMemoryRef.current,
+          intent: prompt,
+        };
+        await sendMessage({ role: "user", text: prompt });
+        playbackDebug("player.revibe.prompt_sent", {
+          eventType: e.type,
+          activeTrackId: currentTrack.id,
+          agentSessionId: sessionOpen.session.id,
+        });
+      } catch (error) {
+        finishAgentSession("error");
+        throw error;
+      }
     },
     [
       activeTrack,
+      activeDeck,
+      agentSessionController,
       bpmDetectorRef,
+      clearAgentSessionDeadline,
+      finishAgentSession,
       isAuthenticated,
       needsUserInteraction,
       sendMessage,
@@ -447,31 +677,15 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       initialTrackId,
       loadInitialTrack,
       play,
+      playback.currentTimeSec,
+      playback.durationSec,
+      stop,
     ],
   );
 
   useEffect(() => {
     latestOnRevibeRef.current = onRevibe;
   }, [onRevibe]);
-
-  useEffect(() => {
-    if (status === "streaming") return;
-    if (!queuedAutoRevibeRef.current) return;
-    if (djState.type !== "playing") {
-      queuedAutoRevibeRef.current = false;
-      return;
-    }
-    queuedAutoRevibeRef.current = false;
-    playbackDebug("player.revibe.flush_queued_auto", {
-      djState: djState.type,
-      status,
-    });
-    runDetached(onRevibe(new Event("auto-revibe")), (error) => {
-      playbackDebug("player.revibe.flush_failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }, [djState.type, onRevibe, status]);
 
   useEffect(() => {
     playbackDebug("player.state", {

@@ -60,4 +60,17 @@ describe("MCP Sentry instrumentation", () => {
     expect(telemetry.wrapMcpServerWithSentry.mock.invocationCallOrder[0])
       .toBeLessThan(telemetry.server.tool.mock.invocationCallOrder[0]);
   });
+
+  it("exposes portable DJ analysis and scheduling tools", async () => {
+    await import("./route");
+
+    const names = telemetry.server.tool.mock.calls.map(([name]) => name);
+    expect(names).toEqual(expect.arrayContaining([
+      "likes",
+      "tracks",
+      "track_analysis",
+      "compare_track_analysis",
+      "schedule_track_analysis",
+    ]));
+  });
 });

@@ -1,16 +1,29 @@
-export const MIN_AUTO_CUE_PLAY_SEC = 90;
-export const MIN_AUTO_CUE_PROGRESS = 0.7;
+export const MIN_AUTO_CUE_PLAY_SEC = 4;
+export const MIN_AUTO_CUE_PROGRESS = 0;
 export const MIN_AUTO_CUE_REMAINING_SEC = 75;
+export const ANALYZED_AUTO_CUE_RUNWAY_SEC = 75;
 export const SHORT_TRACK_CLASSIFIER_SEC = 70;
 export const SHORT_TRACK_MIN_HOLD_SEC = 4;
 export const SHORT_TRACK_MIN_PROGRESS = 0.1;
 export const SHORT_TRACK_MIN_REMAINING_SEC = 45;
+export const LATE_ENTRY_OFFSET_SEC = 10;
+export const LATE_ENTRY_PLANNING_RUNWAY_SEC = 70;
 export const DEFAULT_ABRUPT_MISMATCH_THRESHOLD = 0.35;
+export const DEFAULT_ENERGY_ARC_THRESHOLD = 0.12;
 export const PLANNED_TRANSITION_TIMEOUT_MS = 12000;
 export const MAX_PLANNED_REPLANS = 2;
 export const DEFAULT_HOLD_LOOP_WINDOW_SEC = 12;
 export const MIN_HOLD_LOOP_WINDOW_SEC = 6;
 export const MAX_HOLD_LOOP_WINDOW_SEC = 24;
+
+export function getEndedNextTrackAction(opts: {
+  revibeTriggered: boolean;
+  requestInFlight: boolean;
+}): "hold_pending" | "hold_failed_attempt" | "request" {
+  if (opts.requestInFlight) return "hold_pending";
+  if (opts.revibeTriggered) return "hold_failed_attempt";
+  return "request";
+}
 
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0;
@@ -61,6 +74,16 @@ export function shouldTriggerAutoCue(opts: {
   const remainingSec = durationSec !== null ? durationSec - opts.currentTimeSec : null;
   const listenedSec = Math.max(0, opts.listenedSec ?? opts.currentTimeSec);
 
+  const enteredLate = opts.currentTimeSec - listenedSec >= LATE_ENTRY_OFFSET_SEC;
+  if (
+    enteredLate &&
+    listenedSec >= shortTrackMinHoldSec &&
+    remainingSec !== null &&
+    remainingSec <= LATE_ENTRY_PLANNING_RUNWAY_SEC
+  ) {
+    return true;
+  }
+
   // Short effective streams (e.g. 30s previews) should breathe longer before queueing.
   // Keep this classifier independent of long-track hold constants to avoid accidental early cueing.
   if (durationSec !== null && durationSec <= SHORT_TRACK_CLASSIFIER_SEC) {
@@ -80,6 +103,18 @@ export function shouldTriggerAutoCue(opts: {
   }
 
   return false;
+}
+
+export function shouldTriggerAnalyzedAutoCue(opts: {
+  currentTimeSec: number;
+  mixOutSec: number;
+  listenedSec: number;
+  alreadyTriggered: boolean;
+  planningRunwaySec?: number;
+}): boolean {
+  if (opts.alreadyTriggered || opts.listenedSec < 30) return false;
+  const runwaySec = opts.planningRunwaySec ?? ANALYZED_AUTO_CUE_RUNWAY_SEC;
+  return opts.currentTimeSec >= Math.max(20, opts.mixOutSec - runwaySec);
 }
 
 export type HoldLoopPlan = {
@@ -182,6 +217,19 @@ export function isAbruptTransition(opts: {
 }): boolean {
   const threshold = opts.threshold ?? DEFAULT_ABRUPT_MISMATCH_THRESHOLD;
   return clamp01(opts.mismatch) >= clamp01(threshold);
+}
+
+export function classifyExecutedEnergyArc(opts: {
+  outgoingEnergyAtStart: number;
+  incomingEnergyAtEnd: number;
+  threshold?: number;
+}): "build" | "preserve" | "release" {
+  const threshold = clamp01(opts.threshold ?? DEFAULT_ENERGY_ARC_THRESHOLD);
+  const delta =
+    clamp01(opts.incomingEnergyAtEnd) - clamp01(opts.outgoingEnergyAtStart);
+  if (delta > threshold) return "build";
+  if (delta < -threshold) return "release";
+  return "preserve";
 }
 
 export function evaluatePlannedTimeout(opts: {
