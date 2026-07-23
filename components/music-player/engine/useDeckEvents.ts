@@ -8,6 +8,7 @@ import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 import {
   DEFAULT_HOLD_LOOP_WINDOW_SEC,
   computePhraseQuantizedHoldLoop,
+  getEndedNextTrackAction,
 } from "./continuityMetrics";
 import type {
   DeckId,
@@ -272,8 +273,19 @@ export function useDeckEvents(options: DeckEventsOptions): void {
 
         if (onRequestNextTrack) {
           try {
-            if (revibeTriggeredRef.current || nextTrackRequestInFlightRef.current) {
+            const endedAction = getEndedNextTrackAction({
+              revibeTriggered: revibeTriggeredRef.current,
+              requestInFlight: nextTrackRequestInFlightRef.current,
+            });
+            if (endedAction === "hold_pending") {
               await holdLoopForContinuity("pending_next_track");
+              return;
+            }
+            if (endedAction === "failed_attempt") {
+              logEngine("engine.deck.ended_without_next_track", {
+                deckId,
+                reason: "dj_failed_to_choose",
+              });
               return;
             }
             revibeTriggeredRef.current = true;

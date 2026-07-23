@@ -70,8 +70,62 @@ export function createTrackAnalysisReader(load: AnalysisLoader) {
   };
 }
 
+export function limitForegroundAnalysis<T>(
+  read: (id: number, aspect: TrackAnalysisAspect) => Promise<T>,
+  maxReads = 3,
+) {
+  let reads = 0;
+  return (id: number, aspect: TrackAnalysisAspect) => {
+    if (reads >= maxReads) {
+      return Promise.resolve({
+        status: "foreground_budget_exhausted" as const,
+        trackId: String(id),
+        instruction: "Choose from the analyses already returned and call player now.",
+      });
+    }
+    reads += 1;
+    return read(id, aspect);
+  };
+}
+
+export function createBatchAnalysisReader<T>(
+  read: (id: number, aspect: TrackAnalysisAspect) => Promise<T>,
+) {
+  return async (ids: number[], aspect: TrackAnalysisAspect) => {
+    const uniqueIds = [...new Set(ids)];
+    const evidence = await Promise.all(
+      uniqueIds.map(async (id) => ({ id, result: await read(id, aspect) })),
+    );
+    return { evidence };
+  };
+}
+
+export function createBoundedAnalysisSchedule(
+  scheduleAnalysis: AnalysisScheduler,
+) {
+  let acceptedTrackIds: number[] | null = null;
+  return async (trackIds: number[], priority = 10) => {
+    const uniqueIds = [...new Set(trackIds)];
+    if (acceptedTrackIds) {
+      return {
+        status: "already_scheduled" as const,
+        trackIds: acceptedTrackIds,
+      };
+    }
+    acceptedTrackIds = uniqueIds;
+    const result = await scheduleAnalysis(uniqueIds, priority);
+    return result
+      ? { status: "scheduled" as const, trackIds: uniqueIds, ...result }
+      : { status: "unavailable" as const, trackIds: uniqueIds };
+  };
+}
+
 export function createDJAgentTools(
   scheduleAnalysis: AnalysisScheduler = createViewerAnalysisScheduler(),
+  opts: {
+    maxForegroundAnalyses?: number;
+    playerCandidateIds?: number[];
+  } = {},
 ) {
   const readAnalysis = createTrackAnalysisReader(async (trackId) => {
     const analysis = await fetchQuery(api.trackAnalysis.getBySoundCloudId, {
@@ -90,6 +144,44 @@ export function createDJAgentTools(
       },
     };
   });
+  const readForegroundAnalysis = limitForegroundAnalysis(
+    readAnalysis,
+    opts.maxForegroundAnalyses ?? 3,
+  );
+  const scheduleOnce = createBoundedAnalysisSchedule(scheduleAnalysis);
+  const readBatchAnalysis = createBatchAnalysisReader(readForegroundAnalysis);
+  const playerCandidateIds = [...new Set(
+    (opts.playerCandidateIds ?? []).filter(
+      (id) => Number.isInteger(id) && id > 0,
+    ),
+  )].slice(0, 32);
+  const playerIdSchema = playerCandidateIds.length === 0
+    ? z.number().int().positive()
+    : playerCandidateIds.length === 1
+      ? z.literal(playerCandidateIds[0]!)
+      : z.union(
+          playerCandidateIds.map((id) => z.literal(id)) as [
+            z.ZodLiteral<number>,
+            z.ZodLiteral<number>,
+            ...z.ZodLiteral<number>[],
+          ],
+        );
+  const boundedPlayerInputSchema = playerToolInputSchema
+    .extend({
+      id: playerIdSchema,
+    })
+    .superRefine((value, context) => {
+      if (/\btest(?:ing)?\b|\bviability\b/i.test(value.performance.reason)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["performance", "reason"],
+          message: "Describe the intended heard musical move; testing placeholders are not a performance plan.",
+        });
+      }
+    });
+  const candidateInstruction = playerCandidateIds.length > 0
+    ? ` Valid discovered candidate IDs: ${playerCandidateIds.join(", ")}. The id must be one of these exact values.`
+    : "";
 
   return {
     dj_state: {
@@ -102,7 +194,16 @@ export function createDJAgentTools(
         id: z.number().int().positive(),
         aspect: z.enum(["summary", "timing", "structure", "energy", "full"]).default("summary"),
       }).strict(),
-      execute: ({ id, aspect }) => readAnalysis(id, aspect),
+      execute: ({ id, aspect }) => readForegroundAnalysis(id, aspect),
+    },
+    compare_track_analysis: {
+      description: "Compare 2-3 cached candidate analyses in one call. Returns aligned evidence per track without a winner score. Use this for a prepared candidate pool before choosing.",
+      inputSchema: z.object({
+        ids: z.array(z.number().int().positive()).min(2).max(3),
+        aspect: z.enum(["summary", "timing", "structure", "energy", "full"]).default("summary"),
+      }).strict(),
+      execute: ({ ids, aspect }: { ids: number[]; aspect: TrackAnalysisAspect }) =>
+        readBatchAnalysis(ids, aspect),
     },
     schedule_track_analysis: {
       description: "Queue 1-8 strongest candidates returned by tracks search for background analysis, even when another liked track is already analyzed. Cached IDs are deduplicated. Call once before player, return immediately, and never wait or poll. Use results in later DJ turns via track_analysis.",
@@ -110,16 +211,12 @@ export function createDJAgentTools(
         ids: z.array(z.number().int().positive()).min(1).max(8),
       }).strict(),
       execute: async ({ ids }: { ids: number[] }) => {
-        const uniqueIds = [...new Set(ids)];
-        const result = await scheduleAnalysis(uniqueIds, 10);
-        return result
-          ? { status: "scheduled", trackIds: uniqueIds, ...result }
-          : { status: "unavailable", trackIds: uniqueIds };
+        return scheduleOnce(ids, 10);
       },
     },
     player: {
-      description: "Choose track and submit complete declarative DJ performance plan. Section anchors must exist in track_analysis. A release from a high-energy drop must exit at a proven falling segment, breakdown, or outro; do not use next_phrase unless analysis proves it reaches one.",
-      inputSchema: playerToolInputSchema,
+      description: `Choose track and submit complete declarative DJ performance plan. Section anchors must exist in track_analysis. A release from a high-energy drop must exit at a proven falling segment, breakdown, or outro; do not use next_phrase unless analysis proves it reaches one. Low ambient into a rising high-energy segment is a build, not a reset. Do not use reset or cut as a fallback for an incompatible candidate. For tracks under 3 minutes, keep entry within the first 32 seconds; after an abrupt or deep-entry outcome, keep it within 24 seconds. Placeholder testing/viability reasons are rejected.${candidateInstruction}`,
+      inputSchema: boundedPlayerInputSchema,
     },
   };
 }

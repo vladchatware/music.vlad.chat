@@ -30,7 +30,7 @@ describe("live stream crowd", () => {
       .query("liveSessions")
       .withIndex("by_session_key", (q) => q.eq("sessionKey", "session_preview_123"))
       .unique());
-    expect(session).toMatchObject({ platformStatus: "waiting" });
+    expect(session).toMatchObject({ platformStatus: "live" });
     expect(session?.instagramAccountId).toBeUndefined();
   });
 

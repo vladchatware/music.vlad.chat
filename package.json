@@ -12,6 +12,8 @@
     "analysis:prepare-models": "bun run workers/track-analysis/prepareModels.ts --accept-noncommercial-license",
     "analysis:queue-likes": "bun run workers/track-analysis/enqueueLikes.ts",
     "eval:dj-agent": "bun run scripts/eval-dj-agent.ts",
+    "eval:dj-live-flow": "bun run scripts/eval-dj-live-flow.ts",
+    "eval:dj-rejection-flow": "DJ_EVAL_REJECT_FIRST_PLAYER=true bun run scripts/eval-dj-live-flow.ts",
     "live:infra:validate": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml config --quiet",
     "live:infra:up": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml up -d",
     "live:infra:logs": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml logs -f livekit egress",

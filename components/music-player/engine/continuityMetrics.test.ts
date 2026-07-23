@@ -5,13 +5,24 @@ import {
   DEFAULT_ABRUPT_MISMATCH_THRESHOLD,
   computeCrossfadeProgressByClock,
   computeHandoffEnergyMismatch,
+  classifyExecutedEnergyArc,
   evaluatePlannedTimeout,
+  getEndedNextTrackAction,
   shouldEvaluatePlannedTimeout,
   isAbruptTransition,
   shouldTriggerAutoCue,
+  shouldTriggerAnalyzedAutoCue,
 } from "./continuityMetrics";
 
 describe("continuityMetrics", () => {
+  it("does not disguise a finished failed attempt as pending continuity", () => {
+    expect(getEndedNextTrackAction({ revibeTriggered: true, requestInFlight: false })).toBe(
+      "failed_attempt",
+    );
+    expect(getEndedNextTrackAction({ revibeTriggered: true, requestInFlight: true })).toBe("hold_pending");
+    expect(getEndedNextTrackAction({ revibeTriggered: false, requestInFlight: false })).toBe("request");
+  });
+
   it("computes monotonic crossfade progress by wall clock", () => {
     expect(
       computeCrossfadeProgressByClock({
@@ -30,11 +41,12 @@ describe("continuityMetrics", () => {
     ).toBe(1);
   });
 
-  it("gates auto cue with 90s + 70% style thresholds", () => {
+  it("starts continuous-set planning after a four-second playback settle", () => {
     expect(
       shouldTriggerAutoCue({
-        currentTimeSec: 95,
-        progress01: 0.72,
+        currentTimeSec: 4,
+        listenedSec: 4,
+        progress01: 0.02,
         alreadyTriggered: false,
         isPlayingState: true,
       }),
@@ -42,8 +54,9 @@ describe("continuityMetrics", () => {
 
     expect(
       shouldTriggerAutoCue({
-        currentTimeSec: 89,
-        progress01: 0.8,
+        currentTimeSec: 3,
+        listenedSec: 3,
+        progress01: 0.02,
         alreadyTriggered: false,
         isPlayingState: true,
       }),
@@ -81,6 +94,17 @@ describe("continuityMetrics", () => {
         durationSec: 130, // 5 seconds remaining, <= 8 threshold
       }),
     ).toBe(true);
+  });
+
+  it("opens planning early when a transition enters deep into a short track", () => {
+    expect(shouldTriggerAutoCue({
+      currentTimeSec: 48,
+      listenedSec: 4,
+      durationSec: 99,
+      progress01: 48 / 99,
+      alreadyTriggered: false,
+      isPlayingState: true,
+    })).toBe(true);
   });
 
   it("falls back to near-end cueing for short tracks", () => {
@@ -124,6 +148,27 @@ describe("continuityMetrics", () => {
       currentTimeSec: 87, listenedSec: 31, durationSec: 106, progress01: 0.82,
       alreadyTriggered: false, isPlayingState: true,
     })).toBe(true);
+  });
+
+  it("opens analyzed planning window with full 75 second runway", () => {
+    expect(shouldTriggerAnalyzedAutoCue({
+      currentTimeSec: 124,
+      mixOutSec: 200,
+      listenedSec: 30,
+      alreadyTriggered: false,
+    })).toBe(false);
+    expect(shouldTriggerAnalyzedAutoCue({
+      currentTimeSec: 125,
+      mixOutSec: 200,
+      listenedSec: 30,
+      alreadyTriggered: false,
+    })).toBe(true);
+    expect(shouldTriggerAnalyzedAutoCue({
+      currentTimeSec: 150,
+      mixOutSec: 200,
+      listenedSec: 60,
+      alreadyTriggered: true,
+    })).toBe(false);
   });
 
   it("computes phrase-quantized hold loops when BPM is known", () => {
@@ -172,6 +217,27 @@ describe("continuityMetrics", () => {
         mismatch: smooth,
       }),
     ).toBe(false);
+  });
+
+  it("classifies full handoff energy trajectory", () => {
+    expect(
+      classifyExecutedEnergyArc({
+        outgoingEnergyAtStart: 0.2,
+        incomingEnergyAtEnd: 0.7,
+      }),
+    ).toBe("build");
+    expect(
+      classifyExecutedEnergyArc({
+        outgoingEnergyAtStart: 0.5,
+        incomingEnergyAtEnd: 0.58,
+      }),
+    ).toBe("preserve");
+    expect(
+      classifyExecutedEnergyArc({
+        outgoingEnergyAtStart: 0.8,
+        incomingEnergyAtEnd: 0.45,
+      }),
+    ).toBe("release");
   });
 
   it("evaluates planned timeout as none/replan/abort", () => {

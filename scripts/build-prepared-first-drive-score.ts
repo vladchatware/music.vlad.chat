@@ -1,0 +1,167 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dir, "..");
+const sourcePath = resolve(root, "docs/dj-performance-500-fragments.md");
+const outputPath = resolve(
+  root,
+  "lib/dj/performance/preparedFirstDriveScore.generated.ts",
+);
+
+const source = readFileSync(sourcePath, "utf8");
+const matches = [
+  ...source.matchAll(
+    /^### (F\d{3}) — ([^\n]+)\n([\s\S]*?)(?=^### F\d{3} —|^## Commit checks)/gm,
+  ),
+];
+
+const EXPECTED_FRAGMENT_COUNT = 500;
+
+function field(body: string, name: string) {
+  const match = body.match(
+    new RegExp(
+      `^- \\*\\*${name}:\\*\\*\\s*([\\s\\S]*?)(?=^- \\*\\*[A-Za-z ]+:\\*\\*|\\n\\n|$)`,
+      "m",
+    ),
+  );
+  return match?.[1]?.replace(/\n\s*/g, " ").trim() ?? "";
+}
+
+function timeToSeconds(value: string) {
+  const [minutes, seconds] = value.split(":");
+  return Number(minutes) * 60 + Number(seconds);
+}
+
+function secondsToTime(value: number) {
+  const minutes = Math.floor(value / 60);
+  const seconds = value - minutes * 60;
+  return `${String(minutes).padStart(2, "0")}:${seconds
+    .toFixed(3)
+    .padStart(6, "0")}`;
+}
+
+function compact(value: string) {
+  return value
+    .replaceAll("source beats", "srcb")
+    .replaceAll("score beats", "scoreb")
+    .replaceAll("master ", "@")
+    .replace(/\s*·\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactEvidence(value: string) {
+  return compact(value)
+    .replace(/\benergy /g, "e")
+    .replace(/\bslope /g, "sl")
+    .replace(/\brhythm /g, "r")
+    .replace(/\bvocal /g, "v")
+    .replace(/\bvalence /g, "va")
+    .replace(/\barousal /g, "ar")
+    .replace(/\bdark /g, "dk")
+    .replace(/\bbright /g, "br");
+}
+
+if (matches.length !== EXPECTED_FRAGMENT_COUNT) {
+  throw new Error(
+    `Expected exactly ${EXPECTED_FRAGMENT_COUNT} concrete fragments, found ${matches.length}`,
+  );
+}
+
+const sourceIds = new Set<number>();
+const durationCounts = new Map<number, number>();
+let previousScoreStartSec = -1;
+for (const [index, match] of matches.entries()) {
+  const expectedFragment = `F${String(index + 1).padStart(3, "0")}`;
+  if (match[1] !== expectedFragment) {
+    throw new Error(
+      `Expected fragment ${expectedFragment} at row ${index + 1}, found ${match[1]}`,
+    );
+  }
+  const sourceId = Number(field(match[3], "Source").match(/^(\d+)/)?.[1]);
+  if (!Number.isSafeInteger(sourceId) || sourceId <= 0) {
+    throw new Error(`Missing positive source ID for ${match[1]}`);
+  }
+  if (sourceIds.has(sourceId)) {
+    throw new Error(`Duplicate source ID ${sourceId} at ${match[1]}`);
+  }
+  sourceIds.add(sourceId);
+
+  const score = field(match[3], "Score");
+  const beats = Number(
+    score.match(/·\s*(\d+)\s+(?:source|score|synchronized)/)?.[1],
+  );
+  if (![1, 2, 4, 8, 16].includes(beats)) {
+    throw new Error(`Invalid score-beat duration for ${match[1]}: ${score}`);
+  }
+  durationCounts.set(beats, (durationCounts.get(beats) ?? 0) + 1);
+  const scoreStart = score.match(/^(\d{2}:\d{2}\.\d{3})/)?.[1];
+  const scoreStartSec = scoreStart ? timeToSeconds(scoreStart) : Number.NaN;
+  if (!Number.isFinite(scoreStartSec) || scoreStartSec < previousScoreStartSec) {
+    throw new Error(`Non-monotonic or invalid score start at ${match[1]}: ${score}`);
+  }
+  previousScoreStartSec = scoreStartSec;
+}
+
+const expectedDurations = new Map([
+  [1, 180],
+  [2, 140],
+  [4, 100],
+  [8, 60],
+  [16, 20],
+]);
+for (const [beats, expected] of expectedDurations) {
+  if (durationCounts.get(beats) !== expected) {
+    throw new Error(
+      `Expected ${expected} ${beats}-beat fragments, found ${durationCounts.get(beats) ?? 0}`,
+    );
+  }
+}
+
+const rows = matches.map((match) => {
+  const [, fragment, role, body] = match;
+  const score = field(body, "Score");
+  const sourceField = field(body, "Source");
+  const cue = field(body, "Cue");
+  const evidence = field(body, "Local evidence");
+  const tempo = field(body, "Tempo treatment");
+  const edit = field(body, "Edit");
+
+  const scoreStart = score.match(/^(\d{2}:\d{2}\.\d{3})/)?.[1];
+  const rendered = tempo.match(/rendered\s+(\d+(?:\.\d+)?)\s*s/)?.[1];
+  const cueBounds = cue.match(
+    /(?:subcue\s+)?(\d+(?:\.\d+)?)–(\d+(?:\.\d+)?)\s*s/,
+  );
+  const duration = rendered
+    ? Number(rendered)
+    : cueBounds
+      ? Number(cueBounds[2]) - Number(cueBounds[1])
+      : undefined;
+  const scoreEnd =
+    scoreStart && Number.isFinite(duration)
+      ? secondsToTime(timeToSeconds(scoreStart) + Number(duration))
+      : "?";
+
+  if (!scoreStart || !sourceField || !cue || !evidence || !edit) {
+    throw new Error(`Incomplete concrete score row ${fragment}`);
+  }
+
+  return [
+    `${fragment} ${role}`,
+    `@${scoreStart}>${scoreEnd} ${compact(score.replace(scoreStart, ""))}`,
+    `src ${compact(sourceField)}`,
+    `cue ${compact(cue)}`,
+    compactEvidence(evidence),
+    tempo ? `tempo ${compact(tempo)}` : "tempo native",
+    `edit ${compact(edit)}`,
+  ].join(" | ");
+});
+
+const generated = `// Generated by scripts/build-prepared-first-drive-score.ts.
+// Do not hand-edit; edit the authored score and regenerate.
+export const PREPARED_FIRST_DRIVE_FRAGMENT_COUNT = ${rows.length};
+export const PREPARED_FIRST_DRIVE_SCORE = ${JSON.stringify(rows.join("\n"))};
+`;
+
+writeFileSync(outputPath, generated);
+console.log(`Wrote ${rows.length} concrete fragments to ${outputPath}`);

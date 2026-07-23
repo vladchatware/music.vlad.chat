@@ -7,6 +7,7 @@ import { api } from "../../../convex/_generated/api"
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server'
 import { searchTrackCandidates } from '@/lib/server/soundcloudCandidateSearch'
 import { wrapMcpServerWithSentry } from '@sentry/node'
+import { createDJAgentTools } from '@/lib/server/djAgentTools'
 
 const MIN_PLAYABLE_TRACK_DURATION_MS = 90_000
 const MAX_PLAYABLE_TRACK_DURATION_MS = 10 * 60 * 1000
@@ -221,6 +222,49 @@ const handler = createMcpHandler(
           }]
         }
       })
+
+    const analysisAspectSchema = z.enum(['summary', 'timing', 'structure', 'energy', 'full'])
+    const asMcpContent = (value: unknown) => ({
+      content: [{ type: 'text' as const, text: JSON.stringify(value) }],
+    })
+
+    server.tool(
+      'track_analysis',
+      'Read one cached rich track analysis with tempo, key, local energy, structure, semantic evidence, and ranked entry/exit segments. This tool reports evidence and never chooses a track.',
+      {
+        id: z.number().int().positive(),
+        aspect: analysisAspectSchema.optional().default('summary'),
+      },
+      async ({ id, aspect }) => {
+        const tools = createDJAgentTools(undefined, { maxForegroundAnalyses: 1 })
+        return asMcpContent(await tools.track_analysis.execute({ id, aspect }))
+      },
+    )
+
+    server.tool(
+      'compare_track_analysis',
+      'Compare 2-3 cached analyses as aligned evidence without a winner score. The calling DJ remains responsible for the musical choice.',
+      {
+        ids: z.array(z.number().int().positive()).min(2).max(3),
+        aspect: analysisAspectSchema.optional().default('summary'),
+      },
+      async ({ ids, aspect }) => {
+        const tools = createDJAgentTools(undefined, { maxForegroundAnalyses: 3 })
+        return asMcpContent(await tools.compare_track_analysis.execute({ ids, aspect }))
+      },
+    )
+
+    server.tool(
+      'schedule_track_analysis',
+      'Queue 1-8 model-selected candidates for background analysis. Returns immediately and never polls or selects a winner.',
+      {
+        ids: z.array(z.number().int().positive()).min(1).max(8),
+      },
+      async ({ ids }) => {
+        const tools = createDJAgentTools()
+        return asMcpContent(await tools.schedule_track_analysis.execute({ ids }))
+      },
+    )
 
   },
   {

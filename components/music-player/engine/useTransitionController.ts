@@ -22,11 +22,14 @@ import {
 import {
   createDeckSnapshot,
   getFiniteDurationSec,
+  isLikelyPreviewStream,
   resolveTransitionPlan,
   withEffectiveTrackDuration,
   type DeckId,
   type EngineDiagnostics,
   type HoldLoopCache,
+  type PendingTransitionMetric,
+  type TransitionCompletionSample,
 } from "./runtimeModel";
 import type { DeckAudioGraph } from "./useDeckAudioGraph";
 import { useDeckTransport } from "./useDeckTransport";
@@ -44,13 +47,13 @@ type TransitionControllerOptions = {
   energyHistoryRef: MutableRefObject<number[]>;
   revibeTriggeredRef: MutableRefObject<boolean>;
   diagnosticsRef: MutableRefObject<EngineDiagnostics>;
-  pendingTransitionMetricRef: MutableRefObject<{
-    handoffEnergyMismatch: number;
-    isAbruptTransition: boolean;
-  } | null>;
+  pendingTransitionMetricRef: MutableRefObject<PendingTransitionMetric | null>;
   ensureListeningSegment: (atMs: number) => void;
   finalizeCurrentListeningSegment: (atMs: number) => void;
-  recordTransitionOutcome: (outcome: "completed" | "aborted" | "failed_start") => void;
+  recordTransitionOutcome: (
+    outcome: "completed" | "aborted" | "failed_start",
+    completionSample?: TransitionCompletionSample,
+  ) => void;
   logEngine: EngineLogger;
 };
 
@@ -144,10 +147,22 @@ export function useTransitionController(options: TransitionControllerOptions) {
 
       const deck = getDeckElement(inactiveDeckId);
       const mediaDurationSec = getFiniteDurationSec(deck?.duration);
+      const metadataDurationSec = getFiniteDurationSec(djTrack.duration);
+      if (isLikelyPreviewStream({ metadataDurationSec, mediaDurationSec })) {
+        logEngine("engine.cue.rejected_preview_stream", {
+          deckId: inactiveDeckId,
+          trackId: track.id,
+          metadataDurationSec,
+          mediaDurationSec,
+        });
+        throw new Error(
+          `Track ${track.id} resolved to a ${mediaDurationSec?.toFixed(3)}s preview stream`,
+        );
+      }
       const effectiveTrack = withEffectiveTrackDuration(djTrack, mediaDurationSec);
       if (
         mediaDurationSec !== null &&
-        getFiniteDurationSec(djTrack.duration) !== null &&
+        metadataDurationSec !== null &&
         Math.abs((djTrack.duration as number) - mediaDurationSec) > 1
       ) {
         logEngine("engine.track.duration_mismatch", {
@@ -304,11 +319,26 @@ export function useTransitionController(options: TransitionControllerOptions) {
       incomingEnergy,
     });
     pendingTransitionMetricRef.current = {
+      outgoingTrackId: state.activeDeck.track.id,
+      incomingTrackId: state.cueDeck.track.id,
+      energyArc: state.plan.performance?.energyArc ?? null,
+      incomingStartSec: state.plan.performance?.incomingStartSec ?? null,
+      plannedExitSec: state.plan.startBoundary.timeSec,
+      blendDurationSec: effectiveCrossfadeDurationSec,
+      performanceSource: state.plan.performance?.source ?? "planner",
       handoffEnergyMismatch,
       isAbruptTransition: isAbruptTransition({
         mismatch: handoffEnergyMismatch,
         threshold: DEFAULT_ABRUPT_MISMATCH_THRESHOLD,
       }),
+      outgoingEnergyAtStart: outgoingEnergy,
+      incomingEnergyAtStart: incomingEnergy,
+      outgoingEnergyAtEnd: null,
+      incomingEnergyAtEnd: null,
+      incomingEnergyRise: null,
+      executedEnergyDelta: null,
+      executedEnergyArc: null,
+      arcContradiction: null,
     };
     logEngine("engine.crossfade.starting", {
       outgoingDeck: state.activeDeck.id,
@@ -320,8 +350,6 @@ export function useTransitionController(options: TransitionControllerOptions) {
       incomingDurationSec: Number.isFinite(incomingDurationSec)
         ? Number(incomingDurationSec.toFixed(3))
         : null,
-      handoffEnergyMismatch: Number(handoffEnergyMismatch.toFixed(4)),
-      isAbruptTransition: pendingTransitionMetricRef.current.isAbruptTransition,
       crossfadeDurationSec: state.plan.crossfadeDurationSec,
       performance: state.plan.performance ?? null,
       plannedStartSec: state.plan.startBoundary.timeSec,
@@ -357,6 +385,22 @@ export function useTransitionController(options: TransitionControllerOptions) {
       incomingDeck.volume = 0;
       outgoingDeck.volume = 1;
       await incomingDeck.play();
+      const startedOutgoingEnergy = getActiveAnalyzer()?.getEnergy("overall") ?? outgoingEnergy;
+      const startedIncomingEnergy = getInactiveAnalyzer()?.getEnergy("overall") ?? incomingEnergy;
+      const startedHandoffEnergyMismatch = computeHandoffEnergyMismatch({
+        outgoingEnergy: startedOutgoingEnergy,
+        incomingEnergy: startedIncomingEnergy,
+      });
+      if (pendingTransitionMetricRef.current) {
+        pendingTransitionMetricRef.current.outgoingEnergyAtStart = startedOutgoingEnergy;
+        pendingTransitionMetricRef.current.incomingEnergyAtStart = startedIncomingEnergy;
+        pendingTransitionMetricRef.current.handoffEnergyMismatch =
+          startedHandoffEnergyMismatch;
+        pendingTransitionMetricRef.current.isAbruptTransition = isAbruptTransition({
+          mismatch: startedHandoffEnergyMismatch,
+          threshold: DEFAULT_ABRUPT_MISMATCH_THRESHOLD,
+        });
+      }
       crossfadeStartTimeRef.current = performance.now();
     } catch {
       crossfadeStartTimeRef.current = null;
@@ -375,6 +419,14 @@ export function useTransitionController(options: TransitionControllerOptions) {
     logEngine("engine.crossfade.started", {
       incomingDeck: state.cueDeck.id,
       outgoingDeck: state.activeDeck.id,
+      outgoingEnergyAtStart:
+        pendingTransitionMetricRef.current?.outgoingEnergyAtStart ?? null,
+      incomingEnergyAtStart:
+        pendingTransitionMetricRef.current?.incomingEnergyAtStart ?? null,
+      handoffEnergyMismatch:
+        pendingTransitionMetricRef.current?.handoffEnergyMismatch ?? null,
+      isAbruptTransition:
+        pendingTransitionMetricRef.current?.isAbruptTransition ?? null,
     });
   }, [
     engineState.djState,
@@ -394,6 +446,10 @@ export function useTransitionController(options: TransitionControllerOptions) {
 
     const outgoingDeck = getDeckElement(state.outgoingDeck.id);
     const incomingDeck = getDeckElement(state.incomingDeck.id);
+    const completionSample = {
+      outgoingEnergyAtEnd: getActiveAnalyzer()?.getEnergy("overall") ?? 0,
+      incomingEnergyAtEnd: getInactiveAnalyzer()?.getEnergy("overall") ?? 0,
+    };
 
     if (outgoingDeck) {
       try {
@@ -434,7 +490,7 @@ export function useTransitionController(options: TransitionControllerOptions) {
     performanceIntentRef.current = null;
     performanceLoopRepetitionsRef.current = 0;
 
-    recordTransitionOutcome("completed");
+    recordTransitionOutcome("completed", completionSample);
     logEngine("engine.crossfade.completed", {
       incomingDeck: state.incomingDeck.id,
       outgoingDeck: state.outgoingDeck.id,
@@ -443,7 +499,7 @@ export function useTransitionController(options: TransitionControllerOptions) {
     });
     dispatch({ type: "CROSSFADE_COMPLETE" });
     actions.resetTransition();
-  }, [actions, engineState.djState, getActiveEQ, getDeckElement, getInactiveEQ, logEngine, recordTransitionOutcome]);
+  }, [actions, engineState.djState, getActiveAnalyzer, getActiveEQ, getDeckElement, getInactiveAnalyzer, getInactiveEQ, logEngine, recordTransitionOutcome]);
 
   useEffect(() => {
     if (engineState.djState.type !== "playing") return;

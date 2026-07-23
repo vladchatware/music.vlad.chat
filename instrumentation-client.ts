@@ -27,10 +27,26 @@ const recordPlaybackMetrics = (event: string, payload?: Record<string, unknown>)
   if (event === "engine.transition.outcome") {
     const outcome = metricString(payload, "transitionOutcome");
     const abrupt = payload?.isAbruptTransition === true;
-    Sentry.metrics.count("playback.transition", 1, { attributes: { outcome, abrupt } });
+    const executedEnergyArc = metricString(payload, "executedEnergyArc");
+    const arcContradiction = payload?.arcContradiction === true;
+    Sentry.metrics.count("playback.transition", 1, {
+      attributes: { outcome, abrupt, executed_energy_arc: executedEnergyArc, arc_contradiction: arcContradiction },
+    });
     const mismatch = metricNumber(payload, "handoffEnergyMismatch");
     if (mismatch !== undefined) {
       Sentry.metrics.distribution("playback.transition.energy_mismatch", mismatch, {
+        attributes: { outcome },
+      });
+    }
+    const energyDelta = metricNumber(payload, "executedEnergyDelta");
+    if (energyDelta !== undefined) {
+      Sentry.metrics.distribution("playback.transition.energy_delta", energyDelta, {
+        attributes: { outcome, executed_energy_arc: executedEnergyArc },
+      });
+    }
+    const incomingEnergyRise = metricNumber(payload, "incomingEnergyRise");
+    if (incomingEnergyRise !== undefined) {
+      Sentry.metrics.distribution("playback.transition.incoming_energy_rise", incomingEnergyRise, {
         attributes: { outcome },
       });
     }
@@ -91,9 +107,31 @@ const recordPlaybackMetrics = (event: string, payload?: Record<string, unknown>)
     return;
   }
 
+  if (event === "engine.deck.hold_loop" || event === "engine.performance.loop") {
+    Sentry.metrics.count("ai.dj.loop_event", 1, {
+      attributes: {
+        type: event === "engine.deck.hold_loop" ? "emergency_hold" : "model_performance_loop",
+        outcome: "failed_handoff",
+      },
+    });
+    return;
+  }
+
   if (event === "chat.tool_call.player_outcome") {
     Sentry.metrics.count("ai.dj.player_outcome", 1, {
       attributes: { outcome: metricString(payload, "outcome") },
+    });
+    return;
+  }
+
+  if (event === "dj.agent_session.closed" || event === "dj.agent_session.failed") {
+    Sentry.metrics.count("ai.dj.session_outcome", 1, {
+      attributes: {
+        outcome:
+          metricString(payload, "terminal") !== "unknown"
+            ? metricString(payload, "terminal")
+            : metricString(payload, "reason"),
+      },
     });
   }
 };
@@ -109,7 +147,7 @@ if (!playbackGlobal.__musicPlaybackSentrySinkInstalled) {
       ...(entry.turnId ? { turn_id: entry.turnId } : {}),
       ...(entry.payload ? { payload: JSON.stringify(entry.payload).slice(0, 8_000) } : {}),
     };
-    const isFailure = /error|failed|rejected|unhandled/i.test(entry.event);
+    const isFailure = /error|failed|rejected|unhandled|hold_loop|performance\.loop/i.test(entry.event);
     if (isFailure) Sentry.logger.error(`Playback: ${entry.event}`, attributes);
     else Sentry.logger.info(`Playback: ${entry.event}`, attributes);
     recordPlaybackMetrics(entry.event, entry.payload);
