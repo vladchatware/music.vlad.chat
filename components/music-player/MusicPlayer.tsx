@@ -598,6 +598,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         deadlineAtMs: computePlaybackAgentSessionDeadlineAtMs({
           nowMs,
           remainingSec,
+          durationSec: playback.durationSec,
         }),
       });
       if (sessionOpen.outcome === "failed") {

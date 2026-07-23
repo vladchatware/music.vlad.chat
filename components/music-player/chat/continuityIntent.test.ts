@@ -329,4 +329,14 @@ describe("computeAgentSessionDeadlineAtMs", () => {
       }),
     ).toBe(71_000);
   });
+
+  it("does not give a preview stream an impossible sub-ten-second planning deadline", () => {
+    expect(
+      computePlaybackAgentSessionDeadlineAtMs({
+        nowMs: 1_000,
+        remainingSec: 17.8,
+        durationSec: 29.78,
+      }),
+    ).toBe(71_000);
+  });
 });

@@ -54,11 +54,21 @@ export function computeAgentSessionDeadlineAtMs(opts: {
 export function computePlaybackAgentSessionDeadlineAtMs(opts: {
   nowMs: number;
   remainingSec: number;
+  durationSec?: number;
   endedThresholdSec?: number;
+  shortMediaThresholdSec?: number;
   recoveryDurationMs?: number;
 }): number {
   const endedThresholdSec = opts.endedThresholdSec ?? 0.25;
-  if (!Number.isFinite(opts.remainingSec) || opts.remainingSec <= endedThresholdSec) {
+  const shortMediaThresholdSec = opts.shortMediaThresholdSec ?? 35;
+  const isShortMedia =
+    Number.isFinite(opts.durationSec) &&
+    (opts.durationSec as number) <= shortMediaThresholdSec;
+  if (
+    !Number.isFinite(opts.remainingSec) ||
+    opts.remainingSec <= endedThresholdSec ||
+    isShortMedia
+  ) {
     return opts.nowMs + (opts.recoveryDurationMs ?? 70_000);
   }
   return computeAgentSessionDeadlineAtMs(opts);

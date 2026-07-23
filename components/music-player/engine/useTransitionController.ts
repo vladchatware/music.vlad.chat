@@ -22,6 +22,7 @@ import {
 import {
   createDeckSnapshot,
   getFiniteDurationSec,
+  isLikelyPreviewStream,
   resolveTransitionPlan,
   withEffectiveTrackDuration,
   type DeckId,
@@ -146,10 +147,22 @@ export function useTransitionController(options: TransitionControllerOptions) {
 
       const deck = getDeckElement(inactiveDeckId);
       const mediaDurationSec = getFiniteDurationSec(deck?.duration);
+      const metadataDurationSec = getFiniteDurationSec(djTrack.duration);
+      if (isLikelyPreviewStream({ metadataDurationSec, mediaDurationSec })) {
+        logEngine("engine.cue.rejected_preview_stream", {
+          deckId: inactiveDeckId,
+          trackId: track.id,
+          metadataDurationSec,
+          mediaDurationSec,
+        });
+        throw new Error(
+          `Track ${track.id} resolved to a ${mediaDurationSec?.toFixed(3)}s preview stream`,
+        );
+      }
       const effectiveTrack = withEffectiveTrackDuration(djTrack, mediaDurationSec);
       if (
         mediaDurationSec !== null &&
-        getFiniteDurationSec(djTrack.duration) !== null &&
+        metadataDurationSec !== null &&
         Math.abs((djTrack.duration as number) - mediaDurationSec) > 1
       ) {
         logEngine("engine.track.duration_mismatch", {

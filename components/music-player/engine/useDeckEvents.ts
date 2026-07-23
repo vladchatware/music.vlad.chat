@@ -281,12 +281,11 @@ export function useDeckEvents(options: DeckEventsOptions): void {
               await holdLoopForContinuity("pending_next_track");
               return;
             }
-            if (endedAction === "hold_failed_attempt") {
+            if (endedAction === "failed_attempt") {
               logEngine("engine.deck.ended_without_next_track", {
                 deckId,
                 reason: "dj_failed_to_choose",
               });
-              await holdLoopForContinuity("dj_failed_to_choose");
               return;
             }
             revibeTriggeredRef.current = true;

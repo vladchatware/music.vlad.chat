@@ -6,6 +6,7 @@ import {
   createDJEngineStore,
   djEngineReducer,
   getAnalysisTrackIds,
+  isLikelyPreviewStream,
   getSegmentRuntimeContext,
   sectionToAnalysis,
   soundCloudToDJTrack,
@@ -75,6 +76,21 @@ describe("runtimeModel", () => {
       bpm: 124,
       user: { username: "Artist" },
     })).toMatchObject({ id: 42, title: "Track", artist: "Artist", duration: 180, bpm: 124 });
+  });
+
+  it("rejects a short media preview masquerading as a full track", () => {
+    expect(
+      isLikelyPreviewStream({
+        metadataDurationSec: 428.042,
+        mediaDurationSec: 29.779,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyPreviewStream({
+        metadataDurationSec: 104,
+        mediaDurationSec: 103.9,
+      }),
+    ).toBe(false);
   });
 
   it("derives active analysis IDs from state", () => {

@@ -15,9 +15,9 @@ import {
 } from "./continuityMetrics";
 
 describe("continuityMetrics", () => {
-  it("holds continuity after a finished failed attempt without requesting again", () => {
+  it("does not disguise a finished failed attempt as pending continuity", () => {
     expect(getEndedNextTrackAction({ revibeTriggered: true, requestInFlight: false })).toBe(
-      "hold_failed_attempt",
+      "failed_attempt",
     );
     expect(getEndedNextTrackAction({ revibeTriggered: true, requestInFlight: true })).toBe("hold_pending");
     expect(getEndedNextTrackAction({ revibeTriggered: false, requestInFlight: false })).toBe("request");

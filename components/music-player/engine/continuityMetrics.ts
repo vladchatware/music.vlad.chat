@@ -19,9 +19,9 @@ export const MAX_HOLD_LOOP_WINDOW_SEC = 24;
 export function getEndedNextTrackAction(opts: {
   revibeTriggered: boolean;
   requestInFlight: boolean;
-}): "hold_pending" | "hold_failed_attempt" | "request" {
+}): "hold_pending" | "failed_attempt" | "request" {
   if (opts.requestInFlight) return "hold_pending";
-  if (opts.revibeTriggered) return "hold_failed_attempt";
+  if (opts.revibeTriggered) return "failed_attempt";
   return "request";
 }
 

@@ -238,6 +238,20 @@ export function getFiniteDurationSec(value: number | null | undefined): number |
   return Number.isFinite(value) && (value as number) > 0 ? (value as number) : null;
 }
 
+export function isLikelyPreviewStream(opts: {
+  metadataDurationSec: number | null;
+  mediaDurationSec: number | null;
+  minimumFullStreamSec?: number;
+}): boolean {
+  const minimumFullStreamSec = opts.minimumFullStreamSec ?? 35;
+  return (
+    opts.metadataDurationSec !== null &&
+    opts.mediaDurationSec !== null &&
+    opts.metadataDurationSec >= 60 &&
+    opts.mediaDurationSec <= minimumFullStreamSec
+  );
+}
+
 export function withEffectiveTrackDuration(
   track: DJTrack,
   mediaDurationSec: number | null,
