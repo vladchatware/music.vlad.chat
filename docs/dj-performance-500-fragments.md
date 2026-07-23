@@ -3193,10 +3193,10 @@ are relative to the beginning of the performance. Small overlaps are intentional
 
 - **Score:** 05:58.792 · 16 source beats · composite window 1 · master 128.00 BPM · bus B · -17.0 dB · BP 700 Hz–4.5 kHz
 - **Source:** 305445073 — Leftfield - Open Up (Skream Remix)
-- **Cue:** s13 · 100.600–108.219 s · 126.01 BPM (confidence 1.00) · 4A (confidence 0.86)
+- **Cue:** s13 · 100.600–108.216 s · 126.01 BPM (confidence 1.00) · 4A (confidence 0.86)
 - **Local evidence:** energy 0.4598 · slope +0.03451 · rhythm 0.8537 · vocal 0.4294 · valence 0.6339 · arousal 0.6193 · dark 0.5501 · bright 0.4499
 - **Tempo treatment:** +1.581% to 128.00 BPM · rendered 7.500 s
-- **Edit:** the strongest rise and vocal trace occupy presence only; the cue crosses the analyzed s13 boundary by 2.5 ms to preserve the exact 16-beat source phrase
+- **Edit:** the strongest rise and vocal trace occupy presence only; trim the final 3 ms inside s13 and anti-click the dry boundary instead of reading beyond analyzed evidence
 
 ### F308 — trust-1/air
 
@@ -3220,10 +3220,10 @@ are relative to the beginning of the performance. Small overlaps are intentional
 
 - **Score:** 06:06.292 · 16 source beats · composite window 2 · master 134.00 BPM · bus A · -16.5 dB · BP 140–700 Hz
 - **Source:** 2203899843 — Fred again.., KETTAMA, Shady Nasty - HARDSTYLE 2 (Jungle Breaks) (Electronic, 335s, 30 followers)
-- **Cue:** s1 · 7.187–14.048 s · 139.90 BPM (confidence 1.00) · 8A (confidence 0.83)
+- **Cue:** s1 · 7.187–14.047 s · 139.90 BPM (confidence 1.00) · 8A (confidence 0.83)
 - **Local evidence:** energy 0.5685 · slope +0.02610 · rhythm 0.6416 · vocal 0.3033 · valence 0.4801 · arousal 0.4970 · dark 0.5284 · bright 0.4716
 - **Tempo treatment:** -4.220% to 134.00 BPM · rendered 7.164 s
-- **Edit:** shared 8A key locks body to F309 while positive slope opens forward motion; exact phrase crosses the analyzed s1 boundary by only 0.35 ms
+- **Edit:** shared 8A key locks body to F309 while positive slope opens forward motion; trim the sub-millisecond tail inside s1 and anti-click the dry boundary
 
 ### F311 — trust-2/presence
 

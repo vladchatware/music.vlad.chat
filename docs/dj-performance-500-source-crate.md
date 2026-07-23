@@ -320,7 +320,7 @@ Placement in the crate is not placement in the score; a source enters the score 
 | 312 | 2319915059 | hard trance euphoric | Riaan Barnard - For the love of Trance (hard euphoric mix) -djSmiley (Trance, 222s, 11942 followers) |
 | 313 | 2338521266 | hard trance euphoric | héctor pintos jimeno - Happy distinción    g-meno  hard dance trance raw euphoric (Dance & EDM, 194s, 8 followers) |
 | 314 | 1721036121 | hard trance euphoric | - Euphoric Hard Trance Anthems For Spire (Electronic, 409s, 449 followers) |
-| 315 | 2097690237 | hard trance euphoric | terence wickings - _Genre_ Hard Trance x Dream Rave BPM_ 140 Mood_ Euphoric, electric, final burst of energy (Dancehall, 163s, 9 followers) |
+| 315 | 2097690237 | hard trance euphoric | terence wickings - \_Genre\_ Hard Trance x Dream Rave BPM\_ 140 Mood\_ Euphoric, electric, final burst of energy (Dancehall, 163s, 9 followers) |
 | 316 | 2318244422 | hard trance euphoric | Energic \| Artcore \| Elektra \| Teletech - ESKHA - Hard & Trance [FREE DL] (Techno, 283s, 15032 followers) |
 | 317 | 2364601910 | hard trance euphoric | Aurélien Cosnier - Space Odyssey ( hard Trance ) (Trance, 591s) |
 | 318 | 2112082416 | hard trance euphoric | TPluzz z - DONT SPEAK - euphoric hardtrance remix (Trance, 329s) |

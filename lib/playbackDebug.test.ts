@@ -12,4 +12,15 @@ describe("formatPlaybackDebugPayload", () => {
     expect(formatted).toContain("[Circular]");
     expect(formatted.length).toBeLessThanOrEqual(80);
   });
+
+  it("truncates to the exact requested length and ends with an ellipsis", () => {
+    const formatted = formatPlaybackDebugPayload({ value: "abcdefghijk" }, 10);
+
+    expect(formatted).toHaveLength(10);
+    expect(formatted.endsWith("…")).toBe(true);
+  });
+
+  it("falls back safely when JSON cannot serialize the payload", () => {
+    expect(formatPlaybackDebugPayload({ value: BigInt(1) })).toBe("[Unserializable payload]");
+  });
 });

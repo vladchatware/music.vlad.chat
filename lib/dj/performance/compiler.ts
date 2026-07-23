@@ -156,6 +156,15 @@ export function compilePerformancePlan(
       : "seconds" in blendDuration && typeof blendDuration.seconds === "number"
         ? blendDuration.seconds
         : 0.1;
+  const requiredIncomingDuration =
+    requestedBlendSec + MIN_INCOMING_CONTINUITY_RUNWAY_SEC;
+  if (incomingDuration < requiredIncomingDuration) {
+    throw new RangeError(
+      `Incoming track is not selectable: ${incomingDuration.toFixed(3)}s cannot cover ` +
+        `${requestedBlendSec.toFixed(3)}s blend plus ` +
+        `${MIN_INCOMING_CONTINUITY_RUNWAY_SEC}s continuity runway`,
+    );
+  }
   const latestContinuitySafeEntry = Math.max(
     0,
     incomingDuration - requestedBlendSec - MIN_INCOMING_CONTINUITY_RUNWAY_SEC,

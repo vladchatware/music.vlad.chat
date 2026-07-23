@@ -221,18 +221,23 @@ export const readAccessToken = async () => {
 
   const refreshTokenValue = credentials.refresh_token
   credentials.access_token = undefined
-  const tryRefresh = refreshTokenValue ? refreshToken(refreshTokenValue) : Promise.reject(new Error('No refresh token'))
-  accessTokenRequest = tryRefresh.catch((error) => {
+  const requestToken = async () => {
+    if (!refreshTokenValue) return getAccessToken()
+    try {
+      return await refreshToken(refreshTokenValue)
+    } catch (error) {
+      if (error instanceof SoundCloudAuthError && error.status === 429) throw error
+      console.warn('SoundCloud refresh token expired or invalid, falling back to client credentials grant', error instanceof Error ? error.message : String(error))
+      credentials.refresh_token = undefined
+      return getAccessToken()
+    }
+  }
+  accessTokenRequest = requestToken().catch((error) => {
     if (error instanceof SoundCloudAuthError && error.status === 429) {
       authRetryError = error
       authRetryAt = Date.now() + (error.retryAfterMs ?? 60_000)
-      throw error
     }
-    if (refreshTokenValue) {
-      console.warn('SoundCloud refresh token expired or invalid, falling back to client credentials grant', error instanceof Error ? error.message : String(error))
-      credentials.refresh_token = undefined
-    }
-    return getAccessToken()
+    throw error
   }).finally(() => {
     accessTokenRequest = undefined
   })

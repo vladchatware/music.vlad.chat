@@ -358,21 +358,6 @@ export function useRevibeChat(opts: {
         toolCallId: ctx.toolCall.toolCallId,
         input: ctx.toolCall.input,
       });
-      if (ctx.toolCall.toolName === "schedule_track_analysis") {
-        const input = ctx.toolCall.input;
-        const ids = input && typeof input === "object" && Array.isArray((input as { ids?: unknown }).ids)
-          ? (input as { ids: unknown[] }).ids.filter(
-              (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
-            )
-          : [];
-        if (ids.length > 0) opts.onScheduledCandidates?.([...new Set(ids)]);
-        if (ids.length > 0) {
-          playbackDebug("chat.performance_memory.candidate_capture", {
-            count: new Set(ids).size,
-            ids: [...new Set(ids)],
-          });
-        }
-      }
       if (ctx.toolCall.toolName === "dj_state") {
         addToolResult({
           tool: ctx.toolCall.toolName,

@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { PREPARED_FIRST_DRIVE_SCORE } from "../lib/dj/performance/preparedFirstDriveScore.generated";
@@ -48,6 +49,11 @@ function parseFragment(row: string): PreviewFragment | null {
   const scoreStartSec = clockToSeconds(score[1]);
   if (scoreStartSec >= previewDurationSec) return null;
 
+  const gainMatch = score[3].match(/(-?\d+(?:\.\d+)?) dB/);
+  if (!gainMatch) {
+    throw new Error(`Missing explicit gain for ${identity[1]}`);
+  }
+
   return {
     fragment: identity[1],
     role: identity[2].trim(),
@@ -56,7 +62,7 @@ function parseFragment(row: string): PreviewFragment | null {
     sourceId: source[1],
     cueStartSec: Number(cue[1]),
     cueEndSec: Number(cue[2]),
-    gainDb: Number(score[3].match(/(-?\d+(?:\.\d+)?) dB/)?.[1] ?? -18),
+    gainDb: Number(gainMatch[1]),
     scoreSpec: score[3],
     edit: edit[1],
   };
@@ -118,27 +124,38 @@ async function renderClip(fragment: PreviewFragment) {
     return output;
   }
   const streamUrl = await resolveTrackStreamUrl(fragment.sourceId, undefined, 25_000);
-  await runFfmpeg(
-    [
-      "-ss",
-      fragment.cueStartSec.toFixed(6),
-      "-i",
-      streamUrl,
-      "-t",
-      (fragment.cueEndSec - fragment.cueStartSec).toFixed(6),
-      "-vn",
-      "-ac",
-      "2",
-      "-ar",
-      "44100",
-      "-af",
-      clipFilters(fragment),
-      "-c:a",
-      "pcm_s24le",
-      output,
-    ],
-    fragment.fragment,
-  );
+  const privateTempDir = await mkdtemp(resolve(tmpdir(), "dj-preview-source-"));
+  const sourceAudio = resolve(privateTempDir, "source-audio");
+  try {
+    const response = await fetch(streamUrl, { signal: AbortSignal.timeout(25_000) });
+    if (!response.ok) {
+      throw new Error(`${fragment.fragment} source download failed (${response.status})`);
+    }
+    await Bun.write(sourceAudio, response);
+    await runFfmpeg(
+      [
+        "-ss",
+        fragment.cueStartSec.toFixed(6),
+        "-i",
+        sourceAudio,
+        "-t",
+        (fragment.cueEndSec - fragment.cueStartSec).toFixed(6),
+        "-vn",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-af",
+        clipFilters(fragment),
+        "-c:a",
+        "pcm_s24le",
+        output,
+      ],
+      fragment.fragment,
+    );
+  } finally {
+    await rm(privateTempDir, { recursive: true, force: true });
+  }
   console.log(`${fragment.fragment} ${fragment.sourceId} ready`);
   return output;
 }

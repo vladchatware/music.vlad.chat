@@ -116,6 +116,27 @@ describe("getDiscoveredTrackIds", () => {
       ],
     }])).toEqual([101, 102, 103]);
   });
+
+  it("extracts leading IDs from MCP text without treating other numbers as tracks", () => {
+    expect(getDiscoveredTrackIds([{
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-likes",
+          output: {
+            content: [{
+              type: "text",
+              text: "201 Artist — Track One (House, 2026)\nnot-a-track 777\n202 Track Two 128 BPM",
+            }],
+          },
+        },
+        {
+          type: "tool-dj_state",
+          output: { content: [{ type: "text", text: "999 must stay ignored" }] },
+        },
+      ],
+    }])).toEqual([201, 202]);
+  });
 });
 
 describe("hasDJToolCall", () => {

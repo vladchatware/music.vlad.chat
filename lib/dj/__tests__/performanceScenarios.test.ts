@@ -121,11 +121,11 @@ describe("typed DJ performance scenarios", () => {
   });
 
   it("short tracks", () => {
-    const result = compile(intent({ blend: {
-      duration: { seconds: 32 }, crossfaderCurve: "linear", eq: "smooth",
-    } }), deck("A", 120, 20), deck("B", 120, 18), 10);
-    expect(result.plan.startBoundary.timeSec).toBeLessThan(20);
-    expect(result.plan.crossfadeDurationSec).toBeLessThanOrEqual(17.9);
+    expect(() =>
+      compile(intent({ blend: {
+        duration: { seconds: 32 }, crossfaderCurve: "linear", eq: "smooth",
+      } }), deck("A", 120, 20), deck("B", 120, 18), 10),
+    ).toThrow(/not selectable/i);
   });
 
   it("late agent decision", () => {

@@ -199,33 +199,24 @@ describe("compilePerformancePlan", () => {
     );
   });
 
-  it("moves stale exits forward and clamps blend to available runway", () => {
-    const compiled = compilePerformancePlan(
-      performance({
-        exit: { anchor: "time", timeSec: 80 },
-        blend: {
-          duration: { seconds: 60 },
-          crossfaderCurve: "linear",
-          eq: "smooth",
+  it("rejects incoming media that cannot cover the blend and next-decision runway", () => {
+    expect(() =>
+      compilePerformancePlan(
+        performance({
+          exit: { anchor: "time", timeSec: 80 },
+          blend: {
+            duration: { seconds: 60 },
+            crossfaderCurve: "linear",
+            eq: "smooth",
+          },
+        }),
+        {
+          outgoingDeck: deck("A", 120, 130),
+          incomingDeck: deck("B", 120, 18),
+          currentTimeSec: 110,
         },
-      }),
-      {
-        outgoingDeck: deck("A", 120, 130),
-        incomingDeck: deck("B", 120, 18),
-        currentTimeSec: 110,
-      },
-    );
-
-    expect(compiled.plan.startBoundary.timeSec).toBeGreaterThanOrEqual(110);
-    expect(compiled.plan.crossfadeDurationSec).toBeLessThanOrEqual(17);
-    expect(
-      compiled.plan.startBoundary.timeSec + compiled.plan.crossfadeDurationSec,
-    ).toBeLessThanOrEqual(130);
-    expect(
-      compiled.performance.incomingStartSec + compiled.plan.crossfadeDurationSec,
-    ).toBeLessThanOrEqual(18);
-    expect(compiled.diagnostics.adjustments).toContain("exit_moved_to_next_phrase");
-    expect(compiled.diagnostics.adjustments).toContain("blend_clamped_to_runway");
+      ),
+    ).toThrow(/not selectable.*blend plus 60s continuity runway/i);
   });
 
   it("snaps explicit incoming time to a reliable bar boundary", () => {

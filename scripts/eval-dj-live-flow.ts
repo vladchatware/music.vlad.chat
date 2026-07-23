@@ -42,6 +42,8 @@ const controller = createContinuityIntentController({
   generateId: () => "mock-live-performance-1",
   now: clock.now,
 });
+const wallStartedAtMs = performance.now();
+const wallElapsedMs = () => performance.now() - wallStartedAtMs;
 
 const activeTrack = {
   id: 100,
@@ -78,9 +80,15 @@ const analysisIds: number[] = [];
 const playerCalls: PlayerToolInput[] = [];
 const rejectedPlayerIds: number[] = [];
 let playerAcceptedAtMs: number | null = null;
+let playerAcceptedAtWallMs: number | null = null;
 
 const record = (event: string, details: Record<string, unknown> = {}) => {
-  events.push({ atPlaySec: clock.now() / 1_000, event, ...details });
+  events.push({
+    atPlaySec: clock.now() / 1_000,
+    atWallMs: Math.round(wallElapsedMs()),
+    event,
+    ...details,
+  });
 };
 const scheduleOnce = createBoundedAnalysisSchedule(async (ids) => {
   clock.advance(250);
@@ -191,6 +199,7 @@ const firstAgent = new ToolLoopAgent({
         }
         playerCalls.push(input);
         playerAcceptedAtMs = clock.now();
+        playerAcceptedAtWallMs = wallElapsedMs();
         controller.resolvePlayerAction({
           sessionId: opened.session.id,
           activeTrackId: activeTrack.id,
@@ -206,8 +215,8 @@ const firstAgent = new ToolLoopAgent({
       mode: firstMode,
       stepNumber,
       maxSteps: MAX_DJ_AGENT_STEPS,
-      policyChoice: undefined,
-      elapsedMs: clock.now() - opened.session.openedAtMs,
+      policyChoice: firstPolicy.nextRequiredTool(),
+      elapsedMs: wallElapsedMs(),
       decisionDeadlineMs: DJ_PLAYER_DECISION_DEADLINE_MS,
     });
     return choice?.toolName === "player"
@@ -255,8 +264,8 @@ if (rejectFirstPlayer) {
         mode: recoveryMode,
         stepNumber,
         maxSteps: MAX_DJ_AGENT_STEPS,
-        policyChoice: undefined,
-        elapsedMs: clock.now() - opened.session.openedAtMs,
+        policyChoice: recoveryPolicy.nextRequiredTool(),
+        elapsedMs: wallElapsedMs(),
         decisionDeadlineMs: DJ_PLAYER_DECISION_DEADLINE_MS,
       });
       return choice?.toolName === "player"
@@ -272,7 +281,11 @@ if (rejectFirstPlayer) {
   decisionMessages = [...decisionMessages, ...recoveryResult.response.messages];
 }
 
-if (playerCalls.length !== 1 || playerAcceptedAtMs === null) {
+if (
+  playerCalls.length !== 1 ||
+  playerAcceptedAtMs === null ||
+  playerAcceptedAtWallMs === null
+) {
   throw new Error(
     `agent_holding_loop: DJ failed to choose; accepted player call count was ${playerCalls.length}`,
   );
@@ -354,7 +367,7 @@ await continuationAgent.generate({
 
 const postPlayerAnalysis = events.find(({ event }) => event === "post_player_track_analysis");
 if (!postPlayerAnalysis) throw new Error("DJ did not start next-track analysis after choosing");
-const analysisDelayMs = Number(postPlayerAnalysis.atPlaySec) * 1_000 - playerAcceptedAtMs;
+const analysisDelayMs = Number(postPlayerAnalysis.atWallMs) - playerAcceptedAtWallMs;
 const result = {
   ok:
     playerCalls.length === 1 &&
