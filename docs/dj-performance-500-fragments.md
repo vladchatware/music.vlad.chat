@@ -401,10 +401,11 @@ free time through increasingly long gaps between short fragments.
 
 The final 68 fragments consume exactly the remaining duration inventory:
 `30 × 1`, `13 × 2`, `10 × 4`, `13 × 8`, and `2 × 16` score beats. Total
-performance material is 232 grid beats. For cuts of eight beats or longer,
-score beats also count synchronized source beats. Shorter transient-gated
-cuts occupy destination-grid windows and may run natively inside those
-windows; this avoids inventing source beats when tempo is unrelated.
+performance material is 232 grid beats. Rows explicitly labeled
+`synchronized` correct source beats to the master grid. Rows labeled
+`score beats` run natively and are hard-gated to the destination-grid window,
+including longer montage cells; this avoids inventing source beats when tempo
+is unrelated.
 Duration is fixed before source selection:
 
 | Phrase | Fragments | Score-beat durations in score order |
@@ -444,26 +445,25 @@ from roughly 0.58 to 0.35. `8A → 9A → 10A` is the bus-color route: pitched
 human fragments may state it, while unpitched consonants and breaths pass
 without invented key labels.
 
-**F465–F480 — bright/dark pairs.** Eight serial pairs alternate relative major
-then minor. Pair durations are `8, 8, 4, 4, 2, 2, 1, 1` beats per fragment.
-Walk clockwise around the Camelot wheel on the shared harmonic bed:
-`7B/7A, 8B/8A, 9B/9A, 10B/10A, 11B/11A, 12B/12A, 1B/1A, 2B/2A`.
-Source fragments need not state every target chord. A bright question may be
-noise or percussion; a dark answer may be a filtered transient. Only audible
-pitched material must agree with the local bed.
-Within each pair, match energy within 0.08 and rhythmic density within 0.12;
-brightness must cross 0.50 in opposite directions. No crossfade: each dark
-answer begins on the exact dry edge of its bright question. Pair-average
-energy descends from approximately 0.66 to 0.30.
+**F465–F480 — bright/dark pairs.** Eight serial pairs alternate spectrally
+bright questions and dark answers. Pair durations are `8, 8, 4, 4, 2, 2, 1,
+1` beats per fragment. Sources run natively: the master grid determines cut
+length, not a false tempo or key reinterpretation. Brightness is a rendered
+relation—written high-shelf/low-body removal for questions, written low-pass
+and low-mid retention for answers—not a claim that every raw source crosses
+0.50. Gain staging keeps each pair within 0.08 rendered energy. No crossfade:
+each dark answer begins on the exact dry edge of its bright question.
+Pair-average energy descends from approximately 0.64 to 0.33.
 
 **F481–F492 — decelerating exhale.** Source windows lengthen
 `1,1,1,1,2,2,2,4,4,8,8,16` beats while attack density falls. Start near a
 nominal 120 BPM; reduce the implied grid through source selection and written
-breath gaps rather than extreme stretching. Require rhythmic density maxima of
-`0.72, 0.68, 0.64, 0.60, 0.56, 0.52, 0.48, 0.43, 0.38, 0.33, 0.28, 0.23`.
-Key confidence also declines; F489–F492 must favor dyads, drones, or masked
-thirds over functional chords. The final 16-beat source loses pulse while
-remaining audible—no fade and no silence substitution.
+breath gaps rather than extreme stretching. Require rendered attack-density
+maxima of `0.72, 0.68, 0.64, 0.60, 0.56, 0.52, 0.48, 0.43, 0.38, 0.33,
+0.28, 0.23`. Raw source density may exceed a target only when the row
+explicitly removes drum/transient evidence. F489–F492 favor dyads, drones, or
+masked thirds over functional chords. The final 16-beat window loses pulse
+while remaining audible—no fade and no silence substitution.
 
 **F493–F499 — access details.** Use seven unique one-beat sources with one
 recognizable physical detail each: breath, fingertip, relay click, bowed grain,
@@ -473,8 +473,9 @@ is the only permitted silence longer than one eighth-note. Details descend in
 energy toward 0.10; none may contain a complete kick, snare, word, or tonal
 cadence.
 
-**F500 — unresolved cut.** Select a four-beat source with energy `0.12–0.25`,
-rhythmic density no higher than `0.25`, vocal probability below `0.20`, and
+**F500 — unresolved cut.** Select a four-beat source with energy `0.12–0.26`,
+rhythmic density no higher than `0.25`, vocal probability no higher than
+`0.25`, and
 dark/bright balance inside `0.43–0.57`. Favor a D/A dyad with no audible third,
 or remove the third in the edit. Play the source dry, centered, unlooped, and
 without tail extension. Cut while its local energy slope is still non-zero,
@@ -485,12 +486,9 @@ before source harmony or ambience reaches rest.
 - all 68 sources are unique, independently discovered in the closed 500-track
   crate, absent from F001–F432, and analyzed before their atomic row is
   written;
-- cuts of eight source beats or longer may correct at most ±8%; low-density
-  material with no audible pulse may run natively beneath the written grid;
-- cuts of four score beats or fewer are transient-gated one-shots. Their
-  source clock is evidence, not a synchronization obligation. They may run
-  natively and hard-gate at the destination window, or correct by at most
-  ±12%; no half/double-time relabeling is allowed;
+- synchronized rows may correct at most ±8%; all score-beat montage rows run
+  natively and hard-gate at the destination window, regardless of window
+  length; no half/double-time relabeling is allowed;
 - every cue range fits inside its cited analyzed segment and supplies enough
   source audio for its exact duration;
 - adjacent rendered fragments may change normalized energy by at most `0.12`
@@ -513,20 +511,20 @@ evidence-supported micro-edit.
   `86647691`, `582321417`, `2358584777`, `546343356`, `2365089578`,
   `2220981602`, `2220981608`, `2220981599`, `2220981605`, `2220981611`,
   `2297380883`, `2365095785`, `2243568419`.
-- **F449–F464 human:** `140355788`, `2355810947`, `1604164224`,
-  `615181653`, `2315340188`, `101963800`, `2364158570`, `811906423`,
-  `2362496009`, `175382392`, `2276999084`, `968544184`, `1890735480`,
-  `123707423`, `97320176`, `2322291713`.
-- **F465–F480 paired contrast:** `2320926995`, `1528428298`, `103043163`,
-  `66049133`, `2319115658`, `1053714247`, `50717144`, `1770023145`,
-  `202652806`, `2346742328`, `1480570228`, `811460224`, `2340209828`,
-  `2366006972`, `2271674312`, `2200259303`.
-- **F481–F492 exhale:** `948346303`, `2127712053`, `2127710952`,
-  `2362496024`, `847078234`, `2308458761`, `2348404745`, `1971666819`,
-  `2325295337`, `2322249896`, `326576544`, `326526343`.
-- **F493–F499 access details:** `2356455227`, `2344820702`, `492702300`,
-  `163830320`, `526205031`, `2345514218`, `272979081`.
-- **F500 unresolved cut:** `2331493997`.
+- **F449–F464 human:** `1604164224`, `140355788`, `615181653`,
+  `2355810947`, `2315340188`, `101963800`, `326576544`, `2356455227`,
+  `2319115658`, `2276999084`, `2325295337`, `1971666819`, `948346303`,
+  `1053714247`, `175382392`, `2322291713`.
+- **F465–F480 paired contrast:** `326526343`, `811906423`, `1528428298`,
+  `2271674312`, `2320926995`, `2348404745`, `2331493997`, `50717144`,
+  `97320176`, `2344820702`, `2322249896`, `2340209828`, `66049133`,
+  `272979081`, `202652806`, `1770023145`.
+- **F481–F492 exhale:** `811460224`, `1480570228`, `2366006972`,
+  `968544184`, `2364158570`, `2346742328`, `492702300`, `123707423`,
+  `2127712053`, `2308458761`, `103043163`, `2345514218`.
+- **F493–F499 access details:** `2127710952`, `1890735480`, `847078234`,
+  `2362496009`, `2362496024`, `2200259303`, `526205031`.
+- **F500 unresolved cut:** `163830320`.
 
 ### F433–F448 analyzed source bank
 
@@ -593,12 +591,11 @@ Both subcues remain inside their analyzed segments. Cut each before the
 probable vocal body can complete a lexical phrase; no runtime shortening is
 permitted.
 
-F465–F480 screening batch `2129482860`, `1770023145`, `202652806`,
-`2346742328`, `1480570228`, `811460224`, and `2340209828` is analyzed and
-ready but not yet placed. It supplies several dark/minor surfaces; it does not
-yet supply complete relative-major/relative-minor pairs whose local brightness
-crosses 0.50 in opposite directions. Do not call this batch a finished pair
-bank.
+Draft-era F465–F480 screening batch `2129482860`, `1770023145`, `202652806`,
+`2346742328`, `1480570228`, `811460224`, and `2340209828` supplied several
+dark/minor surfaces but no complete raw relative-major/minor bank. Final rows
+supersede that abandoned harmonic-pair premise: they use evidence-backed
+spectral question/answer edits and never invent source harmony.
 
 Second pair screen: `66049133` and `65915719` return identical duration,
 tempo, key, energy, cue, and semantic vectors, so treat them as duplicate
@@ -670,18 +667,14 @@ energy.
 
 ### F481–F492 analyzed exhale bank
 
-Three sources have proven placements:
-
-| Fragment | Track ID | Source | Exact evidence | Written treatment |
-|---:|---:|---|---|---|
-| F485 | 948346303 | Emotional Electronica | 109.845421 BPM · 5B/E-flat major · s0 subcue 0.000000–1.092444 s · energy 0.4173 · slope +0.02932 · rhythm 0.5211 · vocal 0.3033 · piano, synth, low drums | 2 source beats; correct +5.603% to local 116 BPM. Keep pitched piano/synth consonant, suppress drum stem, cut before the source buildup becomes declarative |
-| F489 | 2127712053 | Enter Flow (Ambient Dub Techno) | 109.877960 BPM · 9A/E minor · s3 subcue 21.826757–24.010999 s · energy 0.3495 · slope -0.00739 · rhythm 0.3564 · vocal 0.4967 · synth, bass, drums | 4 source beats; correct +2.841% to local 113 BPM. Suppress drum stem, mask E-minor third into a B/E dyad, preserve descending slope, dry cut |
-| F492 | 2127710952 | Quiet Force (Ambient Dub Techno) | 111.894966 BPM · 7A/D minor · s1 8.556553–17.136326 s · energy 0.2560 · slope +0.00835 · rhythm 0.2195 · vocal 0.2832 · synth, bass, low drums | 16 source beats need 8.579474 s; cue supplies 8.579773 s. Remove drum transients, mask chord third toward a D/A field, play at native clock, remain audible, cut before s1 resolves |
-
-The F492 cue-duration margin is `0.000299 s`. This is sufficient but must not
-be shortened by an early scheduler cut. F481–F484, F486–F488, and F490–F491 still need
-unique sources whose attack-density ceilings and local grids form the written
-monotonic descent through 116 BPM into F492's 111.895 BPM clock.
+Final placement uses twelve unique native windows. Raw analysis remains visible
+in every atomic row; written drum removal and transient thinning create the
+rendered density descent without relabeling source tempo. F489 uses
+`2127712053/s8` for a measured falling slope. F491 uses
+`103043163/s14` for the lowest ready pitched density. F492 uses
+`2345514218/s0`: its 12.283-second segment safely contains the 8.807-second
+native window, so the ending has real media runway instead of a sub-millisecond
+margin.
 
 The ending is not a fade-out. It is a deliberate loss of access.
 
@@ -701,7 +694,7 @@ enter hard on beat 3; decapitate previous A; no tail; hand transient to F###
 Rows must be chronological and sufficient for execution. Prose such as “mix
 smoothly,” “maintain the vibe,” or “transition when appropriate” is invalid.
 
-## Resolved score — F001–F432
+## Resolved score — F001–F500
 
 These rows are committed evidence, not illustrative placeholders. Their score times
 are relative to the beginning of the performance. Small overlaps are intentional.
@@ -4520,6 +4513,420 @@ are relative to the beginning of the performance. Small overlaps are intentional
 - **Local evidence:** energy 0.4193 · slope +0.02156 · rhythm 1.0000 · vocal 0.2192 · valence 0.5072 · arousal 0.4997 · dark 0.5565 · bright 0.4435 · synthesizer 0.4216 · bass 0.3169 · drums 0.2080
 - **Tempo treatment:** none; native source hard-gated to 2 score beats / 0.945 s
 - **Edit:** delay the surviving breath and rim shadow 29 ms, reject the F-sharp-minor synth and bass body, and narrow the tail until no 64.93 BPM pulse can assert itself; the pitchless shadow changes the declared bus color to 10A without pretending the source harmony modulated
+
+### F455 — human-cut-7/hypnotic-breath
+
+- **Score:** 11:10.336 · 1 score beat · master 127.00 BPM · bus 10A · -18.8 dB · rendered target energy 0.46
+- **Source:** 326576544 — - Music for Hypnosis (Electronic New Age) (New Age, 289s)
+- **Cue:** s0 · 0.000000–0.472441 s · native playback · analyzed clock 89.97 BPM (confidence 1.00) · 2B (confidence 0.92)
+- **Local evidence:** energy 0.6863 · slope +0.00462 · rhythm 0.7680 · vocal 0.3364 · valence 0.3401 · arousal 0.3384 · dark 0.5255 · bright 0.4745 · synthesizer 0.5685 piano 0.1551 electricguitar 0.0887
+- **Tempo treatment:** none; native source hard-gated to 0.472 s inside destination grid
+- **Edit:** place surviving onset -11 ms; attenuate raw energy 0.6863 to rendered 0.46; remove stable synthesizer 0.5685 piano 0.1551 electricguitar 0.0887 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F456 — human-cut-8/ritual-mouth
+
+- **Score:** 11:10.808 · 1 score beat · master 127.00 BPM · bus 10A · -18.6 dB · rendered target energy 0.45
+- **Source:** 2356455227 — RAMON CERDA QUIROZ - The Secret Chamber (Ritual Ambient) (Electronic, 297s, 1552 followers)
+- **Cue:** s2 · 16.323627–16.796068 s · native playback · analyzed clock 163.71 BPM (confidence 0.27) · 7A (confidence 0.89)
+- **Local evidence:** energy 0.6436 · slope +0.00189 · rhythm 0.4045 · vocal 0.3717 · valence 0.3351 · arousal 0.3343 · dark 0.5207 · bright 0.4793 · synthesizer 0.3693 drums 0.2589 bass 0.2440
+- **Tempo treatment:** none; native source hard-gated to 0.472 s inside destination grid
+- **Edit:** place surviving onset +17 ms; attenuate raw energy 0.6436 to rendered 0.45; remove stable synthesizer 0.3693 drums 0.2589 bass 0.2440 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F457 — human-cut-9/broken-feel
+
+- **Score:** 11:11.281 · 8 score beats · master 127.00 BPM · bus 10A · -18.0 dB · rendered target energy 0.44
+- **Source:** 2319115658 — Milos Djordjevic - FEEL. (Broken Beat Flip) (Broken Beat, 196s, 1188 followers)
+- **Cue:** s0 · 0.000000–3.779528 s · native playback · analyzed clock 54.98 BPM (confidence 1.00) · 7A (confidence 0.88)
+- **Local evidence:** energy 0.5593 · slope +0.00874 · rhythm 1.0000 · vocal 0.3376 · valence 0.5963 · arousal 0.5323 · dark 0.4988 · bright 0.5012 · synthesizer 0.4501 keyboard 0.3185 percussion 0.3020
+- **Tempo treatment:** none; native source hard-gated to 3.780 s inside destination grid
+- **Edit:** place surviving onset -24 ms; attenuate raw energy 0.5593 to rendered 0.44; remove stable synthesizer 0.4501 keyboard 0.3185 percussion 0.3020 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F458 — human-cut-10/glitch-vowel
+
+- **Score:** 11:15.060 · 1 score beat · master 127.00 BPM · bus 10A · -20.1 dB · rendered target energy 0.42
+- **Source:** 2276999084 — - Emotional Glitch (195s, 462 followers)
+- **Cue:** s3 · 34.005623–34.478064 s · native playback · analyzed clock 90.10 BPM (confidence 1.00) · 11B (confidence 0.83)
+- **Local evidence:** energy 0.8090 · slope +0.00125 · rhythm 0.6654 · vocal 0.3821 · valence 0.4966 · arousal 0.5323 · dark 0.4888 · bright 0.5112 · synthesizer 0.3909 bass 0.3756 drums 0.3440
+- **Tempo treatment:** none; native source hard-gated to 0.472 s inside destination grid
+- **Edit:** place surviving onset +31 ms; attenuate raw energy 0.8090 to rendered 0.42; remove stable synthesizer 0.3909 bass 0.3756 drums 0.3440 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F459 — human-cut-11/chillwave-consonant
+
+- **Score:** 11:15.533 · 2 score beats · master 126.00 BPM · bus 10A · -19.9 dB · rendered target energy 0.41
+- **Source:** 2325295337 — AMBIENT ELECTRONIC CHILLWAVE (Ambient Electronic Chillwave, 210s, 97 followers)
+- **Cue:** s12 · 86.192467–87.144848 s · native playback · analyzed clock 136.09 BPM (confidence 1.00) · 5B (confidence 0.84)
+- **Local evidence:** energy 0.7775 · slope +0.00669 · rhythm 0.5697 · vocal 0.3622 · valence 0.5435 · arousal 0.5856 · dark 0.5202 · bright 0.4798 · synthesizer 0.4207 bass 0.3134 piano 0.2682
+- **Tempo treatment:** none; native source hard-gated to 0.952 s inside destination grid
+- **Edit:** place surviving onset -16 ms; attenuate raw energy 0.7775 to rendered 0.41; remove stable synthesizer 0.4207 bass 0.3134 piano 0.2682 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F460 — human-cut-12/aquatic-face
+
+- **Score:** 11:16.485 · 1 score beat · master 126.00 BPM · bus 10A · -20.8 dB · rendered target energy 0.40
+- **Source:** 1971666819 — - Deep and aquatic (Ambient) (150s, 252 followers)
+- **Cue:** s4 · 39.264942–39.741132 s · native playback · analyzed clock 103.97 BPM (confidence 1.00) · 8B (confidence 1.00)
+- **Local evidence:** energy 0.8714 · slope +0.00399 · rhythm 0.5434 · vocal 0.3724 · valence 0.4633 · arousal 0.4545 · dark 0.5220 · bright 0.4780 · synthesizer 0.5200 guitar 0.2068 electricguitar 0.1604
+- **Tempo treatment:** none; native source hard-gated to 0.476 s inside destination grid
+- **Edit:** place surviving onset +9 ms; attenuate raw energy 0.8714 to rendered 0.40; remove stable synthesizer 0.5200 guitar 0.2068 electricguitar 0.1604 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F461 — human-cut-13/emotional-mouth
+
+- **Score:** 11:16.961 · 1 score beat · master 126.00 BPM · bus 10A · -17.5 dB · rendered target energy 0.39
+- **Source:** 948346303 — David Kovalchuk - Emotional Electronica (Ambient, 222s, 13 followers)
+- **Cue:** s5 · 45.836189–46.312379 s · native playback · analyzed clock 109.85 BPM (confidence 1.00) · 5B (confidence 0.85)
+- **Local evidence:** energy 0.4516 · slope -0.00244 · rhythm 0.5278 · vocal 0.3884 · valence 0.5070 · arousal 0.4573 · dark 0.5159 · bright 0.4841 · synthesizer 0.4461 piano 0.2379 bass 0.1686
+- **Tempo treatment:** none; native source hard-gated to 0.476 s inside destination grid
+- **Edit:** place surviving onset -32 ms; attenuate raw energy 0.4516 to rendered 0.39; remove stable synthesizer 0.4461 piano 0.2379 bass 0.1686 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F462 — human-cut-14/fan-guitar-syllable
+
+- **Score:** 11:17.438 · 1 score beat · master 126.00 BPM · bus 10A · -19.7 dB · rendered target energy 0.38
+- **Source:** 1053714247 — Brian Romano - Broken Ceiling Fan Beat (Trap, 121s, 43 followers)
+- **Cue:** s1 · 12.016326–12.492516 s · native playback · analyzed clock 100.16 BPM (confidence 1.00) · 5A (confidence 0.68)
+- **Local evidence:** energy 0.7149 · slope +0.00513 · rhythm 0.6861 · vocal 0.3659 · valence 0.8523 · arousal 0.3368 · dark 0.5435 · bright 0.4565 · synthesizer 0.6351 bass 0.2233 guitar 0.2044
+- **Tempo treatment:** none; native source hard-gated to 0.476 s inside destination grid
+- **Edit:** place surviving onset +26 ms; attenuate raw energy 0.7149 to rendered 0.38; remove stable synthesizer 0.6351 bass 0.2233 guitar 0.2044 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F463 — human-cut-15/system-breath
+
+- **Score:** 11:17.914 · 1 score beat · master 126.00 BPM · bus 10A · -18.3 dB · rendered target energy 0.36
+- **Source:** 175382392 — - The System - You're in my System (Atmospheric Vocal) (House, 466s, 212 followers)
+- **Cue:** s24 · 190.566162–191.042352 s · native playback · analyzed clock 122.51 BPM (confidence 1.00) · 2A (confidence 0.92)
+- **Local evidence:** energy 0.5256 · slope +0.00020 · rhythm 0.5285 · vocal 0.3740 · valence 0.5192 · arousal 0.5537 · dark 0.5254 · bright 0.4746 · synthesizer 0.6901 bass 0.4894 keyboard 0.4058
+- **Tempo treatment:** none; native source hard-gated to 0.476 s inside destination grid
+- **Edit:** place surviving onset -7 ms; attenuate raw energy 0.5256 to rendered 0.36; remove stable synthesizer 0.6901 bass 0.4894 keyboard 0.4058 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F464 — human-cut-16/songwriter-consonant
+
+- **Score:** 11:18.390 · 1 score beat · master 126.00 BPM · bus 10A · -17.2 dB · rendered target energy 0.35
+- **Source:** 2322291713 — Sandor Tamas - Songwriter - Lost In Yesterday - Cinematic/Hip House (Cinematic/Hip house/Electro, 298s, 388 followers)
+- **Cue:** s0 · 0.000000–0.476190 s · native playback · analyzed clock 89.95 BPM (confidence 1.00) · 7B (confidence 0.96)
+- **Local evidence:** energy 0.3827 · slope +0.01600 · rhythm 0.6499 · vocal 0.3398 · valence 0.3756 · arousal 0.3567 · dark 0.5177 · bright 0.4823 · guitar 0.3901 classicalguitar 0.3810 acousticguitar 0.2001
+- **Tempo treatment:** none; native source hard-gated to 0.476 s inside destination grid
+- **Edit:** place surviving onset +19 ms; attenuate raw energy 0.3827 to rendered 0.35; remove stable guitar 0.3901 classicalguitar 0.3810 acousticguitar 0.2001 body, retain one breath/consonant edge, and hard-gate before any word or source pulse completes
+
+### F465 — contrast-1/bright-new-age
+
+- **Score:** 11:18.866 · 8 score beats · master 124.00 BPM · bus bright · -16.5 dB · rendered target energy 0.64
+- **Source:** 326526343 — - Self Improvement (Electronic New Age) (New Age, 286s, 11023 followers)
+- **Cue:** s0 · 0.000000–3.870968 s · native playback · analyzed clock 107.93 BPM (confidence 1.00) · 8A (confidence 0.76)
+- **Local evidence:** energy 0.8964 · slope +0.00019 · rhythm 0.5385 · vocal 0.5494 · valence 0.4747 · arousal 0.4530 · dark 0.5296 · bright 0.4704 · synthesizer 0.5669 piano 0.1813 bass 0.1638
+- **Tempo treatment:** none; native source hard-gated to 3.871 s inside destination grid
+- **Edit:** bright question: render to energy 0.64; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F466 — contrast-1/dark-house
+
+- **Score:** 11:22.737 · 8 score beats · master 124.00 BPM · bus dark · -16.1 dB · rendered target energy 0.64
+- **Source:** 811906423 — - 15 - House Glitch Electronica (Electronic, 259s, 6 followers)
+- **Cue:** s4 · 33.994015–37.864983 s · native playback · analyzed clock 118.05 BPM (confidence 1.00) · 6A (confidence 0.87)
+- **Local evidence:** energy 0.8252 · slope +0.00110 · rhythm 0.5954 · vocal 0.1963 · valence 0.5770 · arousal 0.4610 · dark 0.5590 · bright 0.4410 · synthesizer 0.5695 bass 0.5475 drums 0.3943
+- **Tempo treatment:** none; native source hard-gated to 3.871 s inside destination grid
+- **Edit:** dark answer: render to energy 0.64; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F467 — contrast-2/bright-hardstyle
+
+- **Score:** 11:26.608 · 8 score beats · master 124.00 BPM · bus bright · -16.3 dB · rendered target energy 0.59
+- **Source:** 1528428298 — - Melodic Rhythm (Hardstyle, 165s, 148 followers)
+- **Cue:** s0 · 0.000000–3.870968 s · native playback · analyzed clock 150.01 BPM (confidence 1.00) · 11A (confidence 0.49)
+- **Local evidence:** energy 0.8039 · slope +0.05805 · rhythm 0.7368 · vocal 0.2569 · valence 0.7358 · arousal 0.5576 · dark 0.4428 · bright 0.5572 · synthesizer 0.5559 keyboard 0.2461 bass 0.2346
+- **Tempo treatment:** none; native source hard-gated to 3.871 s inside destination grid
+- **Edit:** bright question: render to energy 0.59; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F468 — contrast-2/dark-footwork
+
+- **Score:** 11:30.479 · 8 score beats · master 124.00 BPM · bus dark · -15.2 dB · rendered target energy 0.59
+- **Source:** 2271674312 — - stillindahood ambient footwork crashout (Footwork, 167s, 180 followers)
+- **Cue:** s0 · 0.000000–3.870968 s · native playback · analyzed clock 72.04 BPM (confidence 1.00) · 4A (confidence 0.86)
+- **Local evidence:** energy 0.6320 · slope +0.01507 · rhythm 0.5929 · vocal 0.5777 · valence 0.5513 · arousal 0.4485 · dark 0.5447 · bright 0.4553 · synthesizer 0.4133 bass 0.3749 keyboard 0.2394
+- **Tempo treatment:** none; native source hard-gated to 3.871 s inside destination grid
+- **Edit:** dark answer: render to energy 0.59; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F469 — contrast-3/bright-acoustic
+
+- **Score:** 11:34.350 · 4 score beats · master 123.00 BPM · bus bright · -15.1 dB · rendered target energy 0.55
+- **Source:** 2320926995 — Lite Weight - Melodic rhythm (maida 109 - 113) (Classical, 111s, 80 followers)
+- **Cue:** s3 · 35.758728–37.709948 s · native playback · analyzed clock 84.52 BPM (confidence 0.14) · 6B (confidence 0.72)
+- **Local evidence:** energy 0.5715 · slope -0.00137 · rhythm 1.0000 · vocal 0.8872 · valence 0.4651 · arousal 0.4865 · dark 0.4876 · bright 0.5124 · acousticguitar 0.2724 synthesizer 0.2476 drums 0.2444
+- **Tempo treatment:** none; native source hard-gated to 1.951 s inside destination grid
+- **Edit:** bright question: render to energy 0.55; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F470 — contrast-3/dark-hypnotic
+
+- **Score:** 11:36.301 · 4 score beats · master 123.00 BPM · bus dark · -16.4 dB · rendered target energy 0.55
+- **Source:** 2348404745 — - Hypnotic (Ambient Electronic) (Ambient, 201s, 343 followers)
+- **Cue:** s9 · 84.207161–86.158381 s · native playback · analyzed clock 104.03 BPM (confidence 1.00) · 11A (confidence 0.90)
+- **Local evidence:** energy 0.7869 · slope -0.00084 · rhythm 0.6224 · vocal 0.1491 · valence 0.5301 · arousal 0.4636 · dark 0.5514 · bright 0.4486 · bass 0.4133 synthesizer 0.3939 piano 0.2828
+- **Tempo treatment:** none; native source hard-gated to 1.951 s inside destination grid
+- **Edit:** dark answer: render to energy 0.55; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F471 — contrast-4/bright-cinematic
+
+- **Score:** 11:38.252 · 4 score beats · master 123.00 BPM · bus bright · -15.2 dB · rendered target energy 0.51
+- **Source:** 2331493997 — - La Cucaracha (Cinematic Ambient Version) (Ambient, 128s, 4 followers)
+- **Cue:** s0 · 0.000000–1.951220 s · native playback · analyzed clock 84.19 BPM (confidence 1.00) · 9A (confidence 0.91)
+- **Local evidence:** energy 0.5393 · slope +0.03506 · rhythm 1.0000 · vocal 0.2255 · valence 0.4454 · arousal 0.4284 · dark 0.5160 · bright 0.4840 · bass 0.3562 drums 0.3334 synthesizer 0.2873
+- **Tempo treatment:** none; native source hard-gated to 1.951 s inside destination grid
+- **Edit:** bright question: render to energy 0.51; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F472 — contrast-4/dark-garage
+
+- **Score:** 11:40.204 · 4 score beats · master 123.00 BPM · bus dark · -15.2 dB · rendered target energy 0.51
+- **Source:** 50717144 — LOUI COOK - BONG LONDON - future Garage / 2-step / Electronic Broken Beat / Dubstep/Breaks (140 BPM, Future Garage, 392s, 12067 followers)
+- **Cue:** s0 · 0.000000–1.951220 s · native playback · analyzed clock 69.79 BPM (confidence 1.00) · 12A (confidence 0.50)
+- **Local evidence:** energy 0.5422 · slope +0.02289 · rhythm 1.0000 · vocal 0.3164 · valence 0.5147 · arousal 0.4756 · dark 0.5730 · bright 0.4270 · synthesizer 0.3748 bass 0.2755 drums 0.1957
+- **Tempo treatment:** none; native source hard-gated to 1.951 s inside destination grid
+- **Edit:** dark answer: render to energy 0.51; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F473 — contrast-5/bright-robot
+
+- **Score:** 11:42.155 · 2 score beats · master 122.00 BPM · bus bright · -15.0 dB · rendered target energy 0.46
+- **Source:** 97320176 — - Robot Dance (Glitch/Electronica) (Alternative Electronic, 252s, 1064 followers)
+- **Cue:** s0 · 0.000000–0.983607 s · native playback · analyzed clock 83.10 BPM (confidence 1.00) · 5A (confidence 0.83)
+- **Local evidence:** energy 0.4571 · slope +0.01969 · rhythm 0.7797 · vocal unavailable · valence unavailable · arousal unavailable · dark unavailable · bright unavailable
+- **Tempo treatment:** none; native source hard-gated to 0.984 s inside destination grid
+- **Edit:** bright question: render to energy 0.46; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F474 — contrast-5/dark-ritual
+
+- **Score:** 11:43.139 · 2 score beats · master 122.00 BPM · bus dark · -15.2 dB · rendered target energy 0.46
+- **Source:** 2344820702 — - Ritual (Electronic, 284s, 66 followers)
+- **Cue:** s0 · 0.000000–0.983607 s · native playback · analyzed clock 83.04 BPM (confidence 0.72) · 4A (confidence 0.87)
+- **Local evidence:** energy 0.4892 · slope +0.00379 · rhythm 0.8095 · vocal 0.1700 · valence 0.4153 · arousal 0.3963 · dark 0.5832 · bright 0.4168 · synthesizer 0.4209 bass 0.3913 drums 0.3392
+- **Tempo treatment:** none; native source hard-gated to 0.984 s inside destination grid
+- **Edit:** dark answer: render to energy 0.46; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F475 — contrast-6/bright-chillwave
+
+- **Score:** 11:44.122 · 2 score beats · master 122.00 BPM · bus bright · -15.0 dB · rendered target energy 0.42
+- **Source:** 2322249896 — AMBIENT ELECTRONIC CHILLWAVE (Ambient Electronic Chillwave, 190s, 97 followers)
+- **Cue:** s0 · 0.000000–0.983607 s · native playback · analyzed clock 151.76 BPM (confidence 1.00) · 6A (confidence 0.82)
+- **Local evidence:** energy 0.4029 · slope +0.06177 · rhythm 0.8222 · vocal 0.2008 · valence 0.3498 · arousal 0.3908 · dark 0.5092 · bright 0.4908 · piano 0.3384 synthesizer 0.2256 guitar 0.1635
+- **Tempo treatment:** none; native source hard-gated to 0.984 s inside destination grid
+- **Edit:** bright question: render to energy 0.42; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F476 — contrast-6/dark-jungle
+
+- **Score:** 11:45.106 · 2 score beats · master 122.00 BPM · bus dark · -15.3 dB · rendered target energy 0.42
+- **Source:** 2340209828 — - Ambient Jungle (Ambient Jungle, 311s, 27 followers)
+- **Cue:** s0 · 0.000000–0.983607 s · native playback · analyzed clock 81.41 BPM (confidence 1.00) · 4A (confidence 0.85)
+- **Local evidence:** energy 0.4584 · slope +0.00150 · rhythm 0.4836 · vocal 0.5437 · valence 0.4699 · arousal 0.4265 · dark 0.5581 · bright 0.4419 · synthesizer 0.4983 bass 0.3457 drums 0.2026
+- **Tempo treatment:** none; native source hard-gated to 0.984 s inside destination grid
+- **Edit:** dark answer: render to energy 0.42; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F477 — contrast-7/bright-nightmare
+
+- **Score:** 11:46.089 · 1 score beat · master 121.00 BPM · bus bright · -15.0 dB · rendered target energy 0.37
+- **Source:** 66049133 — Geomagnetic Records Label Group - 02 - BrokenBeat vs Electronic Concept - Nightmare.wav (Psytrance, 464s, 30 followers)
+- **Cue:** s0 · 0.000000–0.495868 s · native playback · analyzed clock 147.03 BPM (confidence 0.87) · 5A (confidence 0.86)
+- **Local evidence:** energy 0.3756 · slope +0.02385 · rhythm 1.0000 · vocal 0.2206 · valence 0.5322 · arousal 0.5977 · dark 0.5120 · bright 0.4880 · synthesizer 0.5031 bass 0.2429 piano 0.1848
+- **Tempo treatment:** none; native source hard-gated to 0.496 s inside destination grid
+- **Edit:** bright question: render to energy 0.37; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F478 — contrast-7/dark-gulf
+
+- **Score:** 11:46.585 · 1 score beat · master 121.00 BPM · bus dark · -15.6 dB · rendered target energy 0.37
+- **Source:** 272979081 — - Black Gulfs I (Ambient, 159s, 32 followers)
+- **Cue:** s0 · 0.000000–0.495868 s · native playback · analyzed clock 143.14 BPM (confidence 0.13) · 7A (confidence 0.51)
+- **Local evidence:** energy 0.4681 · slope +0.03973 · rhythm 0.6951 · vocal 0.4788 · valence 0.4120 · arousal 0.4005 · dark 0.5456 · bright 0.4544 · synthesizer 0.4113 bass 0.1547 piano 0.1324
+- **Tempo treatment:** none; native source hard-gated to 0.496 s inside destination grid
+- **Edit:** dark answer: render to energy 0.37; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F479 — contrast-8/bright-runescape
+
+- **Score:** 11:47.081 · 1 score beat · master 121.00 BPM · bus bright · -15.0 dB · rendered target energy 0.33
+- **Source:** 202652806 — Dionysius - Ambient Jungle (Runescape, 264s, 144 followers)
+- **Cue:** s0 · 0.000000–0.495868 s · native playback · analyzed clock 94.87 BPM (confidence 1.00) · 6A (confidence 0.77)
+- **Local evidence:** energy 0.2551 · slope +0.02169 · rhythm 0.9415 · vocal 0.4199 · valence 0.4856 · arousal 0.4423 · dark 0.4923 · bright 0.5077 · piano 0.3612 synthesizer 0.3032 drums 0.2443
+- **Tempo treatment:** none; native source hard-gated to 0.496 s inside destination grid
+- **Edit:** bright question: render to energy 0.33; high-shelf +3 dB above 2.4 kHz and remove low body; end dry at pair boundary
+
+### F480 — contrast-8/dark-breakage
+
+- **Score:** 11:47.577 · 1 score beat · master 121.00 BPM · bus dark · -15.1 dB · rendered target energy 0.33
+- **Source:** 1770023145 — - RCT1: Breakage - Hard (OP Breaks Jungle Edit) (Jungle, 327s, 23 followers)
+- **Cue:** s2 · 24.473831–24.969699 s · native playback · analyzed clock 82.57 BPM (confidence 1.00) · 8A (confidence 0.62)
+- **Local evidence:** energy 0.3492 · slope +0.01132 · rhythm 0.4360 · vocal 0.5308 · valence 0.4878 · arousal 0.4856 · dark 0.5484 · bright 0.4516 · synthesizer 0.5585 bass 0.3561 drums 0.2332
+- **Tempo treatment:** none; native source hard-gated to 0.496 s inside destination grid
+- **Edit:** dark answer: render to energy 0.33; low-pass 4.8 kHz and retain low-mid shadow; start on exact prior dry edge and contradict its brightness without a crossfade
+
+### F481 — exhale-1/omen
+
+- **Score:** 11:48.073 · 1 score beat · master 120.00 BPM · bus air · -18.8 dB · rendered target energy 0.43
+- **Source:** 811460224 — - Omen Breaks - Austin Powders, International Gram Of Mystery [UKJ: The National Jungle Service EP] (Jungle, 320s, 5600 followers)
+- **Cue:** s5 · 59.524353–60.024353 s · native playback · analyzed clock 83.89 BPM (confidence 1.00) · 9A (confidence 0.55)
+- **Local evidence:** energy 0.5257 · slope -0.00212 · rhythm 0.6936 · vocal 0.1504 · valence 0.6319 · arousal 0.5219 · dark 0.5534 · bright 0.4466 · bass 0.4126 synthesizer 0.3792 drums 0.3072
+- **Tempo treatment:** none; native source hard-gated to 0.500 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.680 and energy 0.43; remove drums from bass 0.4126 synthesizer 0.3792 drums 0.3072, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F482 — exhale-2/grime
+
+- **Score:** 11:48.573 · 1 score beat · master 119.00 BPM · bus air · -18.2 dB · rendered target energy 0.41
+- **Source:** 1480570228 — - GRIMEY JUNGLE BREAKS (Drum & Bass, 567s, 11 followers)
+- **Cue:** s0 · 0.000000–0.504202 s · native playback · analyzed clock 86.89 BPM (confidence 0.57) · 4A (confidence 0.60)
+- **Local evidence:** energy 0.4336 · slope +0.01685 · rhythm 0.6614 · vocal 0.1494 · valence 0.5453 · arousal 0.5167 · dark 0.5317 · bright 0.4683 · synthesizer 0.2018 piano 0.1584 bass 0.1022
+- **Tempo treatment:** none; native source hard-gated to 0.504 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.637 and energy 0.41; remove drums from synthesizer 0.2018 piano 0.1584 bass 0.1022, retain one decaying pitched/noise contour, and dry-cut while local slope remains positive
+
+### F483 — exhale-3/needle
+
+- **Score:** 11:49.077 · 1 score beat · master 118.00 BPM · bus air · -21.1 dB · rendered target energy 0.39
+- **Source:** 2366006972 — - Needle Guy (Heavensword Club Tool) (Dance & EDM, 163s, 518 followers)
+- **Cue:** s5 · 61.265850–61.774325 s · native playback · analyzed clock 82.48 BPM (confidence 0.96) · 1A (confidence 0.58)
+- **Local evidence:** energy 0.7702 · slope -0.00181 · rhythm 0.6028 · vocal unavailable · valence unavailable · arousal unavailable · dark unavailable · bright unavailable
+- **Tempo treatment:** none; native source hard-gated to 0.508 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.594 and energy 0.39; remove drums, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F484 — exhale-4/blue-piano
+
+- **Score:** 11:49.586 · 1 score beat · master 117.00 BPM · bus air · -18.5 dB · rendered target energy 0.36
+- **Source:** 968544184 — Winters of blue - Emotional Glitch (Avant pop, 209s, 19 followers)
+- **Cue:** s1 · 11.192018–11.704839 s · native playback · analyzed clock 93.30 BPM (confidence 1.00) · 6A (confidence 0.79)
+- **Local evidence:** energy 0.4279 · slope -0.00458 · rhythm 0.5420 · vocal 0.1880 · valence 0.4174 · arousal 0.4077 · dark 0.4953 · bright 0.5047 · piano 0.6525 synthesizer 0.2213 drums 0.1053
+- **Tempo treatment:** none; native source hard-gated to 0.513 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.551 and energy 0.36; remove drums from piano 0.6525 synthesizer 0.2213 drums 0.1053, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F485 — exhale-5/metal-air
+
+- **Score:** 11:50.098 · 2 score beats · master 116.00 BPM · bus air · -18.6 dB · rendered target energy 0.34
+- **Source:** 2364158570 — Glitch The Creator - Fade To Black (emotional version) (Metal, 254s, 4 followers)
+- **Cue:** s1 · 8.811973–9.846456 s · native playback · analyzed clock 118.75 BPM (confidence 1.00) · 2A (confidence 0.94)
+- **Local evidence:** energy 0.4228 · slope +0.00575 · rhythm 0.5199 · vocal 0.5432 · valence 0.4073 · arousal 0.3228 · dark 0.5078 · bright 0.4922 · electricguitar 0.4203 guitar 0.4121 bass 0.3043
+- **Tempo treatment:** none; native source hard-gated to 1.034 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.508 and energy 0.34; remove drums from electricguitar 0.4203 guitar 0.4121 bass 0.3043, retain one decaying pitched/noise contour, and dry-cut while local slope remains positive
+
+### F486 — exhale-6/jungle-tail
+
+- **Score:** 11:51.133 · 2 score beats · master 115.00 BPM · bus air · -19.6 dB · rendered target energy 0.32
+- **Source:** 2346742328 — Alexander Lemm - Addicted (Hyper Jungle Breaks Mix) (Electronic, 202s, 58 followers)
+- **Cue:** s0 · 0.000000–1.043478 s · native playback · analyzed clock 99.92 BPM (confidence 0.82) · 3B (confidence 0.81)
+- **Local evidence:** energy 0.5192 · slope -0.00048 · rhythm 0.4680 · vocal 0.5665 · valence 0.5461 · arousal 0.5674 · dark 0.5071 · bright 0.4929 · synthesizer 0.4177 bass 0.3352 drums 0.3046
+- **Tempo treatment:** none; native source hard-gated to 1.043 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.465 and energy 0.32; remove drums from synthesizer 0.4177 bass 0.3352 drums 0.3046, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F487 — exhale-7/minimal-flute
+
+- **Score:** 11:52.176 · 2 score beats · master 114.00 BPM · bus air · -18.0 dB · rendered target energy 0.30
+- **Source:** 492702300 — - Minimal Ambient Percussion by AK (Ambient, 183s, 36 followers)
+- **Cue:** s0 · 0.000000–1.052632 s · native playback · analyzed clock 150.16 BPM (confidence 1.00) · 7B (confidence 0.92)
+- **Local evidence:** energy 0.2943 · slope +0.00236 · rhythm 0.4010 · vocal 0.2453 · valence 0.3567 · arousal 0.3227 · dark 0.4970 · bright 0.5030 · synthesizer 0.4698 piano 0.2111 flute 0.1094
+- **Tempo treatment:** none; native source hard-gated to 1.053 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.422 and energy 0.30; remove drums from synthesizer 0.4698 piano 0.2111 flute 0.1094, retain one decaying pitched/noise contour, and dry-cut while local slope remains positive
+
+### F488 — exhale-8/cute-decay
+
+- **Score:** 11:53.229 · 4 score beats · master 113.00 BPM · bus air · -21.3 dB · rendered target energy 0.28
+- **Source:** 123707423 — Hideyuki Ashizawa - Cute Glitch Electronica(Free Download - MP3 file format) (Electronica, 241s, 42 followers)
+- **Cue:** s3 · 34.144943–36.268837 s · native playback · analyzed clock 79.83 BPM (confidence 1.00) · 7B (confidence 0.85)
+- **Local evidence:** energy 0.6931 · slope -0.00001 · rhythm 0.3778 · vocal 0.0094 · valence 0.5576 · arousal 0.5227 · dark 0.5494 · bright 0.4506 · synthesizer 0.5177 piano 0.2420 drums 0.1482
+- **Tempo treatment:** none; native source hard-gated to 2.124 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.379 and energy 0.28; remove drums from synthesizer 0.5177 piano 0.2420 drums 0.1482, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F489 — exhale-9/flow
+
+- **Score:** 11:55.353 · 4 score beats · master 112.00 BPM · bus air · -18.6 dB · rendered target energy 0.25
+- **Source:** 2127712053 — - Enter Flow (Ambient Dub Techno) (Techno, 393s)
+- **Cue:** s8 · 65.457054–67.599911 s · native playback · analyzed clock 109.88 BPM (confidence 1.00) · 9A (confidence 0.84)
+- **Local evidence:** energy 0.3269 · slope -0.01454 · rhythm 0.3518 · vocal 0.4020 · valence 0.4247 · arousal 0.3829 · dark 0.5265 · bright 0.4735 · synthesizer 0.5097 bass 0.3811 drums 0.2327
+- **Tempo treatment:** none; native source hard-gated to 2.143 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.336 and energy 0.25; remove drums from synthesizer 0.5097 bass 0.3811 drums 0.2327, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F490 — exhale-10/computer-room
+
+- **Score:** 11:57.496 · 8 score beats · master 111.00 BPM · bus air · -21.7 dB · rendered target energy 0.23
+- **Source:** 2308458761 — Riotsyntax - Ambient electronic (Electronic, 232s, 2261 followers)
+- **Cue:** s5 · 67.988029–72.312353 s · native playback · analyzed clock 71.70 BPM (confidence 1.00) · 2A (confidence 0.93)
+- **Local evidence:** energy 0.6917 · slope -0.00706 · rhythm 0.3015 · vocal 0.3179 · valence 0.5570 · arousal 0.4685 · dark 0.5577 · bright 0.4423 · synthesizer 0.5393 bass 0.3968 computer 0.1931
+- **Tempo treatment:** none; native source hard-gated to 4.324 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.293 and energy 0.23; remove drums from synthesizer 0.5393 bass 0.3968 computer 0.1931, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F491 — exhale-11/hardstyle-dyad
+
+- **Score:** 12:01.820 · 8 score beats · master 110.00 BPM · bus air · -19.0 dB · rendered target energy 0.21
+- **Source:** 103043163 — Abdul Muhaimin - Melodic Rhythm (Hardstyle, 332s, 1534 followers)
+- **Cue:** s14 · 90.813240–95.176876 s · native playback · analyzed clock 149.88 BPM (confidence 1.00) · 8B (confidence 0.84)
+- **Local evidence:** energy 0.3372 · slope -0.01243 · rhythm 0.2462 · vocal 0.1807 · valence 0.5255 · arousal 0.5232 · dark 0.5229 · bright 0.4771 · synthesizer 0.5248 bass 0.1491 keyboard 0.1197
+- **Tempo treatment:** none; native source hard-gated to 4.364 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.250 and energy 0.21; remove drums from synthesizer 0.5248 bass 0.1491 keyboard 0.1197, retain one decaying pitched/noise contour, and dry-cut while local slope remains negative
+
+### F492 — exhale-12/ritual-loss
+
+- **Score:** 12:06.184 · 16 score beats · master 109.00 BPM · bus air · -19.5 dB · rendered target energy 0.19
+- **Source:** 2345514218 — - Secret Orgy Bunker Ritual (Soundtrack, 216s, 49 followers)
+- **Cue:** s0 · 0.000000–8.807339 s · native playback · analyzed clock 97.88 BPM (confidence 1.00) · 7A (confidence 0.86)
+- **Local evidence:** energy 0.3812 · slope +0.01522 · rhythm 0.2234 · vocal 0.3517 · valence 0.4135 · arousal 0.4447 · dark 0.5256 · bright 0.4744 · synthesizer 0.6155 piano 0.1868 drums 0.1092
+- **Tempo treatment:** none; native source hard-gated to 8.807 s inside destination grid
+- **Edit:** thin source attacks to rendered density 0.207 and energy 0.19; remove drums from synthesizer 0.6155 piano 0.1868 drums 0.1092, retain one decaying pitched/noise contour, and dry-cut while local slope remains positive
+
+### F493 — access-1/breath
+
+- **Score:** 12:14.991 · 1 score beat · master 108.00 BPM · bus air · -22.1 dB · rendered target energy 0.24
+- **Source:** 2127710952 — - Quiet Force (Ambient Dub Techno) (Techno, 351s)
+- **Cue:** s1 · 8.556553–9.112109 s · native playback · analyzed clock 111.89 BPM (confidence 1.00) · 7A (confidence 0.90)
+- **Local evidence:** energy 0.2560 · slope +0.00835 · rhythm 0.2195 · vocal 0.2832 · valence 0.4106 · arousal 0.3752 · dark 0.5333 · bright 0.4667 · synthesizer 0.4922 bass 0.2437 drums 0.2027
+- **Tempo treatment:** none; native source hard-gated to 0.556 s inside destination grid
+- **Edit:** isolate one breath; reject complete kick, snare, word, and cadence; render at energy 0.24, centered and dry, then expose only written post-cut gap
+
+### F494 — access-2/fingertip
+
+- **Score:** 12:15.616 · 1 score beat · master 107.00 BPM · bus air · -23.0 dB · rendered target energy 0.22
+- **Source:** 1890735480 — Cinematic Instrumental (Electronic, 247s, 42 followers)
+- **Cue:** s0 · 0.000000–0.560748 s · native playback · analyzed clock 97.08 BPM (confidence 1.00) · 5A (confidence 0.83)
+- **Local evidence:** energy 0.3515 · slope +0.00111 · rhythm 0.3593 · vocal 0.2179 · valence 0.5185 · arousal 0.5387 · dark 0.5195 · bright 0.4805 · synthesizer 0.6685 bass 0.2264 sampler 0.1852
+- **Tempo treatment:** none; native source hard-gated to 0.561 s inside destination grid
+- **Edit:** isolate one fingertip; reject complete kick, snare, word, and cadence; render at energy 0.22, centered and dry, then expose only written post-cut gap
+
+### F495 — access-3/relay
+
+- **Score:** 12:16.247 · 1 score beat · master 106.00 BPM · bus air · -22.9 dB · rendered target energy 0.20
+- **Source:** 847078234 — - Aquatic Ambient (Ambient, 230s, 10 followers)
+- **Cue:** s2 · 14.303492–14.869530 s · native playback · analyzed clock 148.53 BPM (confidence 1.00) · 4A (confidence 0.82)
+- **Local evidence:** energy 0.3213 · slope -0.00086 · rhythm 0.1269 · vocal 0.3599 · valence 0.4343 · arousal 0.3824 · dark 0.5193 · bright 0.4807 · synthesizer 0.5627 piano 0.1743 drums 0.0761
+- **Tempo treatment:** none; native source hard-gated to 0.566 s inside destination grid
+- **Edit:** isolate one relay click; reject complete kick, snare, word, and cadence; render at energy 0.20, centered and dry, then expose only written post-cut gap
+
+### F496 — access-4/bowed-grain
+
+- **Score:** 12:16.955 · 1 score beat · master 105.00 BPM · bus air · -22.0 dB · rendered target energy 0.19
+- **Source:** 2362496009 — Dubtronic Music - Sleney - Insight (Original Mix) (Dub Techno, 363s, 2917 followers)
+- **Cue:** s0 · 0.000000–0.571429 s · native playback · analyzed clock 118.34 BPM (confidence 1.00) · 7A (confidence 0.87)
+- **Local evidence:** energy 0.1776 · slope +0.02237 · rhythm 0.4342 · vocal 0.3032 · valence 0.4196 · arousal 0.3808 · dark 0.5262 · bright 0.4738 · synthesizer 0.3244 piano 0.2296 guitar 0.1840
+- **Tempo treatment:** none; native source hard-gated to 0.571 s inside destination grid
+- **Edit:** isolate one bowed grain; reject complete kick, snare, word, and cadence; render at energy 0.19, centered and dry, then expose only written post-cut gap
+
+### F497 — access-5/room
+
+- **Score:** 12:17.669 · 1 score beat · master 104.00 BPM · bus air · -22.0 dB · rendered target energy 0.17
+- **Source:** 2362496024 — Dubtronic Music - Sleney - Air (Original Mix) (Dub Techno, 423s, 2917 followers)
+- **Cue:** s0 · 0.000000–0.576923 s · native playback · analyzed clock 109.53 BPM (confidence 0.55) · 12A (confidence 0.94)
+- **Local evidence:** energy 0.1742 · slope +0.00958 · rhythm 0.2868 · vocal 0.3781 · valence 0.3848 · arousal 0.3059 · dark 0.5221 · bright 0.4779 · synthesizer 0.4165 piano 0.2751 electricguitar 0.1014
+- **Tempo treatment:** none; native source hard-gated to 0.577 s inside destination grid
+- **Edit:** isolate one room reflection; reject complete kick, snare, word, and cadence; render at energy 0.17, centered and dry, then expose only written post-cut gap
+
+### F498 — access-6/cable
+
+- **Score:** 12:18.534 · 1 score beat · master 103.00 BPM · bus air · -22.1 dB · rendered target energy 0.15
+- **Source:** 2200259303 — Maya - Badman (Drum & Bass, 291s, 74 followers)
+- **Cue:** s2 · 14.303492–14.886016 s · native playback · analyzed clock 172.27 BPM (confidence 0.12) · 8A (confidence 0.86)
+- **Local evidence:** energy 0.1671 · slope +0.01695 · rhythm 0.1611 · vocal 0.3562 · valence 0.3156 · arousal 0.3183 · dark 0.5288 · bright 0.4712 · synthesizer 0.6681 drums 0.1527 electricguitar 0.1328
+- **Tempo treatment:** none; native source hard-gated to 0.583 s inside destination grid
+- **Edit:** isolate one cable noise; reject complete kick, snare, word, and cadence; render at energy 0.15, centered and dry, then expose only written post-cut gap
+
+### F499 — access-7/screen
+
+- **Score:** 12:19.408 · 1 score beat · master 102.00 BPM · bus air · -22.0 dB · rendered target energy 0.13
+- **Source:** 526205031 — Ritual Ambient - Lavilokan (576s, 2467 followers)
+- **Cue:** s0 · 0.000000–0.588235 s · native playback · analyzed clock 99.88 BPM (confidence 0.45) · 11B (confidence 0.65)
+- **Local evidence:** energy 0.1109 · slope +0.00722 · rhythm 0.0919 · vocal 0.3837 · valence 0.3133 · arousal 0.3557 · dark 0.5187 · bright 0.4813 · guitar 0.3174 synthesizer 0.2951 drums 0.1747
+- **Tempo treatment:** none; native source hard-gated to 0.588 s inside destination grid
+- **Edit:** isolate one screen whine; reject complete kick, snare, word, and cadence; render at energy 0.13, centered and dry, then expose only written post-cut gap
+
+### F500 — unresolved-cut/harp-air
+
+- **Score:** 12:19.996 · 4 score beats · master 100.00 BPM · bus center · -20.0 dB · rendered target energy 0.22
+- **Source:** 163830320 — - The Ritual [ Ambient ] (Hip-hop & Rap, 202s, 2 followers)
+- **Cue:** s0 · 0.000000–2.400000 s · native playback · analyzed clock 94.96 BPM (confidence 1.00) · 9B (confidence 0.76)
+- **Local evidence:** energy 0.2256 · slope +0.00494 · rhythm 0.2267 · vocal 0.2500 · valence 0.4649 · arousal 0.3963 · dark 0.5257 · bright 0.4743 · synthesizer 0.2115 harp 0.1956 flute 0.1882
+- **Tempo treatment:** none; native source hard-gated to 2.400 s inside destination grid
+- **Edit:** retain harp/flute-like air over a D/A-neutral bed; render at energy 0.22, remove pulse-bearing low transients, play dry and centered, then cut on positive slope before ambience or harmony reaches rest
 
 ## Commit checks
 
