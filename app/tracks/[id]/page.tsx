@@ -10,7 +10,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     ? `${soundcloudTrack.title} — ${soundcloudTrack.user.username}`
     : `SoundCloud track ${id}`
   const description = 'Live SoundCloud track with Revibe tempo, tonal, energy, and structure analysis.'
-  const image = `/tracks/${encodeURIComponent(id)}/opengraph-image?v=8`
+  const image = `/tracks/${encodeURIComponent(id)}/opengraph-image`
 
   return {
     title,
