@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
 type BillableUsage = {
@@ -70,6 +70,46 @@ export const updateSoundcloudTokens = mutation({
     await ctx.db.patch(userId, {
       soundcloudAccessToken: args.accessToken,
       soundcloudRefreshToken: args.refreshToken,
+    });
+  },
+});
+
+export const serviceSoundcloudCredentials = internalQuery({
+  args: { soundcloudUserId: v.string() },
+  handler: async (ctx, { soundcloudUserId }) => {
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "soundcloud").eq("providerAccountId", soundcloudUserId),
+      )
+      .unique();
+    if (!account) return null;
+    const user = await ctx.db.get(account.userId);
+    if (!user?.soundcloudAccessToken) return null;
+    return {
+      accessToken: user.soundcloudAccessToken,
+      refreshToken: user.soundcloudRefreshToken ?? null,
+    };
+  },
+});
+
+export const updateServiceSoundcloudCredentials = internalMutation({
+  args: {
+    soundcloudUserId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "soundcloud").eq("providerAccountId", args.soundcloudUserId),
+      )
+      .unique();
+    if (!account) throw new Error("SoundCloud service user account not found");
+    await ctx.db.patch(account.userId, {
+      soundcloudAccessToken: args.accessToken,
+      ...(args.refreshToken ? { soundcloudRefreshToken: args.refreshToken } : {}),
     });
   },
 });

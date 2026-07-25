@@ -40,6 +40,45 @@ function analysisRoute(
 
 auth.addHttpRoutes(http);
 
+analysisRoute("/soundcloud/service-credentials", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  const body = await req.json().catch(() => null) as { soundcloudUserId?: unknown } | null;
+  if (typeof body?.soundcloudUserId !== "string" || !body.soundcloudUserId) {
+    return json({ error: "soundcloudUserId is required" }, 400);
+  }
+  const credentials = await ctx.runQuery(internal.users.serviceSoundcloudCredentials, {
+    soundcloudUserId: body.soundcloudUserId,
+  });
+  if (!credentials) return json({ error: "Service user SoundCloud credentials not found" }, 404);
+  return json(credentials);
+});
+
+analysisRoute("/soundcloud/service-credentials/update", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  const body = await req.json().catch(() => null) as {
+    soundcloudUserId?: unknown;
+    accessToken?: unknown;
+    refreshToken?: unknown;
+  } | null;
+  if (
+    typeof body?.soundcloudUserId !== "string" ||
+    typeof body.accessToken !== "string"
+  ) {
+    return json({ error: "soundcloudUserId and accessToken are required" }, 400);
+  }
+  try {
+    await ctx.runMutation(internal.users.updateServiceSoundcloudCredentials, {
+      soundcloudUserId: body.soundcloudUserId,
+      accessToken: body.accessToken,
+      ...(typeof body.refreshToken === "string" ? { refreshToken: body.refreshToken } : {}),
+    });
+    return json({ updated: true });
+  } catch (error) {
+    console.error("Service user credential update failed", error);
+    return json({ error: "Service user SoundCloud account not found" }, 404);
+  }
+});
+
 http.route({
   path: "/instagram/webhook",
   method: "GET",
