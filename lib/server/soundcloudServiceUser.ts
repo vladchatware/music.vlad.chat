@@ -13,17 +13,15 @@ export class ServiceSoundCloudCredentialsError extends Error {
 function convexSiteUrl(): string {
   const configured = process.env.CONVEX_SITE_URL
   const cloud = process.env.NEXT_PUBLIC_CONVEX_URL
-  if (configured) {
-    return configured.replace(/\/+$/, "").replace(/\/api$/, "")
+  const url = configured
+    ? configured.replace(/\/+$/, "").replace(/\/api$/, "")
+    : cloud?.includes(".convex.cloud")
+      ? cloud.replace(".convex.cloud", ".convex.site").replace(/\/$/, "")
+      : null
+  if (!url) {
+    throw new ServiceSoundCloudCredentialsError("CONVEX_SITE_URL is not configured", 500)
   }
-  if (cloud?.includes(".convex.cloud")) {
-    return cloud.replace(".convex.cloud", ".convex.site").replace(/\/$/, "")
-  }
-  if (cloud) {
-    // Local Convex dev — same server serves both API and site
-    return cloud.replace(/\/$/, "")
-  }
-  throw new ServiceSoundCloudCredentialsError("CONVEX_SITE_URL is not configured", 500)
+  return url
 }
 
 async function request(path: string, body: unknown): Promise<Response> {

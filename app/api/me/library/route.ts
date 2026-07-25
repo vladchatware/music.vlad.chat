@@ -14,18 +14,7 @@ function errorStatus(error: unknown): number | undefined {
   return typeof error.status === "number" ? error.status : undefined;
 }
 
-async function developmentDirectLibrary(userToken: string) {
-  const library = await meLibrary(userToken);
-  return { ...library, source: "service_user" as const };
-}
-
 async function developmentServiceLibrary(serviceUserId: string) {
-  // In dev, accept a direct user token via env var as the fastest path
-  const directToken = process.env.SOUNDCLOUD_DEV_USER_TOKEN;
-  if (directToken) {
-    return developmentDirectLibrary(directToken);
-  }
-
   const tokens = await getServiceSoundCloudCredentials(serviceUserId);
   try {
     const library = await meLibrary(tokens.accessToken);
