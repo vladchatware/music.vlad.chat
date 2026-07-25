@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "start:local": "next dev --turbopack",
+    "refresh:service-user": "bash scripts/refresh-service-user.sh",
     "analysis:worker": "bun run workers/track-analysis/index.ts",
     "analysis:prepare-models": "bun run workers/track-analysis/prepareModels.ts --accept-noncommercial-license",
     "analysis:queue-likes": "bun run workers/track-analysis/enqueueLikes.ts",
