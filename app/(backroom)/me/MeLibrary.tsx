@@ -11,6 +11,7 @@ import {
   Heart,
   ListMusic,
   LoaderCircle,
+  Pause,
   Play,
   Radio,
   RefreshCw,
@@ -101,8 +102,8 @@ function TrackRow({ track, index, onPlay, playingId }: {
       <CopyIdButton id={track.id} />
       <div className={styles.trackActions}>
         <button type="button" onClick={() => onPlay(track.id)} title={isPlaying ? "Pause" : `Play ${track.title}`}>
-          {isPlaying ? <LoaderCircle size={14} /> : <Play size={14} fill="currentColor" />}
-          <span>{isPlaying ? "Playing" : "Play"}</span>
+          {isPlaying ? <Pause size={14} /> : <Play size={14} fill="currentColor" />}
+          <span>{isPlaying ? "Pause" : "Play"}</span>
         </button>
         <Link href={`/tracks/${track.id}/backroom`} title={`Analyze ${track.title}`}>
           <Radio size={14} />

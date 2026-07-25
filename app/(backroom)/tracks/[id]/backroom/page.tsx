@@ -7,6 +7,30 @@ import { rankTransitionCandidates, suggestTransitionWindows, type DJPerformanceP
 import { TRACK_ANALYSIS_VERSION, type AnalysisSegment, type TrackAnalysis } from "@/lib/trackAnalysis";
 
 import { track } from "@/soundcloud";
+
+// In development with a service user, fetch a user token from the Convex
+// HTTP endpoint to avoid rate-limiting the shared client-credentials auth.
+let _serviceToken: string | undefined;
+async function serviceUserToken(): Promise<string | undefined> {
+  if (_serviceToken) return _serviceToken;
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/+$/, "").replace(/\/api$/, "");
+  if (!secret || !siteUrl) return undefined;
+  try {
+    const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: "{}",
+      cache: "no-store",
+    });
+    if (!res.ok) return undefined;
+    const { accessToken } = await res.json() as { accessToken: string };
+    _serviceToken = accessToken;
+    return accessToken;
+  } catch {
+    return undefined;
+  }
+}
 import ThemeToggle from "../../../ThemeToggle";
 import styles from "../../../backroom.module.css";
 import PlaybackEnergyChart from "./PlaybackEnergyChart";
@@ -70,10 +94,11 @@ export default async function TrackBackroom({
   const energyArc: DJPerformancePlan["energyArc"] = ENERGY_ARCS.includes(query.arc as typeof ENERGY_ARCS[number])
     ? query.arc as DJPerformancePlan["energyArc"]
     : "preserve";
+  const userToken = await serviceUserToken();
   const [soundcloudTrack, analysis, incomingTrack, incomingAnalysis, candidateAnalyses] = await Promise.all([
-    track(id).catch(() => null),
+    track(id, userToken).catch(() => null),
     fetchQuery(api.trackAnalysis.getBySoundCloudId, { trackId: id, analysisVersion: TRACK_ANALYSIS_VERSION }).catch(() => null),
-    incomingId ? track(incomingId).catch(() => null) : Promise.resolve(null),
+    incomingId ? track(incomingId, userToken).catch(() => null) : Promise.resolve(null),
     incomingId
       ? fetchQuery(api.trackAnalysis.getBySoundCloudId, { trackId: incomingId, analysisVersion: TRACK_ANALYSIS_VERSION }).catch(() => null)
       : Promise.resolve(null),
@@ -101,7 +126,7 @@ export default async function TrackBackroom({
   const candidateIds = [...new Set(ENERGY_ARCS.flatMap((arc) => rankedByArc[arc].map(({ analysis: candidate }) => candidate.sourceTrackId)))];
   const candidateMetadata = new Map(await Promise.all(candidateIds.map(async (candidateId) => [
     candidateId,
-    await track(candidateId).catch(() => null),
+    await track(candidateId, userToken).catch(() => null),
   ] as const)));
   const candidatesByArc = Object.fromEntries(ENERGY_ARCS.map((arc) => [arc, rankedByArc[arc].map(({ analysis: candidate, suggestions: candidateSuggestions }) => {
     const metadata = candidateMetadata.get(candidate.sourceTrackId);
