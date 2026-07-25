@@ -93,27 +93,6 @@ export const serviceSoundcloudCredentials = internalQuery({
   },
 });
 
-export const updateServiceSoundcloudCredentials = internalMutation({
-  args: {
-    soundcloudUserId: v.string(),
-    accessToken: v.string(),
-    refreshToken: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await ctx.db
-      .query("authAccounts")
-      .withIndex("providerAndAccountId", (q) =>
-        q.eq("provider", "soundcloud").eq("providerAccountId", args.soundcloudUserId),
-      )
-      .unique();
-    if (!account) throw new Error("SoundCloud service user account not found");
-    await ctx.db.patch(account.userId, {
-      soundcloudAccessToken: args.accessToken,
-      ...(args.refreshToken ? { soundcloudRefreshToken: args.refreshToken } : {}),
-    });
-  },
-});
-
 export const connect = mutation({
   args: { stripeId: v.string() },
   returns: v.null(),
