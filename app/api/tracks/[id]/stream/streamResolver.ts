@@ -31,6 +31,35 @@ async function resolveStreamWithUserRefresh(id: string, convexToken: string) {
   }
 }
 
+async function resolveStreamWithServiceUser(id: string): Promise<string> {
+  // On dev, use the service user token (set via `bun run refresh:service-user`)
+  // fetched from the Convex HTTP endpoint.
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  const siteUrl = process.env.CONVEX_SITE_URL
+    ?.replace(/\/+$/, "")
+    .replace(/\/api$/, "");
+  if (secret && siteUrl) {
+    try {
+      const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const { accessToken } = await res.json() as { accessToken: string };
+        return await resolveTrackStreamUrl(id, accessToken);
+      }
+    } catch {
+      // Fall through to client-credentials auth
+    }
+  }
+  return resolveTrackStreamUrl(id);
+}
+
 export async function resolveStreamWithTimeout(
   id: string,
   convexToken?: string,
@@ -48,7 +77,7 @@ export async function resolveStreamWithTimeout(
     return await Promise.race([
       convexToken
         ? resolveStreamWithUserRefresh(id, convexToken)
-        : resolveTrackStreamUrl(id),
+        : resolveStreamWithServiceUser(id),
       timeout,
     ]);
   } finally {

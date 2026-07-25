@@ -16,8 +16,9 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { streamTrack } from "@/lib/soundcloud";
 import type { Playlist, SoundCloudMeLibrary, Track } from "@/soundcloud";
 
 import ThemeToggle from "../ThemeToggle";
@@ -78,7 +79,14 @@ function Artwork({ track, index }: { track: Track; index: number }) {
   );
 }
 
-function TrackRow({ track, index }: { track: Track; index: number }) {
+function TrackRow({ track, index, onPlay, playingId }: {
+  track: Track;
+  index: number;
+  onPlay: (id: number) => void;
+  playingId: number | null;
+}) {
+  const isPlaying = playingId === track.id;
+
   return (
     <article className={styles.trackRow}>
       <Artwork track={track} index={index} />
@@ -92,10 +100,10 @@ function TrackRow({ track, index }: { track: Track; index: number }) {
       </div>
       <CopyIdButton id={track.id} />
       <div className={styles.trackActions}>
-        <Link href={`/tracks/${track.id}`} title={`Play ${track.title}`}>
-          <Play size={14} fill="currentColor" />
-          <span>Play</span>
-        </Link>
+        <button type="button" onClick={() => onPlay(track.id)} title={isPlaying ? "Pause" : `Play ${track.title}`}>
+          {isPlaying ? <LoaderCircle size={14} /> : <Play size={14} fill="currentColor" />}
+          <span>{isPlaying ? "Playing" : "Play"}</span>
+        </button>
         <Link href={`/tracks/${track.id}/backroom`} title={`Analyze ${track.title}`}>
           <Radio size={14} />
           <span>Analyze</span>
@@ -108,9 +116,13 @@ function TrackRow({ track, index }: { track: Track; index: number }) {
 function TrackList({
   tracks,
   empty,
+  onPlay,
+  playingId,
 }: {
   tracks: Track[];
   empty: string;
+  onPlay: (id: number) => void;
+  playingId: number | null;
 }) {
   if (tracks.length === 0) {
     return (
@@ -124,7 +136,7 @@ function TrackList({
   return (
     <div className={styles.trackList}>
       {tracks.map((track, index) => (
-        <TrackRow key={`${track.id}-${index}`} track={track} index={index} />
+        <TrackRow key={`${track.id}-${index}`} track={track} index={index} onPlay={onPlay} playingId={playingId} />
       ))}
     </div>
   );
@@ -165,6 +177,8 @@ function PlaylistCard({ playlist, index }: { playlist: Playlist; index: number }
               key={`${playlist.id}-${track.id}-${trackIndex}`}
               track={track}
               index={trackIndex}
+              onPlay={onPlay}
+              playingId={playingId}
             />
           ))
         ) : (
@@ -197,6 +211,24 @@ export default function MeLibrary() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [requestKey, setRequestKey] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingId, setPlayingId] = useState<number | null>(null);
+
+  function handlePlay(id: number) {
+    if (playingId === id) {
+      audioRef.current?.pause();
+      setPlayingId(null);
+      return;
+    }
+    const src = streamTrack(id);
+    if (!src) return;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.src = src;
+      audio.play().catch(() => {});
+      setPlayingId(id);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -324,18 +356,20 @@ export default function MeLibrary() {
                     ? "No recent SoundCloud plays found."
                     : "Play history unavailable with service user ID. Likes and playlists remain available."
                 }
+                onPlay={handlePlay}
+                playingId={playingId}
               />
             ) : null}
 
             {!loading && library && section === "likes" ? (
-              <TrackList tracks={library.likes} empty="No liked tracks found." />
+              <TrackList tracks={library.likes} empty="No liked tracks found." onPlay={handlePlay} playingId={playingId} />
             ) : null}
 
             {!loading && library && section === "playlists" ? (
               library.playlists.length ? (
                 <div className={styles.playlistList}>
                   {library.playlists.map((playlist, index) => (
-                    <PlaylistCard key={`${playlist.id}-${index}`} playlist={playlist} index={index} />
+                    <PlaylistCard key={`${playlist.id}-${index}`} playlist={playlist} index={index} onPlay={handlePlay} playingId={playingId} />
                   ))}
                 </div>
               ) : (
@@ -348,6 +382,7 @@ export default function MeLibrary() {
           </section>
         </>
       )}
+      <audio ref={audioRef} preload="none" />
     </main>
   );
 }
