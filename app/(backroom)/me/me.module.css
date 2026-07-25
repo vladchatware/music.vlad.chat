@@ -409,7 +409,8 @@
   font-size: 7px;
 }
 
-.trackActions a {
+.trackActions a,
+.trackActions button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -417,9 +418,15 @@
   color: var(--muted);
   text-decoration: none;
   border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
 }
 
-.trackActions a:hover {
+.trackActions a:hover,
+.trackActions button:hover {
   color: var(--acid);
   border-color: var(--line);
 }
@@ -694,7 +701,8 @@
     padding: 0 0 8px 9px;
     margin-top: -4px;
   }
-  .trackActions a { padding: 5px; }
+  .trackActions a,
+.trackActions button { padding: 5px; }
   .playlistCard > summary {
     grid-template-columns: 74px 1fr auto;
     gap: 14px;
