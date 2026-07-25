@@ -15,6 +15,7 @@ export default async function DashboardPage({
     <main className={styles.landing}>
       <div className={styles.noise} />
       <div className={styles.landingTheme}><ThemeToggle /></div>
+      <a className={styles.libraryLink} href="/me">My records →</a>
       <section className={styles.lookupPanel}>
         <p className={styles.eyebrow}>REVIBE / ANALYSIS DESK</p>
         <h1>Read the record<br />before the room.</h1>

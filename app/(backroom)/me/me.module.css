@@ -1,0 +1,707 @@
+.library {
+  --ink: #e9eadf;
+  --muted: #919486;
+  --acid: #d7ff3f;
+  --amber: #ffb648;
+  --paper: #0e100d;
+  --line: #30342a;
+  --section: #151812;
+  --artwork: #1b1e18;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, transparent 0 74%, color-mix(in srgb, var(--acid) 2%, transparent) 74%),
+    var(--paper);
+  font-family: Georgia, "Times New Roman", serif;
+  height: 100dvh;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 0 4vw 90px;
+  position: relative;
+  color-scheme: dark;
+}
+
+.noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .08;
+  z-index: 20;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
+}
+
+.topbar {
+  height: 64px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(14px);
+  font: 9px "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.brand {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.brand b {
+  color: var(--acid);
+}
+
+.deskLabel {
+  color: var(--muted);
+}
+
+.topbar nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.topbar nav a {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.topbar nav a:hover {
+  color: var(--acid);
+}
+
+.library :global(.backroomThemeToggle) {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: 9px "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 7px 9px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.library :global(.backroomThemeToggle):hover {
+  border-color: var(--acid);
+  color: var(--ink);
+}
+
+.profile {
+  min-height: 38vh;
+  display: grid;
+  grid-template-columns: minmax(140px, 18vw) 1fr auto;
+  align-items: end;
+  gap: clamp(28px, 5vw, 80px);
+  padding: 7vh 0 6vh;
+}
+
+.avatar {
+  aspect-ratio: 1;
+  background: var(--artwork);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 14px 14px 0 var(--section);
+  display: grid;
+  place-items: center;
+  color: var(--line);
+}
+
+.avatar::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  pointer-events: none;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(.72) contrast(1.08);
+}
+
+.avatar svg {
+  width: 35%;
+  height: 35%;
+}
+
+.eyebrow,
+.profileMeta,
+.sectionNav,
+.collectionHeader,
+.trackMeta,
+.copyButton,
+.trackActions,
+.playlistIdentity p,
+.playlistIdentity span,
+.soundcloudLink,
+.loadingState,
+.emptyState,
+.errorState button {
+  font-family: "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.eyebrow {
+  color: var(--acid);
+  font-size: 10px;
+  margin: 0;
+}
+
+.profileCopy h1 {
+  font-size: clamp(54px, 8vw, 118px);
+  font-weight: 400;
+  line-height: .82;
+  letter-spacing: -.07em;
+  margin: 22px 0 34px;
+  max-width: 950px;
+}
+
+.profileMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.shelfMark {
+  align-self: start;
+  border: 1px solid var(--acid);
+  width: 64px;
+  height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 9px;
+  color: var(--acid);
+  font: 9px "Courier New", monospace;
+}
+
+.shelfMark span {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.shelfMark b {
+  writing-mode: vertical-rl;
+  align-self: end;
+  font-weight: 400;
+}
+
+.sectionNav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.sectionNav button {
+  appearance: none;
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 13px;
+  padding: 18px 20px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  transition: background .16s ease, color .16s ease;
+}
+
+.sectionNav button:hover {
+  color: var(--ink);
+  background: var(--section);
+}
+
+.sectionNav button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--acid);
+  color: #111;
+}
+
+.sectionNav button b {
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.sectionNav button i {
+  display: none;
+  font-style: normal;
+}
+
+.collection {
+  padding-top: 70px;
+}
+
+.collectionHeader {
+  display: grid;
+  grid-template-columns: 55px 1fr auto;
+  align-items: end;
+  gap: 10px;
+  padding: 13px 0 26px;
+  border-top: 1px solid var(--line);
+}
+
+.collectionHeader > span {
+  align-self: start;
+  color: var(--acid);
+  font-size: 10px;
+}
+
+.collectionHeader p {
+  color: var(--muted);
+  font-size: 8px;
+  margin: 0 0 8px;
+}
+
+.collectionHeader h2 {
+  font: 400 clamp(32px, 4.4vw, 65px)/.95 Georgia, "Times New Roman", serif;
+  letter-spacing: -.045em;
+  text-transform: none;
+  margin: 0;
+}
+
+.collectionHeader .idHint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+}
+
+.trackList,
+.playlistList {
+  border-top: 1px solid var(--line);
+}
+
+.trackRow {
+  display: grid;
+  grid-template-columns: 70px minmax(180px, 1.6fr) minmax(130px, .8fr) 145px 170px;
+  align-items: center;
+  min-height: 86px;
+  border-bottom: 1px solid var(--line);
+  transition: background .15s ease;
+}
+
+.trackRow:hover {
+  background: var(--section);
+}
+
+.trackArt {
+  height: 70px;
+  width: 70px;
+  position: relative;
+  overflow: hidden;
+  background: var(--artwork);
+  display: grid;
+  place-items: center;
+  color: var(--line);
+}
+
+.trackArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(.66) contrast(1.08);
+  transition: transform .35s ease, filter .35s ease;
+}
+
+.trackRow:hover .trackArt img {
+  transform: scale(1.07);
+  filter: saturate(.92) contrast(1.04);
+}
+
+.trackArt span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: var(--acid);
+  color: #111;
+  padding: 4px 5px;
+  font: 700 7px "Courier New", monospace;
+}
+
+.trackIdentity {
+  min-width: 0;
+  padding: 0 24px;
+}
+
+.trackIdentity h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(17px, 1.6vw, 24px);
+  font-weight: 400;
+  line-height: 1.05;
+}
+
+.trackIdentity p {
+  margin: 7px 0 0;
+  color: var(--acid);
+  font: 8px "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.trackMeta {
+  display: flex;
+  gap: 18px;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.trackMeta span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyButton {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  padding: 9px 10px;
+  font-size: 8px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.copyButton:hover {
+  border-color: var(--acid);
+  color: var(--acid);
+}
+
+.trackActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding-right: 12px;
+  font-size: 7px;
+}
+
+.trackActions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.trackActions a:hover {
+  color: var(--acid);
+  border-color: var(--line);
+}
+
+.playlistCard {
+  border-bottom: 1px solid var(--line);
+}
+
+.playlistCard > summary {
+  display: grid;
+  grid-template-columns: 100px 1fr auto auto;
+  gap: 24px;
+  align-items: center;
+  padding: 18px 0;
+  cursor: pointer;
+  list-style: none;
+  transition: background .15s ease;
+}
+
+.playlistCard > summary::-webkit-details-marker {
+  display: none;
+}
+
+.playlistCard > summary:hover {
+  background: var(--section);
+}
+
+.playlistArt {
+  width: 100px;
+  height: 100px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  background: var(--artwork);
+  color: var(--line);
+  overflow: hidden;
+}
+
+.playlistArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(.7) contrast(1.08);
+}
+
+.playlistArt span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 5px 6px;
+  color: #111;
+  background: var(--acid);
+  font: 700 8px "Courier New", monospace;
+}
+
+.playlistIdentity {
+  min-width: 0;
+}
+
+.playlistIdentity p {
+  color: var(--acid);
+  font-size: 7px;
+  margin: 0 0 9px;
+}
+
+.playlistIdentity h3 {
+  font-size: clamp(25px, 3vw, 42px);
+  line-height: .95;
+  letter-spacing: -.035em;
+  font-weight: 400;
+  margin: 0 0 13px;
+}
+
+.playlistIdentity span {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.soundcloudLink {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 7px;
+  text-decoration: none;
+  padding: 9px;
+  border: 1px solid var(--line);
+}
+
+.soundcloudLink:hover {
+  color: var(--acid);
+  border-color: var(--acid);
+}
+
+.chevron {
+  color: var(--acid);
+  margin-right: 18px;
+  transition: transform .2s ease;
+}
+
+.playlistCard[open] .chevron {
+  transform: rotate(180deg);
+}
+
+.playlistTracks {
+  border-top: 1px solid var(--acid);
+  padding-left: 5vw;
+  background: color-mix(in srgb, var(--section) 55%, transparent);
+}
+
+.loadingState,
+.emptyState {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.emptyState p {
+  margin: 0;
+}
+
+.spinner {
+  color: var(--acid);
+  animation: spin 1s linear infinite;
+}
+
+.errorState {
+  min-height: calc(100dvh - 65px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  max-width: 720px;
+}
+
+.errorState h1 {
+  font-size: clamp(50px, 8vw, 100px);
+  line-height: .86;
+  letter-spacing: -.065em;
+  font-weight: 400;
+  margin: 28px 0;
+}
+
+.errorState > p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.5;
+  max-width: 520px;
+}
+
+.errorState button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 30px;
+  border: 0;
+  background: var(--acid);
+  color: #111;
+  padding: 14px 18px;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-color-scheme: light) {
+  .library {
+    --ink: #191b16;
+    --muted: #626559;
+    --acid: #526800;
+    --amber: #9a5600;
+    --paper: #f3f1e8;
+    --line: #c9c8bd;
+    --section: #e8e6dc;
+    --artwork: #d7d6cc;
+    color-scheme: light;
+  }
+
+  .noise { opacity: .04; }
+}
+
+:global(html[data-backroom-theme="light"]) .library {
+  --ink: #191b16;
+  --muted: #626559;
+  --acid: #526800;
+  --amber: #9a5600;
+  --paper: #f3f1e8;
+  --line: #c9c8bd;
+  --section: #e8e6dc;
+  --artwork: #d7d6cc;
+  color-scheme: light;
+}
+
+:global(html[data-backroom-theme="light"]) .noise { opacity: .04; }
+
+:global(html[data-backroom-theme="dark"]) .library {
+  --ink: #e9eadf;
+  --muted: #919486;
+  --acid: #d7ff3f;
+  --amber: #ffb648;
+  --paper: #0e100d;
+  --line: #30342a;
+  --section: #151812;
+  --artwork: #1b1e18;
+  color-scheme: dark;
+}
+
+@media (max-width: 900px) {
+  .library { padding-inline: 22px; }
+  .profile { grid-template-columns: 150px 1fr; }
+  .shelfMark { display: none; }
+  .profileCopy h1 { font-size: clamp(48px, 9vw, 78px); }
+  .trackRow {
+    grid-template-columns: 64px minmax(140px, 1fr) 135px 140px;
+  }
+  .trackArt { width: 64px; height: 64px; }
+  .trackMeta { display: none; }
+  .trackActions { padding-right: 0; }
+}
+
+@media (max-width: 650px) {
+  .library { padding-inline: 14px; }
+  .deskLabel, .topbar nav a:first-child { display: none; }
+  .topbar { gap: 10px; }
+  .topbar nav { margin-left: auto; }
+  .profile {
+    grid-template-columns: 90px 1fr;
+    min-height: auto;
+    padding-block: 35px;
+    gap: 22px;
+    align-items: center;
+  }
+  .profileCopy h1 {
+    font-size: clamp(36px, 10vw, 56px);
+    margin: 15px 0 18px;
+  }
+  .profileMeta span:nth-child(n+2) { display: none; }
+  .sectionNav button {
+    grid-template-columns: 1fr auto;
+    min-height: 70px;
+    padding: 12px;
+  }
+  .sectionNav button svg { display: none; }
+  .sectionNav button span { display: none; }
+  .sectionNav button i { display: block; }
+  .sectionNav button b { font-size: 16px; }
+  .collection { padding-top: 45px; }
+  .collectionHeader { grid-template-columns: 35px 1fr; }
+  .collectionHeader .idHint { display: none; }
+  .trackRow {
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    min-height: 70px;
+  }
+  .trackArt { width: 54px; height: 54px; }
+  .trackIdentity { padding: 0 13px; }
+  .trackIdentity h3 { font-size: 16px; }
+  .copyButton {
+    border: 0;
+    padding: 9px 4px;
+  }
+  .trackActions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+    padding: 0 0 8px 9px;
+    margin-top: -4px;
+  }
+  .trackActions a { padding: 5px; }
+  .playlistCard > summary {
+    grid-template-columns: 74px 1fr auto;
+    gap: 14px;
+  }
+  .playlistArt { width: 74px; height: 74px; }
+  .playlistIdentity h3 { font-size: 24px; }
+  .soundcloudLink { display: none; }
+  .chevron { margin-right: 5px; }
+  .playlistTracks { padding-left: 12px; }
+}
