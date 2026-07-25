@@ -324,6 +324,89 @@ export const claim = internalMutation({
   },
 });
 
+export const claimSpecific = internalMutation({
+  args: {
+    cacheKey: v.string(),
+    leaseToken: v.string(),
+    leaseDurationMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const job = await ctx.db
+      .query("trackAnalysisJobs")
+      .withIndex("by_cacheKey", (q) => q.eq("cacheKey", args.cacheKey))
+      .unique();
+
+    if (!job) return { status: "done" as const };
+    if (job.status === "dead") return { status: "dead" as const };
+
+    if (job.status === "processing" && (job.leaseExpiresAt ?? Number.POSITIVE_INFINITY) > now) {
+      return {
+        status: "waiting" as const,
+        retryAt: job.leaseExpiresAt ?? now + 60_000,
+      };
+    }
+
+    if (job.status === "processing") {
+      const retry = getAnalysisRetryPolicy(job.attempts, now);
+      await ctx.db.patch(job._id, {
+        status: retry.dead ? "dead" : "failed",
+        leaseToken: undefined,
+        leaseExpiresAt: undefined,
+        nextAttemptAt: retry.nextAttemptAt,
+        lastError: "Worker lease expired",
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+        event: "lease_expired",
+        count: 1,
+        dead: retry.dead,
+      });
+      if (retry.dead) return { status: "dead" as const };
+      return { status: "waiting" as const, retryAt: retry.nextAttemptAt };
+    }
+
+    if (job.nextAttemptAt > now) {
+      return { status: "waiting" as const, retryAt: job.nextAttemptAt };
+    }
+
+    await ctx.db.patch(job._id, {
+      status: "processing",
+      attempts: job.attempts + 1,
+      leaseToken: args.leaseToken,
+      leaseExpiresAt: now + Math.max(60_000, args.leaseDurationMs),
+      updatedAt: now,
+    });
+
+    const user = job.requestedBy ? await ctx.db.get(job.requestedBy) : null;
+    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
+      event: "claimed",
+      source: job.requestedBy ? "user" : "service",
+      ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
+      trackId: job.sourceTrackId,
+      attempt: job.attempts + 1,
+      queueWaitMs: Math.max(0, now - job.createdAt),
+    });
+    return {
+      status: "claimed" as const,
+      job: {
+        cacheKey: job.cacheKey,
+        sourceTrackId: job.sourceTrackId,
+        analysisVersion: job.analysisVersion,
+        attempt: job.attempts + 1,
+        leaseToken: args.leaseToken,
+        soundCloudAccessToken: user?.soundcloudAccessToken,
+        createdAt: job.createdAt,
+        sentryTrace: job.sentryTrace,
+        sentryBaggage: job.sentryBaggage,
+        messageId: job.messageId ?? job.cacheKey,
+        messageBodySize: job.messageBodySize,
+        sentAt: job.sentAt ?? job.createdAt,
+      },
+    };
+  },
+});
+
 export const complete = internalMutation({
   args: {
     cacheKey: v.string(),
@@ -428,7 +511,11 @@ export const fail = internalMutation({
       dead,
       totalTimeMs: Math.max(0, now - job.createdAt),
     });
-    return { dead, attempts: job.attempts };
+    return {
+      dead,
+      attempts: job.attempts,
+      nextAttemptAt: dead ? Number.MAX_SAFE_INTEGER : retry.nextAttemptAt,
+    };
   },
 });
 

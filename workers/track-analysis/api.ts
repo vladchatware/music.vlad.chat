@@ -16,6 +16,17 @@ export type AnalysisJob = {
   sentAt?: number;
 };
 
+export type AnalysisClaimResult =
+  | { status: "claimed"; job: AnalysisJob }
+  | { status: "waiting"; retryAt: number }
+  | { status: "done" | "dead" };
+
+export type AnalysisFailureResult = {
+  dead: boolean;
+  attempts: number;
+  nextAttemptAt: number;
+};
+
 export class AnalysisQueueClient {
   constructor(
     private readonly siteUrl: string,
@@ -45,6 +56,13 @@ export class AnalysisQueueClient {
     return response.job;
   }
 
+  async claimSpecific(cacheKey: string): Promise<AnalysisClaimResult> {
+    return this.post<AnalysisClaimResult>("/analysis/claim-specific", {
+      cacheKey,
+      leaseDurationMs: DEFAULT_LEASE_DURATION_MS,
+    });
+  }
+
   async enqueue(trackIds: Array<string | number>, priority = 0, _requestedBy?: string, soundcloudUserId?: string, force?: boolean) {
     return this.post<{ enqueued: number; cached: number; existing: number }>("/analysis/enqueue", {
       trackIds: trackIds.map(String),
@@ -62,9 +80,13 @@ export class AnalysisQueueClient {
     });
   }
 
-  async fail(job: AnalysisJob, error: unknown, noRetry?: boolean): Promise<void> {
+  async fail(
+    job: AnalysisJob,
+    error: unknown,
+    noRetry?: boolean,
+  ): Promise<AnalysisFailureResult> {
     const message = error instanceof Error ? error.message : String(error);
-    await this.post("/analysis/fail", {
+    return this.post<AnalysisFailureResult>("/analysis/fail", {
       cacheKey: job.cacheKey,
       leaseToken: job.leaseToken,
       error: message.slice(0, 500),
