@@ -20,6 +20,7 @@
         "@sentry/nextjs": "^10.66.0",
         "@sentry/node": "^10.66.0",
         "@stripe/stripe-js": "^8.0.0",
+        "@superpoweredsdk/web": "2.7.2",
         "@tensorflow/tfjs": "^4.22.0",
         "@tensorflow/tfjs-node": "^4.22.0",
         "@types/express": "^5.0.3",
@@ -545,6 +546,8 @@
     "@stitches/react": ["@stitches/react@1.2.8", "", { "peerDependencies": { "react": ">= 16.3.0" } }, "sha512-9g9dWI4gsSVe8bNLlb+lMkBYsnIKCZTmvqvDG+Avnn69XfmHZKiaMrx7cgTaddq7aTPPmXiTsbFcUy0xgI4+wA=="],
 
     "@stripe/stripe-js": ["@stripe/stripe-js@8.5.3", "", {}, "sha512-UM0GHAxlTN7v0lCK2P6t0VOlvBIdApIQxhnM3yZ2kupQ4PpSrLsK/n/NyYKtw2NJGMaNRRD1IicWS7fSL2sFtA=="],
+
+    "@superpoweredsdk/web": ["@superpoweredsdk/web@2.7.2", "", {}, "sha512-2ZOZPl0H+lqPu2tJdbGBpAvcZxycMNjXO25odDqyhpa5FiYOIhOaYHvAgjAhQ201c6bfbHpAP6lWzQWPvjsZoA=="],
 
     "@swc/helpers": ["@swc/helpers@0.5.15", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g=="],
 

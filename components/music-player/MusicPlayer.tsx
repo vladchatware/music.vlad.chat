@@ -7,7 +7,7 @@ import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 
 import { api } from "@/convex/_generated/api";
-import { fetchTrack, streamTrack } from "@/lib/soundcloud";
+import { fetchTrack } from "@/lib/soundcloud";
 import { playbackDebug } from "@/lib/playbackDebug";
 import { CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
 
@@ -137,8 +137,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   });
 
   const {
-    deckARef,
-    deckBRef,
     djState,
     phase,
     isPlaying,
@@ -800,21 +798,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           checkout={checkout}
         />
       </MusicPlayerScene>
-
-      <audio
-        ref={deckARef}
-        src={streamTrack(trackA?.id)}
-        preload="auto"
-        playsInline
-        crossOrigin="anonymous"
-      />
-      <audio
-        ref={deckBRef}
-        src={streamTrack(trackB?.id)}
-        preload="auto"
-        playsInline
-        crossOrigin="anonymous"
-      />
     </>
   );
 }

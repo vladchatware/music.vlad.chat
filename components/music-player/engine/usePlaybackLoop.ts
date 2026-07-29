@@ -13,13 +13,13 @@ import {
 import {
   evaluatePerformanceLoop,
   getActiveDeck,
-  getCrossfaderGains,
   isGoodTransitionMoment,
   type DJEvent,
   type DJState,
-  type EQController,
   type TransitionPlan,
 } from "@/lib/dj";
+import type { SuperpoweredAudioEngine } from "../audio-engine/superpoweredEngine";
+import type { DeckPlaybackState } from "../audio-engine/types";
 import type {
   MusicPlayerStore,
   TrackSection,
@@ -54,12 +54,11 @@ type PlaybackLoopOptions = {
   plannedReplanCountRef: MutableRefObject<number>;
   performanceLoopRepetitionsRef: MutableRefObject<number>;
   diagnosticsRef: MutableRefObject<EngineDiagnostics>;
-  getDeckElement: (deck: "A" | "B") => HTMLAudioElement | null;
-  getActiveDeckElement: () => HTMLAudioElement | null;
+  engineRef: MutableRefObject<SuperpoweredAudioEngine>;
+  getDeckState: (deck: "A" | "B") => DeckPlaybackState;
+  getActiveDeckState: () => DeckPlaybackState;
   getActiveAnalyzer: () => FFTAnalyzer | null;
   getInactiveAnalyzer: () => FFTAnalyzer | null;
-  getActiveEQ: () => EQController | null;
-  getInactiveEQ: () => EQController | null;
   onRequestNextTrack?: () => Promise<void>;
   autoCueConfig?: {
     minPlaySec?: number;
@@ -104,12 +103,11 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
         plannedReplanCountRef,
         performanceLoopRepetitionsRef,
         diagnosticsRef,
-        getDeckElement,
-        getActiveDeckElement,
+        engineRef,
+        getDeckState,
+        getActiveDeckState,
         getActiveAnalyzer,
         getInactiveAnalyzer,
-        getActiveEQ,
-        getInactiveEQ,
         onRequestNextTrack,
         autoCueConfig,
         logEngine,
@@ -122,13 +120,13 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
       const detector = bpmDetectorRef.current;
       const isCrossfading = state.type === "crossfading";
       const analysisDeck = isCrossfading
-        ? getDeckElement(state.incomingDeck.id)
-        : getActiveDeckElement();
+        ? getDeckState(state.incomingDeck.id)
+        : getActiveDeckState();
       const analysisAnalyzer = isCrossfading
         ? getInactiveAnalyzer()
         : getActiveAnalyzer();
 
-      if (analysisDeck && analysisAnalyzer && detector && !analysisDeck.paused) {
+      if (analysisDeck.loaded && analysisAnalyzer && detector && analysisDeck.playing) {
         const bassEnergy = analysisAnalyzer.getEnergy("bass");
         const overallEnergy = analysisAnalyzer.getEnergy("overall");
         audioEnergyRef.current = overallEnergy;
@@ -143,7 +141,7 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
         beatAmplitudeRangeRef.current = amplitude.range;
         audioBeatRef.current = getPlaybackBeatSnapshot({
           beatGrid: getActiveDeck(state)?.beatGrid ?? null,
-          currentTimeSec: analysisDeck.currentTime,
+          currentTimeSec: analysisDeck.positionSec,
           strength: amplitude.strength,
           fallbackPhase: beatPhase,
           fallbackTracked: detector.getBeatInterval() > 0,
@@ -156,10 +154,10 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
         else if (overallEnergy > 0.3) section = "comeup";
         else section = "intro";
 
-        const durationSec = analysisDeck.duration || 0;
+        const durationSec = analysisDeck.durationSec || 0;
         const progress01 =
           durationSec > 0
-            ? Math.max(0, Math.min(1, analysisDeck.currentTime / durationSec))
+            ? Math.max(0, Math.min(1, analysisDeck.positionSec / durationSec))
             : 0;
         const nowMs = performance.now();
         if (nowMs - lastPublishAtRef.current >= 150) {
@@ -188,7 +186,7 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
             dropDetected,
           });
           actions.setPlayback({
-            currentTimeSec: analysisDeck.currentTime,
+            currentTimeSec: analysisDeck.positionSec,
             durationSec,
             progress01,
           });
@@ -203,9 +201,9 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
             0,
             (performance.now() - heardTrackRef.current.startedAtMs) / 1000,
           );
-          const remainingSec = Math.max(0, durationSec - analysisDeck.currentTime);
+          const remainingSec = Math.max(0, durationSec - analysisDeck.positionSec);
           const shouldCueByFallback = shouldTriggerAutoCue({
-            currentTimeSec: analysisDeck.currentTime,
+            currentTimeSec: analysisDeck.positionSec,
             listenedSec,
             durationSec,
             progress01,
@@ -223,7 +221,7 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
           const shouldCueByAnalysis =
             typeof analyzedMixOutSec === "number" &&
             shouldTriggerAnalyzedAutoCue({
-              currentTimeSec: analysisDeck.currentTime,
+              currentTimeSec: analysisDeck.positionSec,
               mixOutSec: analyzedMixOutSec,
               listenedSec,
               alreadyTriggered: revibeTriggeredRef.current,
@@ -231,7 +229,7 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
           if (shouldCueByFallback || shouldCueByAnalysis) {
             revibeTriggeredRef.current = true;
             logEngine("engine.auto_cue.trigger", {
-              currentTimeSec: Number(analysisDeck.currentTime.toFixed(2)),
+              currentTimeSec: Number(analysisDeck.positionSec.toFixed(2)),
               durationSec: Number(durationSec.toFixed(2)),
               remainingSec: Number(remainingSec.toFixed(2)),
               progress01: Number(progress01.toFixed(4)),
@@ -247,18 +245,17 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
       }
 
       if (state.type === "crossfading") {
-        const outgoingDeck = getDeckElement(state.outgoingDeck.id);
-        const incomingDeck = getDeckElement(state.incomingDeck.id);
-        if (incomingDeck) {
+        const incomingDeck = getDeckState(state.incomingDeck.id);
+        if (incomingDeck.loaded) {
           const performanceLoop = state.plan.performance?.loop;
           if (performanceLoop?.deck === "incoming") {
             const loopDecision = evaluatePerformanceLoop(
               performanceLoop,
-              incomingDeck.currentTime,
+              incomingDeck.positionSec,
               performanceLoopRepetitionsRef.current,
             );
             if (loopDecision.shouldSeek && loopDecision.seekToSec !== null) {
-              incomingDeck.currentTime = loopDecision.seekToSec;
+              engineRef.current.seek(state.incomingDeck.id, loopDecision.seekToSec);
               performanceLoopRepetitionsRef.current = loopDecision.completedRepetitions;
               logEngine("engine.performance.loop", {
                 deck: "incoming",
@@ -274,36 +271,30 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
             nowMs: performance.now(),
             durationSec: crossfadeDurationSec,
           });
-          const outgoingEQ = getActiveEQ();
-          const incomingEQ = getInactiveEQ();
-          outgoingEQ?.tick(progress, true);
-          incomingEQ?.tick(progress, false);
-          if (outgoingDeck) {
-            const gains = getCrossfaderGains(
-              state.plan.performance?.crossfaderCurve ?? "linear",
-              progress,
-            );
-            outgoingDeck.volume = gains.outgoing;
-            incomingDeck.volume = gains.incoming;
-          }
-
           dispatch({ type: "CROSSFADE_TICK", progress });
           actions.setTransition({
             state: "crossfading",
             progress01: progress,
             durationSec: crossfadeDurationSec,
           });
-          if (progress >= 1) completeCrossfade();
+          const transitionOverdue =
+            crossfadeStartTimeRef.current !== null &&
+            performance.now() - crossfadeStartTimeRef.current >
+              (crossfadeDurationSec + 1) * 1000;
+          if (transitionOverdue) {
+            logEngine("engine.crossfade.completion_watchdog");
+            completeCrossfade();
+          }
         }
       }
 
       if (state.type === "planned" && transitionPlanRef.current) {
         const plan = transitionPlanRef.current;
-        const activeDeck = getDeckElement(state.activeDeck.id);
+        const activeDeck = getDeckState(state.activeDeck.id);
         const timeoutDecision =
-          activeDeck &&
+          activeDeck.loaded &&
           shouldEvaluatePlannedTimeout({
-            currentTimeSec: activeDeck.currentTime,
+            currentTimeSec: activeDeck.positionSec,
             plannedStartSec: plan.startBoundary.timeSec,
           })
             ? evaluatePlannedTimeout({
@@ -329,14 +320,14 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
         }
 
         const performanceLoop = plan.performance?.loop;
-        if (activeDeck && performanceLoop?.deck === "outgoing") {
+        if (activeDeck.loaded && performanceLoop?.deck === "outgoing") {
           const loopDecision = evaluatePerformanceLoop(
             performanceLoop,
-            activeDeck.currentTime,
+            activeDeck.positionSec,
             performanceLoopRepetitionsRef.current,
           );
           if (loopDecision.shouldSeek && loopDecision.seekToSec !== null) {
-            activeDeck.currentTime = loopDecision.seekToSec;
+            engineRef.current.seek(state.activeDeck.id, loopDecision.seekToSec);
             performanceLoopRepetitionsRef.current = loopDecision.completedRepetitions;
             plannedAtMsRef.current = performance.now();
             logEngine("engine.performance.loop", {
@@ -354,35 +345,35 @@ export function usePlaybackLoop(options: PlaybackLoopOptions): void {
         }
 
         const remainingSec =
-          activeDeck && Number.isFinite(activeDeck.duration)
-            ? Math.max(0, activeDeck.duration - activeDeck.currentTime)
+          activeDeck.loaded && Number.isFinite(activeDeck.durationSec)
+            ? Math.max(0, activeDeck.durationSec - activeDeck.positionSec)
             : null;
         const forceStart =
           Boolean(
-            activeDeck &&
-              Number.isFinite(activeDeck.duration) &&
-              plan.startBoundary.timeSec >= activeDeck.duration - 0.25,
+            activeDeck.loaded &&
+              Number.isFinite(activeDeck.durationSec) &&
+              plan.startBoundary.timeSec >= activeDeck.durationSec - 0.25,
           ) &&
           typeof remainingSec === "number" &&
           remainingSec <= 8;
-        if (activeDeck && isGoodTransitionMoment(activeDeck.currentTime, plan)) {
+        if (activeDeck.loaded && isGoodTransitionMoment(activeDeck.positionSec, plan)) {
           runDetached(startCrossfade(), (error) => {
             logEngine("engine.crossfade.start_rejected", {
               message: error instanceof Error ? error.message : String(error),
             });
           });
-        } else if (activeDeck && forceStart) {
+        } else if (activeDeck.loaded && forceStart) {
           logEngine("engine.transition.force_start_short_remaining", {
             remainingSec: Number((remainingSec ?? 0).toFixed(3)),
             plannedStartSec: Number(plan.startBoundary.timeSec.toFixed(3)),
-            trackDurationSec: Number(activeDeck.duration.toFixed(3)),
+            trackDurationSec: Number(activeDeck.durationSec.toFixed(3)),
           });
           runDetached(startCrossfade(), (error) => {
             logEngine("engine.crossfade.start_rejected", {
               message: error instanceof Error ? error.message : String(error),
             });
           });
-        } else if (activeDeck && (activeDeck.paused || activeDeck.ended)) {
+        } else if (activeDeck.loaded && (!activeDeck.playing || activeDeck.ended)) {
           runDetached(startCrossfade(), (error) => {
             logEngine("engine.crossfade.start_rejected", {
               message: error instanceof Error ? error.message : String(error),
