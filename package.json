@@ -19,6 +19,8 @@
     "eval:dj-agent": "bun run scripts/eval-dj-agent.ts",
     "eval:dj-live-flow": "bun run scripts/eval-dj-live-flow.ts",
     "eval:dj-rejection-flow": "DJ_EVAL_REJECT_FIRST_PLAYER=true bun run scripts/eval-dj-live-flow.ts",
+    "bench:dj": "bun run scripts/dj-bench/index.ts",
+    "bench:dj:reports": "bun run scripts/dj-bench/reports.ts",
     "live:infra:validate": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml config --quiet",
     "live:infra:up": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml up -d",
     "live:infra:logs": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml logs -f livekit egress",
@@ -33,6 +35,7 @@
   "dependencies": {
     "@ai-sdk/mcp": "1.0.63",
     "@ai-sdk/openai": "3.0.86",
+    "@ai-sdk/openai-compatible": "^2.0.62",
     "@ai-sdk/react": "3.0.232",
     "@convex-dev/auth": "^0.0.90",
     "@modelcontextprotocol/sdk": "^1.12.1",
