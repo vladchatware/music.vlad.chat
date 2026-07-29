@@ -42,15 +42,17 @@ music.vlad.chat is a web application that combines AI music curation with real-t
 
 ## DJ Analysis Worker
 
-Track analysis runs as separate Bun coordinator backed by Convex queue. Coordinator keeps health endpoint and queue leases; persistent Bun Worker threads perform FFmpeg decode and Essentia analysis. Worker requires FFmpeg and service-accessible SoundCloud tracks.
+Track analysis uses Vercel Workflow as durable queue/orchestrator. Each enqueue starts idempotent workflow, which calls separate Bun analyzer only when work exists. Convex stores cache, job state, and leases; worker does no empty polling. Worker requires FFmpeg and service-accessible SoundCloud tracks.
 
 ```env
 DJ_ANALYSIS_QUEUE_ENABLED=true
 NEXT_PUBLIC_DJ_ANALYSIS_ENABLED=true
 ANALYSIS_SERVICE_SECRET=<shared-random-secret>
 CONVEX_SITE_URL=https://<deployment>.convex.site
+ANALYSIS_WORKER_URL=https://<analysis-worker>
+# Used by analysis:queue-likes; defaults to http://localhost:3000
+ANALYSIS_APP_URL=https://<app>
 ANALYSIS_WORKER_CONCURRENCY=1
-ANALYSIS_WORKER_POLL_MS=2000
 PORT=3001
 ```
 
@@ -60,6 +62,19 @@ Run locally:
 bun run analysis:prepare-models
 bun run analysis:worker
 ```
+
+Run on worker machine behind a remotely managed Cloudflare Tunnel:
+
+1. Copy `workers/track-analysis/.env.example` to `workers/track-analysis/.env` and fill it.
+2. In Cloudflare Tunnel, map a public hostname to `http://analysis-worker:3001`.
+3. Set Vercel `ANALYSIS_WORKER_URL` to that public `https://` hostname and use the same `ANALYSIS_SERVICE_SECRET`.
+4. Start both containers:
+
+```bash
+bun run analysis:infra:up
+```
+
+Follow with `bun run analysis:infra:logs`; stop with `bun run analysis:infra:down`. Cloudflare's proxied request timeout still limits one analysis request, so keep track processing below that limit.
 
 Semantic analysis uses overlapping 10-second MusiCNN windows with a 5-second hop, then overlap-weights mood and voice probabilities into four-bar musical segments. Model files are cached outside Git under `workers/track-analysis/models`. Set `ESSENTIA_MODEL_DIR` to use another location. Missing models degrade to structural analysis and add a diagnostic warning.
 
@@ -75,7 +90,7 @@ Build dedicated container with `Dockerfile.worker`. Include semantic weights onl
 docker build -f Dockerfile.worker --build-arg ESSENTIA_MODELS_ACCEPT_LICENSE=true .
 ```
 
-Deploy queue/storage first with client consumption disabled, inspect results, then enable `NEXT_PUBLIC_DJ_ANALYSIS_ENABLED`.
+Deploy Convex schema/functions, Vercel app, and worker endpoint before enabling `NEXT_PUBLIC_DJ_ANALYSIS_ENABLED`. Configure same `ANALYSIS_SERVICE_SECRET` on app and worker.
 
 Essentia.js uses AGPL-3.0. Downloaded MTG model weights use CC BY-NC-SA 4.0; obtain proprietary model licensing before commercial deployment.
 

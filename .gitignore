@@ -14,3 +14,4 @@ soundcloud.json
 coverage/
 logs/*.ndjson
 workers/track-analysis/models/
+/.swc

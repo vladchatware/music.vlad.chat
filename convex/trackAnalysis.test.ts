@@ -124,6 +124,38 @@ describe("track analysis queue", () => {
     expect(second).toBeNull();
   });
 
+  it("leases only requested cache key for durable workflow delivery", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.trackAnalysis.enqueue, {
+      trackIds: ["41", "42"],
+      analysisVersion: "essentia-dj-v1",
+      priority: 10,
+    });
+
+    const specific = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:42:essentia-dj-v1",
+      leaseToken: "specific-lease",
+      leaseDurationMs: 60_000,
+    });
+    expect(specific).toMatchObject({
+      status: "claimed",
+      job: { sourceTrackId: "42", leaseToken: "specific-lease" },
+    });
+
+    const duplicate = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:42:essentia-dj-v1",
+      leaseToken: "duplicate-lease",
+      leaseDurationMs: 60_000,
+    });
+    expect(duplicate).toMatchObject({ status: "waiting" });
+
+    const remaining = await t.mutation(internal.trackAnalysis.claim, {
+      leaseToken: "remaining-lease",
+      leaseDurationMs: 60_000,
+    });
+    expect(remaining?.sourceTrackId).toBe("41");
+  });
+
   it("persists producer trace context and returns queue metadata when claimed", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
