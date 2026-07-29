@@ -110,4 +110,25 @@ describe("benchmark dashboard", () => {
     expect(html).toContain('href="/bench?run=run-1"');
     expect(html).not.toContain("file://");
   });
+
+  it("escapes analyzed key labels before rendering them", () => {
+    const html = renderBenchmarkDashboard("/tmp", [
+      run({
+        coherenceEvidence: [{
+          fromTrackId: 1,
+          toTrackId: 2,
+          harmonic: {
+            outgoingKey: '4A<script>alert("x")</script>',
+            incomingKey: "5A</div>",
+            sameKey: false,
+          },
+          analysisComplete: true,
+        }],
+      }),
+    ]);
+
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("4A&lt;script&gt;");
+    expect(html).toContain("5A&lt;/div&gt;");
+  });
 });

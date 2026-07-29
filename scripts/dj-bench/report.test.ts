@@ -16,7 +16,12 @@ describe("DJ bench reports", () => {
   it("stores sanitized config, summary, and readable report", () => {
     const directory = mkdtempSync(join(tmpdir(), "dj-bench-report-"));
     const config = parseBenchConfig(
-      ["--trace", join(directory, "run.jsonl")],
+      [
+        "--trace",
+        join(directory, "run.jsonl"),
+        "--mcp-url",
+        "https://bench-user:bench-secret@mcp.example/api/mcp?token=hidden#fragment",
+      ],
       { OPENCODE_API_KEY: "never-store-this" },
     );
     config.cookie = "also-never-store-this";
@@ -77,6 +82,9 @@ describe("DJ bench reports", () => {
 
     const storedConfig = readFileSync(config.configPath, "utf8");
     expect(storedConfig).not.toContain("never-store-this");
+    expect(storedConfig).not.toContain("bench-secret");
+    expect(storedConfig).not.toContain("token=hidden");
+    expect(storedConfig).toContain("https://mcp.example/api/mcp");
     expect(storedConfig).toContain('"hasCookie": true');
     expect(readFileSync(config.summaryPath, "utf8")).toContain('"continuity"');
     expect(readFileSync(config.reportPath, "utf8")).toContain(
@@ -142,5 +150,26 @@ describe("DJ bench reports", () => {
     expect(coherenceGraph(summary)).toContain(
       'tempo Δ 1.6%<br/>4A → 4A<br/>energy Δ +0.07',
     );
+  });
+
+  it("removes markup syntax from key labels in Mermaid output", () => {
+    const summary = {
+      acceptedTransitions: 1,
+      coherenceEvidence: [{
+        fromTrackId: 10,
+        toTrackId: 11,
+        harmonic: {
+          outgoingKey: '4A"] --> X["owned',
+          incomingKey: "5A<script>",
+          sameKey: false,
+        },
+        analysisComplete: true,
+      }],
+    } as BenchSummary;
+
+    const graph = coherenceGraph(summary);
+    expect(graph).not.toContain("<script>");
+    expect(graph).not.toContain('--> X["owned');
+    expect(graph).toContain("4A] -- X[owned → 5Ascript");
   });
 });

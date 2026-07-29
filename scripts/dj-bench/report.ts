@@ -122,7 +122,7 @@ function coherenceRows(summary: BenchSummary): string {
         ? `${item.tempo.outgoingBpm.toFixed(1)} → ${item.tempo.incomingBpm.toFixed(1)} (${item.tempo.normalizedDeltaPercent.toFixed(1)}%)`
         : "unscorable";
       const harmonic = item.harmonic
-        ? `${item.harmonic.outgoingKey} → ${item.harmonic.incomingKey}${item.harmonic.sameKey ? " (same)" : ""}`
+        ? `${mermaidText(item.harmonic.outgoingKey)} → ${mermaidText(item.harmonic.incomingKey)}${item.harmonic.sameKey ? " (same)" : ""}`
         : "unscorable";
       return `| ${item.fromTrackId} → ${item.toTrackId} | ${item.analysisComplete ? "complete" : "partial"} | ${tempo} | ${harmonic} | ${display(item.energy?.delta)} |`;
     }),
@@ -205,7 +205,7 @@ export function coherenceGraph(summary: BenchSummary): string {
       ? `tempo Δ ${item.tempo.normalizedDeltaPercent.toFixed(1)}%`
       : "tempo unscorable";
     const key = item.harmonic
-      ? `${item.harmonic.outgoingKey} → ${item.harmonic.incomingKey}`
+      ? `${mermaidText(item.harmonic.outgoingKey)} → ${mermaidText(item.harmonic.incomingKey)}`
       : "key unscorable";
     const energy = item.energy
       ? `energy Δ ${item.energy.delta >= 0 ? "+" : ""}${item.energy.delta.toFixed(2)}`
@@ -232,7 +232,7 @@ export function writeRunConfig(config: BenchConfig) {
     clockSpeed: config.clockSpeed,
     planningLeadSec: config.planningLeadSec,
     failures: [...config.failures],
-    mcpUrl: config.mcpUrl,
+    mcpUrl: publicMcpUrl(config.mcpUrl),
     outgoingTrackId: config.outgoingTrackId,
     prompt: config.prompt,
     scenario: config.scenario,
@@ -243,6 +243,19 @@ export function writeRunConfig(config: BenchConfig) {
     hasOpenCodeApiKey: Boolean(config.opencodeApiKey),
   };
   writeFileSync(config.configPath, `${JSON.stringify(sanitized, null, 2)}\n`);
+}
+
+export function publicMcpUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "<invalid MCP URL>";
+  }
 }
 
 export function writeRunArtifacts(config: BenchConfig, summary: BenchSummary) {

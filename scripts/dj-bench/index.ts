@@ -28,12 +28,14 @@ import {
   type PerformTransitionResult,
 } from "./runtime";
 import {
+  publicMcpUrl,
   writeRunArtifacts,
   writeRunConfig,
   type BenchSummary,
   type CoherenceEvidence,
 } from "./report";
 import { TraceRecorder } from "./trace";
+import { benchInvalidReason } from "./validity";
 
 const REMOTE_TOOL_NAMES = [
   "likes",
@@ -56,6 +58,7 @@ interface BenchCounters {
   outputTokens: number;
   totalTokens: number;
   accountedToolWallMs: number;
+  mcpFailures: number;
 }
 
 function createCounters(): BenchCounters {
@@ -72,6 +75,7 @@ function createCounters(): BenchCounters {
     outputTokens: 0,
     totalTokens: 0,
     accountedToolWallMs: 0,
+    mcpFailures: 0,
   };
 }
 
@@ -131,10 +135,10 @@ async function connectMcp(config: BenchConfig) {
   const requestInit = config.cookie
     ? { headers: { cookie: config.cookie } }
     : undefined;
-  const transport = new StreamableHTTPClientTransport(new URL(config.mcpUrl), {
-    requestInit,
-  });
   try {
+    const transport = new StreamableHTTPClientTransport(new URL(config.mcpUrl), {
+      requestInit,
+    });
     return await createMCPClient({
       transport,
       clientName: "music-vlad-dj-bench",
@@ -143,7 +147,7 @@ async function connectMcp(config: BenchConfig) {
     });
   } catch (error) {
     throw new Error(
-      `Could not connect to MCP at ${config.mcpUrl}. Start app with "bun run dev" first.`,
+      `Could not connect to MCP at ${publicMcpUrl(config.mcpUrl)}. Start app with "bun run dev" first.`,
       { cause: error },
     );
   }
@@ -458,6 +462,7 @@ function createWrappedRemoteTools(opts: {
           counters.accountedToolWallMs += durationMs;
           syncClock();
           increment(counters.toolFailures, name);
+          counters.mcpFailures += 1;
           trace.record("tool.failed", runtime.nowSec, {
             tool: name,
             durationMs,
@@ -565,7 +570,7 @@ export async function runBench(config: BenchConfig) {
       planningLeadSec: config.planningLeadSec,
       failures: [...config.failures],
       scenario: config.scenario,
-      mcpUrl: config.mcpUrl,
+      mcpUrl: publicMcpUrl(config.mcpUrl),
       outgoingTrack: bootstrap.track,
     });
     const model = resolveBenchModel(config);
@@ -788,6 +793,10 @@ export async function runBench(config: BenchConfig) {
   const impossibleScheduleAttempts = runtime?.stats.impossibleScheduleAttempts ?? 0;
   const completedRatio = acceptedTrackIds.length / config.transitions;
   const coherenceEvidence = buildCoherenceEvidence(runtime);
+  const invalidReason = benchInvalidReason({
+    terminalError,
+    mcpFailures: counters.mcpFailures,
+  });
   const summary: BenchSummary = {
     ok:
       terminalError === null &&
@@ -800,8 +809,8 @@ export async function runBench(config: BenchConfig) {
       analysisCalls > 0 &&
       counters.falseSuccessClaims === 0 &&
       counters.backstageNarrationCount === 0,
-    validity: "valid",
-    invalidReason: null,
+    validity: invalidReason ? "invalid" : "valid",
+    invalidReason,
     runId: config.runId,
     startedAt,
     finishedAt: new Date().toISOString(),
