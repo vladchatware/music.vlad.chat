@@ -122,17 +122,14 @@ export function useDJEngine(opts: UseDJEngineOptions) {
 
   const audioGraph = useDeckAudioGraph(isIOS, activeDeckRef, logEngine);
   const {
-    deckARef,
-    deckBRef,
+    engineRef,
     analyzerRef,
     bpmDetectorRef,
     deckStatusRef,
-    getDeckElement,
-    getActiveDeckElement,
+    getDeckState,
+    getActiveDeckState,
     getActiveAnalyzer,
     getInactiveAnalyzer,
-    getActiveEQ,
-    getInactiveEQ,
   } = audioGraph;
 
   useEffect(() => {
@@ -178,8 +175,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   });
 
   useDeckEvents({
-    deckARef,
-    deckBRef,
+    engineRef,
     deckStatusRef,
     activeDeckRef,
     bpmDetectorRef,
@@ -191,6 +187,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     ensureListeningSegment,
     finalizeCurrentListeningSegment,
     logEngine,
+    onTransitionComplete: completeCrossfade,
     onRequestNextTrack,
   });
 
@@ -210,12 +207,11 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     plannedReplanCountRef,
     performanceLoopRepetitionsRef,
     diagnosticsRef,
-    getDeckElement,
-    getActiveDeckElement,
+    engineRef,
+    getDeckState,
+    getActiveDeckState,
     getActiveAnalyzer,
     getInactiveAnalyzer,
-    getActiveEQ,
-    getInactiveEQ,
     onRequestNextTrack,
     autoCueConfig,
     logEngine,
@@ -307,8 +303,6 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   }, [engineState.djState.type]);
 
   return {
-    deckARef,
-    deckBRef,
     djState: engineState.djState,
     phase,
     isPlaying,

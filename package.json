@@ -49,6 +49,7 @@
     "@sentry/nextjs": "^10.66.0",
     "@sentry/node": "^10.66.0",
     "@stripe/stripe-js": "^8.0.0",
+    "@superpoweredsdk/web": "2.7.2",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-node": "^4.22.0",
     "@types/express": "^5.0.3",
