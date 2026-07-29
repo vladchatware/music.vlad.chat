@@ -1,11 +1,10 @@
 import { playbackDebugServer as playbackDebug } from "./lib/playbackDebugServer"
+
 const CLIENT_ID = process.env.CLIENT_ID ?? process.env.SOUNDCLOUD_CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET ?? process.env.SOUNDCLOUD_CLIENT_SECRET;
 const SEEDED_ACCESS_TOKEN = process.env.SOUNDCLOUD_ACCESS_TOKEN;
 const SEEDED_REFRESH_TOKEN = process.env.SOUNDCLOUD_REFRESH_TOKEN;
 const SEEDED_EXPIRES_AT = Number(process.env.SOUNDCLOUD_ACCESS_TOKEN_EXPIRES_AT);
-
-
 
 const credentials: {
   access_token?: string,
@@ -64,6 +63,17 @@ export class SoundCloudAuthError extends Error {
   ) {
     super(message)
     this.name = 'SoundCloudAuthError'
+  }
+}
+
+export class SoundCloudApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message)
+    this.name = 'SoundCloudApiError'
   }
 }
 
@@ -211,6 +221,15 @@ export type Playlist = {
   tracks: Track[],
 }
 
+export type SoundCloudMeLibrary = {
+  profile: User,
+  recentlyPlayed: Track[],
+  likes: Track[],
+  playlists: Playlist[],
+  historyAvailable: boolean,
+  source: "oauth" | "service_user",
+}
+
 export const readAccessToken = async () => {
   if (credentials.access_token && Date.now() < (credentials.expires_at ?? 0)) {
     return credentials.access_token
@@ -232,15 +251,17 @@ export const readAccessToken = async () => {
       return getAccessToken()
     }
   }
-  accessTokenRequest = requestToken().catch((error) => {
-    if (error instanceof SoundCloudAuthError && error.status === 429) {
-      authRetryError = error
-      authRetryAt = Date.now() + (error.retryAfterMs ?? 60_000)
-    }
-    throw error
-  }).finally(() => {
-    accessTokenRequest = undefined
-  })
+  accessTokenRequest = requestToken()
+    .catch((error) => {
+      if (error instanceof SoundCloudAuthError && error.status === 429) {
+        authRetryError = error
+        authRetryAt = Date.now() + (error.retryAfterMs ?? 60_000)
+      }
+      throw error
+    })
+    .finally(() => {
+      accessTokenRequest = undefined
+    })
   return accessTokenRequest
 }
 
@@ -494,6 +515,65 @@ export const playlists = async (query: {
   const payload = await res.json()
 
   return payload
+}
+
+type CollectionResponse<T> = T[] | {
+  collection?: T[],
+  next_href?: string | null,
+}
+
+function collectionFromResponse<T>(payload: CollectionResponse<T>): T[] {
+  return Array.isArray(payload) ? payload : payload.collection ?? []
+}
+
+async function authenticatedSoundCloudGet<T>(
+  path: string,
+  userToken: string,
+): Promise<T> {
+  const res = await rateLimitedFetch(`https://api.soundcloud.com${path}`, {
+    headers: {
+      Accept: 'application/json; charset=utf-8',
+      Authorization: `Bearer ${userToken}`,
+    },
+    signal: AbortSignal.timeout(12_000),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new SoundCloudApiError(
+      `SoundCloud API error ${res.status}: ${body}`,
+      res.status,
+      retryAfterMs(res),
+    )
+  }
+  return res.json() as Promise<T>
+}
+
+export async function meLibrary(userToken: string): Promise<SoundCloudMeLibrary> {
+  const historyRequest = authenticatedSoundCloudGet<CollectionResponse<Track>>(
+    '/me/recently-played/tracks?limit=25&linked_partitioning=true',
+    userToken,
+  ).then(collectionFromResponse, () => null)
+  const [profile, recentlyPlayed, likesPayload, playlistsPayload] = await Promise.all([
+    authenticatedSoundCloudGet<User>('/me', userToken),
+    historyRequest,
+    authenticatedSoundCloudGet<CollectionResponse<Track>>(
+      '/me/likes/tracks?limit=50&linked_partitioning=true',
+      userToken,
+    ),
+    authenticatedSoundCloudGet<CollectionResponse<Playlist>>(
+      '/me/playlists?limit=24&linked_partitioning=true&show_tracks=true',
+      userToken,
+    ),
+  ])
+
+  return {
+    profile,
+    recentlyPlayed: recentlyPlayed ?? [],
+    likes: collectionFromResponse(likesPayload),
+    playlists: collectionFromResponse(playlistsPayload),
+    historyAvailable: recentlyPlayed !== null,
+    source: "oauth",
+  }
 }
 
 export const likes = async (userId: string, query?: {

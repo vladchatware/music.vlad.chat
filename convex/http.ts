@@ -40,6 +40,30 @@ function analysisRoute(
 
 auth.addHttpRoutes(http);
 
+analysisRoute("/soundcloud/service-credentials", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+
+  // Prefer env var (set via `npx convex env set` on the deployment).
+  const envAccess = process.env.SOUNDCLOUD_SERVICE_USER_ACCESS_TOKEN;
+  if (envAccess) {
+    return json({
+      accessToken: envAccess,
+      refreshToken: process.env.SOUNDCLOUD_SERVICE_USER_REFRESH_TOKEN ?? null,
+    });
+  }
+
+  // Fallback: look up the auth account in the database (production).
+  const body = await req.json().catch(() => null) as { soundcloudUserId?: unknown } | null;
+  if (typeof body?.soundcloudUserId !== "string" || !body.soundcloudUserId) {
+    return json({ error: "soundcloudUserId is required" }, 400);
+  }
+  const credentials = await ctx.runQuery(internal.users.serviceSoundcloudCredentials, {
+    soundcloudUserId: body.soundcloudUserId,
+  });
+  if (!credentials) return json({ error: "Service user SoundCloud credentials not found" }, 404);
+  return json(credentials);
+});
+
 http.route({
   path: "/instagram/webhook",
   method: "GET",
