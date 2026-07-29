@@ -74,8 +74,8 @@ describe("GET /api/tracks/[id]/stream", () => {
     expect(res.status).toBe(307);
   });
 
-  it("refreshes an expired service-user token", async () => {
-    vi.stubEnv("NODE_ENV", "development");
+  it("refreshes an expired service-user token for anonymous playback", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
     vi.stubEnv("CONVEX_SITE_URL", "https://convex.example/api");
     vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
@@ -102,15 +102,19 @@ describe("GET /api/tracks/[id]/stream", () => {
     expect(resolveTrackStreamUrl).toHaveBeenLastCalledWith("888", "fresh-service-access");
   });
 
-  it("does not use service-user credentials outside development", async () => {
+  it("uses service-user credentials anonymously outside development", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
     vi.stubEnv("CONVEX_SITE_URL", "https://convex.example");
+    vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
     vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
-    const credentialFetch = vi.fn();
+    const credentialFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      accessToken: "service-access",
+      refreshToken: "service-refresh",
+    }), { status: 200 }));
     vi.stubGlobal("fetch", credentialFetch);
     vi.mocked(resolveTrackStreamUrl).mockResolvedValue(
-      "https://cdn.soundcloud.com/public.m4a",
+      "https://cdn.soundcloud.com/service-user.m4a",
     );
 
     const res = await GET(new Request("http://localhost"), {
@@ -118,8 +122,8 @@ describe("GET /api/tracks/[id]/stream", () => {
     });
 
     expect(res.status).toBe(307);
-    expect(credentialFetch).not.toHaveBeenCalled();
-    expect(resolveTrackStreamUrl).toHaveBeenCalledWith("889");
+    expect(credentialFetch).toHaveBeenCalledOnce();
+    expect(resolveTrackStreamUrl).toHaveBeenCalledWith("889", "service-access");
   });
 
   it("returns 502 when stream URL resolution fails", async () => {

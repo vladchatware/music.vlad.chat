@@ -32,8 +32,8 @@ async function resolveStreamWithUserRefresh(id: string, convexToken: string) {
 }
 
 async function resolveStreamWithServiceUser(id: string): Promise<string> {
-  // On dev, use the service user token (set via `bun run refresh:service-user`)
-  // fetched from the Convex HTTP endpoint.
+  // Anonymous playback intentionally uses the service-user token when configured.
+  // The credential stays server-side; callers receive only the resolved stream URL.
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
   const siteUrl = process.env.CONVEX_SITE_URL
     ?.replace(/\/+$/, "")
@@ -94,9 +94,7 @@ export async function resolveStreamWithTimeout(
     return await Promise.race([
       convexToken
         ? resolveStreamWithUserRefresh(id, convexToken)
-        : process.env.NODE_ENV === "development"
-          ? resolveStreamWithServiceUser(id)
-          : resolveTrackStreamUrl(id),
+        : resolveStreamWithServiceUser(id),
       timeout,
     ]);
   } finally {
