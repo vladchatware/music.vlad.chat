@@ -104,10 +104,10 @@ describe("benchmark dashboard", () => {
     const html = renderBenchmarkDashboard(
       root,
       [run({ reportPath: join(root, "run-1", "report.md") })],
-      (summary) => `/bench?run=${summary.runId}`,
+      (summary) => `/bench/runs/${summary.runId}`,
     );
 
-    expect(html).toContain('href="/bench?run=run-1"');
+    expect(html).toContain('href="/bench/runs/run-1"');
     expect(html).not.toContain("file://");
   });
 

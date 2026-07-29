@@ -84,7 +84,14 @@ performance and includes model/config comparison, continuity survival,
 coherence trajectory, failure taxonomy, tokens, and per-run drill-down.
 
 With the application running, open `/bench` to view the same dashboard without
-regenerating the standalone file. Per-run report links stay under `/bench`.
+regenerating the standalone file. Selecting an episode opens a styled flight
+recorder at `/bench/runs/<run-id>` with transition evidence, contract counters,
+tool activity, and a bounded event timeline. Markdown, JSONL, summary, and
+config artifacts remain available as explicit downloads from that screen.
+
+Stored artifact references are relative to their run folder. Web routes resolve
+artifacts from the bench root and never trust or expose machine-specific
+absolute paths.
 
 Print latest report:
 

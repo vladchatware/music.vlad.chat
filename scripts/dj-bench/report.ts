@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, relative } from "node:path";
 
 import type { BenchConfig } from "./config";
 
@@ -222,6 +222,7 @@ export function coherenceGraph(summary: BenchSummary): string {
 
 export function writeRunConfig(config: BenchConfig) {
   ensureParent(config.configPath);
+  const localPath = (path: string) => relative(config.runDir, path) || ".";
   const sanitized = {
     runId: config.runId,
     provider: config.provider,
@@ -236,9 +237,9 @@ export function writeRunConfig(config: BenchConfig) {
     outgoingTrackId: config.outgoingTrackId,
     prompt: config.prompt,
     scenario: config.scenario,
-    tracePath: config.tracePath,
-    summaryPath: config.summaryPath,
-    reportPath: config.reportPath,
+    tracePath: localPath(config.tracePath),
+    summaryPath: localPath(config.summaryPath),
+    reportPath: localPath(config.reportPath),
     hasCookie: Boolean(config.cookie),
     hasOpenCodeApiKey: Boolean(config.opencodeApiKey),
   };
@@ -260,7 +261,15 @@ export function publicMcpUrl(value: string): string {
 
 export function writeRunArtifacts(config: BenchConfig, summary: BenchSummary) {
   ensureParent(config.summaryPath);
-  writeFileSync(config.summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
+  const localPath = (path: string) => relative(config.runDir, path) || ".";
+  const storedSummary: BenchSummary = {
+    ...summary,
+    tracePath: localPath(config.tracePath),
+    summaryPath: localPath(config.summaryPath),
+    reportPath: localPath(config.reportPath),
+    configPath: localPath(config.configPath),
+  };
+  writeFileSync(config.summaryPath, `${JSON.stringify(storedSummary, null, 2)}\n`);
 
   const report = `# DJ Bench Report
 
@@ -320,9 +329,9 @@ ${transcriptRows(summary)}
 
 ## Files
 
-- Trace: \`${summary.tracePath}\`
-- Summary: \`${summary.summaryPath}\`
-- Config: \`${summary.configPath}\`
+- Trace: \`${localPath(config.tracePath)}\`
+- Summary: \`${localPath(config.summaryPath)}\`
+- Config: \`${localPath(config.configPath)}\`
 
 > ${summary.claim}
 `;

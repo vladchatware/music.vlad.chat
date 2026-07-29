@@ -1,7 +1,20 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import type { BenchSummary } from "./report";
+import { resolveBenchArtifact } from "./artifacts";
+
+export type BenchTraceEvent = {
+  sequence?: number;
+  wallElapsedMs?: number;
+  simulatedTimeSec?: number;
+  type: string;
+  tool?: string;
+  trackId?: number | string;
+  turn?: number;
+  step?: number;
+  [key: string]: unknown;
+};
 
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -46,9 +59,55 @@ export function readBenchSummaries(root: string): BenchSummary[] {
   return paths.flatMap((path) => {
     try {
       const summary: unknown = JSON.parse(readFileSync(path, "utf8"));
-      return isBenchSummary(summary) ? [summary] : [];
+      if (!isBenchSummary(summary)) return [];
+      const directory = dirname(path);
+      const expand = (artifactPath: unknown, fallback: string) =>
+        typeof artifactPath === "string"
+          ? isAbsolute(artifactPath)
+            ? artifactPath
+            : resolve(directory, artifactPath)
+          : resolve(directory, fallback);
+      return [{
+        ...summary,
+        tracePath: expand(summary.tracePath, "trace.jsonl"),
+        summaryPath: expand(summary.summaryPath, "summary.json"),
+        reportPath: expand(summary.reportPath, "report.md"),
+        configPath: expand(summary.configPath, "config.json"),
+      }];
     } catch {
       return [];
     }
   }).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+}
+
+export function readBenchTrace(
+  root: string,
+  runId: string,
+  limit = 400,
+): BenchTraceEvent[] {
+  const tracePath = resolveBenchArtifact(root, runId, "trace");
+  if (!tracePath) return [];
+  try {
+    return readFileSync(tracePath, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const event: unknown = JSON.parse(line);
+          if (
+            event &&
+            typeof event === "object" &&
+            typeof (event as { type?: unknown }).type === "string"
+          ) {
+            return [event as BenchTraceEvent];
+          }
+        } catch {
+          return [];
+        }
+        return [];
+      })
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
 }

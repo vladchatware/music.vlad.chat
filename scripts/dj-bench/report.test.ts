@@ -86,7 +86,12 @@ describe("DJ bench reports", () => {
     expect(storedConfig).not.toContain("token=hidden");
     expect(storedConfig).toContain("https://mcp.example/api/mcp");
     expect(storedConfig).toContain('"hasCookie": true');
-    expect(readFileSync(config.summaryPath, "utf8")).toContain('"continuity"');
+    const storedSummary = readFileSync(config.summaryPath, "utf8");
+    const storedReport = readFileSync(config.reportPath, "utf8");
+    expect(storedSummary).toContain('"continuity"');
+    expect(storedSummary).not.toContain(directory);
+    expect(storedConfig).not.toContain(directory);
+    expect(storedReport).not.toContain(directory);
     expect(readFileSync(config.reportPath, "utf8")).toContain(
       "**FAIL** — continuity fail.",
     );
