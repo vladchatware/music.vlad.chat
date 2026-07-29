@@ -75,6 +75,7 @@ describe("GET /api/tracks/[id]/stream", () => {
   });
 
   it("refreshes an expired service-user token", async () => {
+    vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
     vi.stubEnv("CONVEX_SITE_URL", "https://convex.example/api");
     vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
@@ -99,6 +100,26 @@ describe("GET /api/tracks/[id]/stream", () => {
     expect(res.headers.get("location")).toBe("https://cdn.soundcloud.com/refreshed.m4a");
     expect(refreshUserToken).toHaveBeenCalledWith("service-refresh");
     expect(resolveTrackStreamUrl).toHaveBeenLastCalledWith("888", "fresh-service-access");
+  });
+
+  it("does not use service-user credentials outside development", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
+    vi.stubEnv("CONVEX_SITE_URL", "https://convex.example");
+    vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
+    const credentialFetch = vi.fn();
+    vi.stubGlobal("fetch", credentialFetch);
+    vi.mocked(resolveTrackStreamUrl).mockResolvedValue(
+      "https://cdn.soundcloud.com/public.m4a",
+    );
+
+    const res = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: "889" }) as never,
+    });
+
+    expect(res.status).toBe(307);
+    expect(credentialFetch).not.toHaveBeenCalled();
+    expect(resolveTrackStreamUrl).toHaveBeenCalledWith("889");
   });
 
   it("returns 502 when stream URL resolution fails", async () => {

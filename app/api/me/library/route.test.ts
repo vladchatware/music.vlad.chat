@@ -62,6 +62,22 @@ describe("/api/me/library", () => {
     expect(meLibrary).not.toHaveBeenCalled();
   });
 
+  it("ignores service-user configuration outside development", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
+    vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
+    vi.stubEnv("CONVEX_SITE_URL", "https://convex.example");
+    vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
+    const credentialFetch = vi.fn();
+    vi.stubGlobal("fetch", credentialFetch);
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
+    expect(credentialFetch).not.toHaveBeenCalled();
+    expect(meLibrary).not.toHaveBeenCalled();
+  });
+
   it("returns the connected user's SoundCloud library", async () => {
     const response = await GET();
 
@@ -141,5 +157,35 @@ describe("/api/me/library", () => {
       { token: "convex-token" },
     );
     expect(meLibrary).toHaveBeenLastCalledWith("fresh-token");
+  });
+
+  it("preserves a retry rate limit after refreshing the user token", async () => {
+    vi.mocked(meLibrary)
+      .mockRejectedValueOnce(Object.assign(new Error("expired"), { status: 401 }))
+      .mockRejectedValueOnce(Object.assign(new Error("rate limited"), { status: 429 }));
+    vi.mocked(refreshUserToken).mockResolvedValue({
+      accessToken: "fresh-token",
+      refreshToken: "fresh-refresh",
+    });
+
+    const response = await GET();
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      error: "Could not load SoundCloud library",
+    });
+  });
+
+  it("reports refresh failures as an expired session", async () => {
+    vi.mocked(meLibrary)
+      .mockRejectedValueOnce(Object.assign(new Error("expired"), { status: 401 }));
+    vi.mocked(refreshUserToken).mockRejectedValue(new Error("refresh rejected"));
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TOKEN_EXPIRED",
+    });
   });
 });

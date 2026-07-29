@@ -30,6 +30,7 @@ async function developmentServiceLibrary(soundcloudUserId?: string) {
     },
     body: JSON.stringify(soundcloudUserId ? { soundcloudUserId } : {}),
     cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
     const payload = await res.json().catch(() => null) as { error?: string } | null;
@@ -62,6 +63,26 @@ function serviceUserError(error: unknown) {
           : "Could not load SoundCloud service user",
     },
     { status: errorStatus(error) ?? 502 },
+  );
+}
+
+function libraryError(error: unknown) {
+  const status = errorStatus(error);
+  console.error("Failed to load SoundCloud library:", error);
+  return NextResponse.json(
+    { error: "Could not load SoundCloud library" },
+    { status: status === 429 ? 429 : 502 },
+  );
+}
+
+function expiredSessionError(error: unknown) {
+  console.error("Failed to refresh SoundCloud library session:", error);
+  return NextResponse.json(
+    {
+      error: "SoundCloud session expired. Please sign in again.",
+      code: "TOKEN_EXPIRED",
+    },
+    { status: 401 },
   );
 }
 
@@ -106,8 +127,9 @@ export async function GET() {
   } catch (error) {
     const status = errorStatus(error);
     if ((status === 401 || status === 403) && tokens.refreshToken) {
+      let refreshed: Awaited<ReturnType<typeof refreshUserToken>>;
       try {
-        const refreshed = await refreshUserToken(tokens.refreshToken);
+        refreshed = await refreshUserToken(tokens.refreshToken);
         await fetchMutation(
           api.users.updateSoundcloudTokens,
           {
@@ -116,23 +138,17 @@ export async function GET() {
           },
           { token: convexToken },
         );
-        return NextResponse.json(await meLibrary(refreshed.accessToken));
       } catch (refreshError) {
-        console.error("Failed to refresh SoundCloud library session:", refreshError);
-        return NextResponse.json(
-          {
-            error: "SoundCloud session expired. Please sign in again.",
-            code: "TOKEN_EXPIRED",
-          },
-          { status: 401 },
-        );
+        return expiredSessionError(refreshError);
+      }
+
+      try {
+        return NextResponse.json(await meLibrary(refreshed.accessToken));
+      } catch (retryError) {
+        return libraryError(retryError);
       }
     }
 
-    console.error("Failed to load SoundCloud library:", error);
-    return NextResponse.json(
-      { error: "Could not load SoundCloud library" },
-      { status: status === 429 ? 429 : 502 },
-    );
+    return libraryError(error);
   }
 }

@@ -318,12 +318,19 @@ export default function MeLibrary() {
             </div>
           </section>
 
-          <nav className={styles.sectionNav} aria-label="Your SoundCloud library">
+          <nav
+            className={styles.sectionNav}
+            aria-label="Your SoundCloud library"
+            role="tablist"
+          >
             {sections.map(({ id, label, shortLabel, icon: Icon }) => (
               <button
                 key={id}
+                id={`library-tab-${id}`}
                 type="button"
-                aria-pressed={section === id}
+                role="tab"
+                aria-controls="library-tabpanel"
+                aria-selected={section === id}
                 onClick={() => setSection(id)}
               >
                 <Icon size={17} />
@@ -334,7 +341,12 @@ export default function MeLibrary() {
             ))}
           </nav>
 
-          <section className={styles.collection}>
+          <section
+            id="library-tabpanel"
+            className={styles.collection}
+            role="tabpanel"
+            aria-labelledby={`library-tab-${section}`}
+          >
             <header className={styles.collectionHeader}>
               <span>0{sections.findIndex(({ id }) => id === section) + 1}</span>
               <div>

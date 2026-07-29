@@ -52,6 +52,7 @@ async function resolveStreamWithServiceUser(id: string): Promise<string> {
             : {},
         ),
         cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
       });
       if (res.ok) {
         const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
@@ -93,7 +94,9 @@ export async function resolveStreamWithTimeout(
     return await Promise.race([
       convexToken
         ? resolveStreamWithUserRefresh(id, convexToken)
-        : resolveStreamWithServiceUser(id),
+        : process.env.NODE_ENV === "development"
+          ? resolveStreamWithServiceUser(id)
+          : resolveTrackStreamUrl(id),
       timeout,
     ]);
   } finally {
