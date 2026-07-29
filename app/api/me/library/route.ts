@@ -10,7 +10,7 @@ function errorStatus(error: unknown): number | undefined {
   return typeof error.status === "number" ? error.status : undefined;
 }
 
-async function developmentServiceLibrary() {
+async function developmentServiceLibrary(soundcloudUserId?: string) {
   // In dev, we can't OAuth against SoundCloud (redirect URI mismatch).
   // Tokens are stored as Convex env vars via `bun run refresh:service-user`
   // and served by the /soundcloud/service-credentials endpoint.
@@ -28,7 +28,7 @@ async function developmentServiceLibrary() {
       authorization: `Bearer ${secret}`,
       "content-type": "application/json",
     },
-    body: "{}",
+    body: JSON.stringify(soundcloudUserId ? { soundcloudUserId } : {}),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -36,9 +36,20 @@ async function developmentServiceLibrary() {
     throw new Error(payload?.error ?? `Service credentials request failed (${res.status})`);
   }
 
-  const { accessToken } = await res.json() as { accessToken: string };
-  const library = await meLibrary(accessToken);
-  return { ...library, source: "service_user" as const };
+  const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
+
+  try {
+    const library = await meLibrary(accessToken);
+    return { ...library, source: "service_user" as const };
+  } catch (error) {
+    const status = errorStatus(error);
+    if ((status === 401 || status === 403) && refreshToken) {
+      const refreshed = await refreshUserToken(refreshToken);
+      const library = await meLibrary(refreshed.accessToken);
+      return { ...library, source: "service_user" as const };
+    }
+    throw error;
+  }
 }
 
 function serviceUserError(error: unknown) {
@@ -62,7 +73,7 @@ export async function GET() {
   if (!convexToken) {
     if (isDev) {
       try {
-        return NextResponse.json(await developmentServiceLibrary());
+        return NextResponse.json(await developmentServiceLibrary(serviceUserId));
       } catch (error) {
         return serviceUserError(error);
       }
@@ -79,7 +90,7 @@ export async function GET() {
   if (!tokens?.accessToken) {
     if (isDev) {
       try {
-        return NextResponse.json(await developmentServiceLibrary());
+        return NextResponse.json(await developmentServiceLibrary(serviceUserId));
       } catch (error) {
         return serviceUserError(error);
       }

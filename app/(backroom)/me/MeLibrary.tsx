@@ -143,7 +143,17 @@ function TrackList({
   );
 }
 
-function PlaylistCard({ playlist, index }: { playlist: Playlist; index: number }) {
+function PlaylistCard({
+  playlist,
+  index,
+  onPlay,
+  playingId,
+}: {
+  playlist: Playlist;
+  index: number;
+  onPlay: (id: number) => void;
+  playingId: number | null;
+}) {
   const source = artwork(playlist.artwork_url ?? playlist.tracks?.[0]?.artwork_url);
   return (
     <details className={styles.playlistCard}>

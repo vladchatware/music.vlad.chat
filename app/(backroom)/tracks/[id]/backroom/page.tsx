@@ -6,13 +6,28 @@ import { api } from "@/convex/_generated/api";
 import { rankTransitionCandidates, suggestTransitionWindows, type DJPerformancePlan } from "@/lib/dj";
 import { TRACK_ANALYSIS_VERSION, type AnalysisSegment, type TrackAnalysis } from "@/lib/trackAnalysis";
 
-import { track } from "@/soundcloud";
+import { refreshUserToken, track } from "@/soundcloud";
 
 // In development with a service user, fetch a user token from the Convex
 // HTTP endpoint to avoid rate-limiting the shared client-credentials auth.
-let _serviceToken: string | undefined;
+let _cachedToken: { token: string; refreshToken: string; expiresAt: number } | undefined;
+const SERVICE_TOKEN_CACHE_MS = 5 * 60_000;
+
 async function serviceUserToken(): Promise<string | undefined> {
-  if (_serviceToken) return _serviceToken;
+  if (_cachedToken && Date.now() < _cachedToken.expiresAt) return _cachedToken.token;
+  if (_cachedToken?.refreshToken) {
+    try {
+      const refreshed = await refreshUserToken(_cachedToken.refreshToken);
+      _cachedToken = {
+        token: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS,
+      };
+      return _cachedToken.token;
+    } catch {
+      _cachedToken = undefined;
+    }
+  }
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
   const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/+$/, "").replace(/\/api$/, "");
   if (!secret || !siteUrl) return undefined;
@@ -20,12 +35,20 @@ async function serviceUserToken(): Promise<string | undefined> {
     const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify(
+        process.env.SOUNDCLOUD_USER_ID
+          ? { soundcloudUserId: process.env.SOUNDCLOUD_USER_ID }
+          : {},
+      ),
       cache: "no-store",
     });
     if (!res.ok) return undefined;
-    const { accessToken } = await res.json() as { accessToken: string };
-    _serviceToken = accessToken;
+    const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
+    _cachedToken = {
+      token: accessToken,
+      refreshToken: refreshToken ?? "",
+      expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS,
+    };
     return accessToken;
   } catch {
     return undefined;
