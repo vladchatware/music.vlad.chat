@@ -31,6 +31,52 @@ async function resolveStreamWithUserRefresh(id: string, convexToken: string) {
   }
 }
 
+async function resolveStreamWithServiceUser(id: string): Promise<string> {
+  // Anonymous playback intentionally uses the service-user token when configured.
+  // The credential stays server-side; callers receive only the resolved stream URL.
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  const siteUrl = process.env.CONVEX_SITE_URL
+    ?.replace(/\/+$/, "")
+    .replace(/\/api$/, "");
+  if (secret && siteUrl) {
+    try {
+      const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(
+          process.env.SOUNDCLOUD_USER_ID
+            ? { soundcloudUserId: process.env.SOUNDCLOUD_USER_ID }
+            : {},
+        ),
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (res.ok) {
+        const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
+        try {
+          return await resolveTrackStreamUrl(id, accessToken);
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : "";
+          const isTokenError = getErrorStatus(error) === 401
+            || errMsg.includes("token error")
+            || errMsg.includes("CDN auth error");
+          if (isTokenError && refreshToken) {
+            const refreshed = await refreshUserToken(refreshToken);
+            return resolveTrackStreamUrl(id, refreshed.accessToken);
+          }
+          throw error;
+        }
+      }
+    } catch {
+      // Fall through to client-credentials auth
+    }
+  }
+  return resolveTrackStreamUrl(id);
+}
+
 export async function resolveStreamWithTimeout(
   id: string,
   convexToken?: string,
@@ -48,7 +94,7 @@ export async function resolveStreamWithTimeout(
     return await Promise.race([
       convexToken
         ? resolveStreamWithUserRefresh(id, convexToken)
-        : resolveTrackStreamUrl(id),
+        : resolveStreamWithServiceUser(id),
       timeout,
     ]);
   } finally {

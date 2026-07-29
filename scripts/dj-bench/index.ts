@@ -1,0 +1,890 @@
+import { createMCPClient } from "@ai-sdk/mcp";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  ToolLoopAgent,
+  stepCountIs,
+  type ModelMessage,
+  type ToolSet,
+} from "ai";
+import { z } from "zod";
+
+import { benchHelp, parseBenchConfig, type BenchConfig } from "./config";
+import { resolveBenchModel } from "./model";
+import {
+  ANALYSIS_PHASE_INSTRUCTIONS,
+  BENCH_DJ_INSTRUCTIONS,
+  COMMIT_PHASE_INSTRUCTIONS,
+  CONTINUE_SET_PROMPT,
+  DISCOVERY_PHASE_INSTRUCTIONS,
+  INTERVENTION_PROMPTS,
+} from "./prompt";
+import {
+  MockDJRuntime,
+  extractCandidateTracks,
+  extractTrackAnalyses,
+  performTransitionInputSchema,
+  type CandidateTrack,
+  type InitialTrack,
+  type PerformTransitionResult,
+} from "./runtime";
+import {
+  publicMcpUrl,
+  writeRunArtifacts,
+  writeRunConfig,
+  type BenchSummary,
+  type CoherenceEvidence,
+} from "./report";
+import { TraceRecorder } from "./trace";
+import { benchInvalidReason } from "./validity";
+
+const REMOTE_TOOL_NAMES = [
+  "likes",
+  "tracks",
+  "track_analysis",
+  "compare_track_analysis",
+  "schedule_track_analysis",
+] as const;
+
+interface BenchCounters {
+  toolCalls: Record<string, number>;
+  toolFailures: Record<string, number>;
+  scheduledTrackIds: number[];
+  analysisTrackIds: number[];
+  falseSuccessClaims: number;
+  backstageNarrationCount: number;
+  analysisBudgetRejections: number;
+  discoveryBudgetRejections: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  accountedToolWallMs: number;
+  mcpFailures: number;
+}
+
+function createCounters(): BenchCounters {
+  return {
+    toolCalls: {},
+    toolFailures: {},
+    scheduledTrackIds: [],
+    analysisTrackIds: [],
+    falseSuccessClaims: 0,
+    backstageNarrationCount: 0,
+    analysisBudgetRejections: 0,
+    discoveryBudgetRejections: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    accountedToolWallMs: 0,
+    mcpFailures: 0,
+  };
+}
+
+function increment(record: Record<string, number>, key: string) {
+  record[key] = (record[key] ?? 0) + 1;
+}
+
+function serializable(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function collectPositiveIds(value: unknown, ids: number[], seen = new Set<object>()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) collectPositiveIds(item, ids, seen);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.id === "number" &&
+    Number.isSafeInteger(record.id) &&
+    record.id > 0
+  ) {
+    ids.push(record.id);
+  }
+  if (Array.isArray(record.ids)) {
+    for (const id of record.ids) {
+      if (typeof id === "number" && Number.isSafeInteger(id) && id > 0) ids.push(id);
+    }
+  }
+  for (const child of Object.values(record)) collectPositiveIds(child, ids, seen);
+}
+
+function userMessageForTurn(config: BenchConfig, turnIndex: number): string {
+  if (turnIndex === 0) return config.prompt;
+  if (config.scenario === "interventions") {
+    return INTERVENTION_PROMPTS[(turnIndex - 1) % INTERVENTION_PROMPTS.length]!;
+  }
+  return `${CONTINUE_SET_PROMPT} Persistent direction: ${config.prompt}`;
+}
+
+function usageNumber(
+  usage: Record<string, unknown>,
+  currentName: string,
+  legacyName: string,
+): number {
+  const value = usage[currentName] ?? usage[legacyName];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+async function connectMcp(config: BenchConfig) {
+  const requestInit = config.cookie
+    ? { headers: { cookie: config.cookie } }
+    : undefined;
+  try {
+    const transport = new StreamableHTTPClientTransport(new URL(config.mcpUrl), {
+      requestInit,
+    });
+    return await createMCPClient({
+      transport,
+      clientName: "music-vlad-dj-bench",
+      version: "0.1.0",
+      maxRetries: 1,
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not connect to MCP at ${publicMcpUrl(config.mcpUrl)}. Start app with "bun run dev" first.`,
+      { cause: error },
+    );
+  }
+}
+
+async function executeRemoteTool(
+  remoteTools: ToolSet,
+  name: "likes" | "track_analysis",
+  input: unknown,
+) {
+  const remote = remoteTools[name];
+  if (!remote?.execute) {
+    throw new Error(`MCP endpoint missing executable ${name} tool`);
+  }
+  return remote.execute(
+    input as never,
+    { toolCallId: `bench-bootstrap-${name}`, messages: [] } as never,
+  );
+}
+
+function analysisNumber(analysis: Record<string, unknown>, path: string[]): number | undefined {
+  let current: unknown = analysis;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "number" && Number.isFinite(current) && current > 0
+    ? current
+    : undefined;
+}
+
+function analysisString(analysis: Record<string, unknown>, path: string[]): string | undefined {
+  let current: unknown = analysis;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string" && current.length > 0 ? current : undefined;
+}
+
+function normalizedTempoDelta(outgoingBpm: number, incomingBpm: number): number {
+  const variants = [incomingBpm / 2, incomingBpm, incomingBpm * 2];
+  const equivalent = variants.sort(
+    (left, right) => Math.abs(left - outgoingBpm) - Math.abs(right - outgoingBpm),
+  )[0]!;
+  return Math.abs(outgoingBpm / equivalent - 1) * 100;
+}
+
+function buildCoherenceEvidence(runtime: MockDJRuntime | null): CoherenceEvidence[] {
+  if (!runtime) return [];
+  return runtime.transitionOutcomes.map((transition) => {
+    const outgoing = runtime.analysisFor(transition.fromTrackId);
+    const incoming = runtime.analysisFor(transition.toTrackId);
+    const outgoingBpm = outgoing
+      ? analysisNumber(outgoing, ["tempo", "bpm"])
+      : undefined;
+    const incomingBpm = incoming
+      ? analysisNumber(incoming, ["tempo", "bpm"])
+      : undefined;
+    const outgoingKey = outgoing
+      ? analysisString(outgoing, ["tonal", "camelotKey"])
+      : undefined;
+    const incomingKey = incoming
+      ? analysisString(incoming, ["tonal", "camelotKey"])
+      : undefined;
+    const outgoingEnergy = outgoing
+      ? analysisNumber(outgoing, ["energy", "mean"])
+      : undefined;
+    const incomingEnergy = incoming
+      ? analysisNumber(incoming, ["energy", "mean"])
+      : undefined;
+    return {
+      fromTrackId: transition.fromTrackId,
+      toTrackId: transition.toTrackId,
+      tempo:
+        outgoingBpm && incomingBpm
+          ? {
+              outgoingBpm,
+              incomingBpm,
+              normalizedDeltaPercent: normalizedTempoDelta(outgoingBpm, incomingBpm),
+            }
+          : undefined,
+      harmonic:
+        outgoingKey && incomingKey
+          ? {
+              outgoingKey,
+              incomingKey,
+              sameKey: outgoingKey === incomingKey,
+            }
+          : undefined,
+      energy:
+        outgoingEnergy && incomingEnergy
+          ? {
+              outgoingMean: outgoingEnergy,
+              incomingMean: incomingEnergy,
+              delta: incomingEnergy - outgoingEnergy,
+            }
+          : undefined,
+      analysisComplete: Boolean(outgoing && incoming),
+    };
+  });
+}
+
+async function bootstrapOutgoingTrack(opts: {
+  remoteTools: ToolSet;
+  config: BenchConfig;
+  trace: TraceRecorder;
+}): Promise<InitialTrack & { likesOutput: unknown }> {
+  const { remoteTools, config, trace } = opts;
+  const likesStartedAt = performance.now();
+  const likesOutput = await executeRemoteTool(remoteTools, "likes", { limit: 30 });
+  const candidates = extractCandidateTracks(likesOutput);
+  trace.record("bootstrap.likes", 0, {
+    durationMs: Math.round(performance.now() - likesStartedAt),
+    trackIds: candidates.map(({ id }) => id),
+  });
+  if (candidates.length === 0) {
+    throw new Error("Could not bootstrap outgoing track: likes returned no tracks");
+  }
+
+  let tracksToInspect = candidates.slice(0, 10);
+  if (config.outgoingTrackId !== undefined) {
+    const requested = candidates.find(({ id }) => id === config.outgoingTrackId);
+    if (!requested) {
+      throw new Error(
+        `Outgoing track ${config.outgoingTrackId} was not present in the fetched likes sample`,
+      );
+    }
+    tracksToInspect = [requested];
+  }
+
+  for (const track of tracksToInspect) {
+    const startedAt = performance.now();
+    const output = await executeRemoteTool(remoteTools, "track_analysis", {
+      id: track.id,
+      aspect: "full",
+    });
+    const record = extractTrackAnalyses(output).find(({ trackId }) => trackId === track.id);
+    trace.record("bootstrap.analysis", 0, {
+      trackId: track.id,
+      durationMs: Math.round(performance.now() - startedAt),
+      status: record ? "ready" : "not_ready",
+    });
+    if (!record) continue;
+
+    const enrichedTrack: CandidateTrack = {
+      ...track,
+      bpm: analysisNumber(record.analysis, ["tempo", "bpm"]) ?? track.bpm,
+      durationSec:
+        analysisNumber(record.analysis, ["durationSec"]) ?? track.durationSec,
+    };
+    trace.record("bootstrap.outgoing", 0, {
+      track: enrichedTrack,
+      analysis: record.analysis,
+    });
+    return {
+      track: enrichedTrack,
+      analysis: record.analysis,
+      likesOutput,
+    };
+  }
+
+  throw new Error(
+    `No ready analysis found for ${tracksToInspect.length} liked outgoing-track candidate(s)`,
+  );
+}
+
+function createWrappedRemoteTools(opts: {
+  remoteTools: ToolSet;
+  runtime: MockDJRuntime;
+  trace: TraceRecorder;
+  counters: BenchCounters;
+  config: BenchConfig;
+  bootstrapLikesOutput: unknown;
+  syncClock: () => void;
+}): { tools: ToolSet; beginTurn: () => void } {
+  const {
+    remoteTools,
+    runtime,
+    trace,
+    counters,
+    config,
+    bootstrapLikesOutput,
+    syncClock,
+  } = opts;
+  const wrapped: ToolSet = {};
+  let missingAnalysisInjected = false;
+  let mcpFailureInjected = false;
+  let bootstrapLikesConsumed = false;
+  let analysisReadsThisTurn = 0;
+  let likesReadsThisTurn = 0;
+  let trackSearchesThisTurn = 0;
+
+  for (const name of REMOTE_TOOL_NAMES) {
+    const remote = remoteTools[name];
+    if (!remote?.execute) {
+      throw new Error(`MCP endpoint missing executable ${name} tool`);
+    }
+    const execute = remote.execute;
+    wrapped[name] = {
+      ...remote,
+      execute: async (input: unknown, options: unknown) => {
+        syncClock();
+        increment(counters.toolCalls, name);
+        const startedAt = performance.now();
+        trace.record("tool.started", runtime.nowSec, {
+          tool: name,
+          input: serializable(input),
+        });
+        try {
+          if (name === "likes" || name === "tracks") {
+            const used = name === "likes" ? likesReadsThisTurn : trackSearchesThisTurn;
+            if (name === "likes") likesReadsThisTurn += 1;
+            else trackSearchesThisTurn += 1;
+            if (used >= 1) {
+              counters.discoveryBudgetRejections += 1;
+              increment(counters.toolFailures, name);
+              const output = {
+                status: "budget_exhausted",
+                instruction:
+                  "One call to each discovery source is allowed per turn. Continue with current candidates.",
+              };
+              trace.record("tool.rejected", runtime.nowSec, {
+                tool: name,
+                reason: "discovery_budget_exhausted",
+                output,
+              });
+              syncClock();
+              return output;
+            }
+          }
+          if (name === "tracks" && config.failures.has("mcp") && !mcpFailureInjected) {
+            mcpFailureInjected = true;
+            throw new Error("Injected MCP search failure");
+          }
+          if (
+            (name === "track_analysis" || name === "compare_track_analysis") &&
+            config.failures.has("missing-analysis") &&
+            !missingAnalysisInjected
+          ) {
+            missingAnalysisInjected = true;
+            const output = {
+              status: "not_ready",
+              instruction: "Continue from available metadata; do not poll.",
+            };
+            trace.record("tool.finished", runtime.nowSec, {
+              tool: name,
+              durationMs: 0,
+              output,
+              injectedFailure: "missing-analysis",
+            });
+            syncClock();
+            return output;
+          }
+          if (name === "track_analysis" || name === "compare_track_analysis") {
+            analysisReadsThisTurn += 1;
+            if (analysisReadsThisTurn > 2) {
+              counters.analysisBudgetRejections += 1;
+              increment(counters.toolFailures, name);
+              const output = {
+                status: "budget_exhausted",
+                instruction:
+                  "Two analysis reads already used this turn. Refresh dj_state and perform_transition now.",
+              };
+              trace.record("tool.rejected", runtime.nowSec, {
+                tool: name,
+                reason: "analysis_budget_exhausted",
+                output,
+              });
+              syncClock();
+              return output;
+            }
+          }
+
+          const output =
+            name === "likes" && !bootstrapLikesConsumed
+              ? (bootstrapLikesConsumed = true, bootstrapLikesOutput)
+              : await execute(input as never, options as never);
+          const durationMs = Math.round(performance.now() - startedAt);
+          counters.accountedToolWallMs += durationMs;
+          syncClock();
+          if (name === "likes" || name === "tracks") {
+            const discovered = runtime.registerCandidates(output);
+            trace.record("candidates.discovered", runtime.nowSec, {
+              tool: name,
+              trackIds: discovered.map(({ id }) => id),
+            });
+          }
+          if (name === "schedule_track_analysis") {
+            const ids: number[] = [];
+            collectPositiveIds(input, ids);
+            counters.scheduledTrackIds.push(...ids);
+          }
+          if (name === "track_analysis" || name === "compare_track_analysis") {
+            const ids: number[] = [];
+            collectPositiveIds(input, ids);
+            counters.analysisTrackIds.push(...ids);
+            const analyses = runtime.registerTrackAnalyses(output);
+            trace.record("analysis.discovered", runtime.nowSec, {
+              tool: name,
+              trackIds: analyses.map(({ trackId }) => trackId),
+            });
+          }
+          trace.record("tool.finished", runtime.nowSec, {
+            tool: name,
+            durationMs,
+            output: serializable(output),
+          });
+          return output;
+        } catch (error) {
+          const durationMs = Math.round(performance.now() - startedAt);
+          counters.accountedToolWallMs += durationMs;
+          syncClock();
+          increment(counters.toolFailures, name);
+          counters.mcpFailures += 1;
+          trace.record("tool.failed", runtime.nowSec, {
+            tool: name,
+            durationMs,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      },
+    } as ToolSet[string];
+  }
+  return {
+    tools: wrapped,
+    beginTurn: () => {
+      analysisReadsThisTurn = 0;
+      likesReadsThisTurn = 0;
+      trackSearchesThisTurn = 0;
+    },
+  };
+}
+
+function createLocalTools(opts: {
+  runtime: MockDJRuntime;
+  trace: TraceRecorder;
+  counters: BenchCounters;
+  syncClock: () => void;
+}): ToolSet {
+  const { runtime, trace, counters, syncClock } = opts;
+  return {
+    dj_state: {
+      description:
+        "Read authoritative mock decks, playback clock, transition state, candidates, revision, and played history.",
+      inputSchema: z.object({}).strict(),
+      execute: async () => {
+        syncClock();
+        increment(counters.toolCalls, "dj_state");
+        const state = runtime.readState();
+        trace.record("tool.finished", runtime.nowSec, {
+          tool: "dj_state",
+          output: state,
+        });
+        return state;
+      },
+    },
+    perform_transition: {
+      description:
+        "Submit one complete transition. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
+      inputSchema: performTransitionInputSchema,
+      execute: async (input): Promise<PerformTransitionResult> => {
+        syncClock();
+        increment(counters.toolCalls, "perform_transition");
+        const result = runtime.performTransition(input);
+        increment(
+          result.status === "accepted" ? counters.toolCalls : counters.toolFailures,
+          result.status === "accepted" ? "perform_transition.accepted" : "perform_transition.rejected",
+        );
+        trace.record(
+          result.status === "accepted" ? "transition.accepted" : "transition.rejected",
+          runtime.nowSec,
+          {
+            trackId: input.id,
+            input: serializable(input),
+            output: result,
+          },
+        );
+        return result;
+      },
+    },
+  };
+}
+
+export async function runBench(config: BenchConfig) {
+  const startedAt = new Date().toISOString();
+  const trace = new TraceRecorder(config.tracePath, config.quiet);
+  writeRunConfig(config);
+  const counters = createCounters();
+  let mcp: Awaited<ReturnType<typeof connectMcp>> | null = null;
+  let terminalError: string | null = null;
+  let messages: ModelMessage[] = [];
+  const acceptedTrackIds: number[] = [];
+  const agentTranscript: BenchSummary["agentTranscript"] = [];
+  let runtime: MockDJRuntime | null = null;
+  let outgoingTrack: CandidateTrack | null = null;
+
+  try {
+    mcp = await connectMcp(config);
+    const remoteTools = await mcp.tools();
+    const bootstrap = await bootstrapOutgoingTrack({
+      remoteTools,
+      config,
+      trace,
+    });
+    outgoingTrack = bootstrap.track;
+    runtime = new MockDJRuntime(
+      config.failures,
+      config.clockSpeed,
+      bootstrap,
+      config.planningLeadSec,
+    );
+    runtime.registerCandidates(bootstrap.likesOutput);
+    trace.record("episode.started", runtime.nowSec, {
+      model: config.model,
+      provider: config.provider,
+      transitions: config.transitions,
+      clockSpeed: config.clockSpeed,
+      planningLeadSec: config.planningLeadSec,
+      failures: [...config.failures],
+      scenario: config.scenario,
+      mcpUrl: publicMcpUrl(config.mcpUrl),
+      outgoingTrack: bootstrap.track,
+    });
+    const model = resolveBenchModel(config);
+    let syncRuntimeClock = () => {};
+    const remoteToolController = createWrappedRemoteTools({
+      remoteTools,
+      runtime,
+      trace,
+      counters,
+      config,
+      bootstrapLikesOutput: bootstrap.likesOutput,
+      syncClock: () => syncRuntimeClock(),
+    });
+    const tools = {
+      ...remoteToolController.tools,
+      ...createLocalTools({
+        runtime,
+        trace,
+        counters,
+        syncClock: () => syncRuntimeClock(),
+      }),
+    };
+
+    for (let turnIndex = 0; turnIndex < config.transitions; turnIndex += 1) {
+      let lastClockWall = performance.now();
+      syncRuntimeClock = () => {
+        const now = performance.now();
+        runtime.elapseWallMs(now - lastClockWall);
+        lastClockWall = now;
+      };
+      runtime.beginTurn();
+      remoteToolController.beginTurn();
+      const userText = userMessageForTurn(config, turnIndex);
+      messages.push({ role: "user", content: userText });
+      const rejectedBeforeTurn = runtime.stats.rejectedTransitions;
+      const turnStartedAt = performance.now();
+      trace.record("turn.started", runtime.nowSec, {
+        turn: turnIndex + 1,
+        userText,
+        state: runtime.snapshot(),
+      });
+
+      const agent = new ToolLoopAgent({
+        id: "headless-dj-bench",
+        model,
+        instructions: BENCH_DJ_INSTRUCTIONS,
+        tools,
+        stopWhen: [
+          () => runtime.acceptedThisTurn,
+          stepCountIs(config.maxSteps),
+        ],
+        prepareStep: ({ stepNumber, steps }) => {
+          if (stepNumber === 0) {
+            return {
+              activeTools: ["dj_state"],
+              toolChoice: { type: "tool", toolName: "dj_state" },
+            };
+          }
+          const allToolNames = new Set(
+            steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
+          );
+          if (
+            turnIndex === 0 &&
+            (!allToolNames.has("likes") || !allToolNames.has("tracks"))
+          ) {
+            const missingTools = (["likes", "tracks"] as const).filter(
+              (name) => !allToolNames.has(name),
+            );
+            return {
+              activeTools: [...missingTools],
+              toolChoice:
+                missingTools.length === 1
+                  ? { type: "tool", toolName: missingTools[0]! }
+                  : "required",
+              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${DISCOVERY_PHASE_INSTRUCTIONS}`,
+            };
+          }
+          if (
+            !allToolNames.has("track_analysis") &&
+            !allToolNames.has("compare_track_analysis")
+          ) {
+            return {
+              activeTools: ["track_analysis", "compare_track_analysis"],
+              toolChoice: "required",
+              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${ANALYSIS_PHASE_INSTRUCTIONS}`,
+            };
+          }
+          const lastToolNames = new Set(
+            steps.at(-1)?.toolCalls.map((call) => call.toolName) ?? [],
+          );
+          if (lastToolNames.has("perform_transition")) {
+            return {
+              activeTools: ["dj_state"],
+              toolChoice: { type: "tool", toolName: "dj_state" },
+              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            };
+          }
+          if (lastToolNames.has("dj_state")) {
+            return {
+              activeTools: ["perform_transition"],
+              toolChoice: { type: "tool", toolName: "perform_transition" },
+              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            };
+          }
+          return {
+            activeTools: ["dj_state", "perform_transition"],
+            toolChoice: "required",
+            system: `${BENCH_DJ_INSTRUCTIONS}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+          };
+        },
+        onStepFinish: (step) => {
+          const stepUsage = step.usage as unknown as Record<string, unknown>;
+          counters.inputTokens += usageNumber(stepUsage, "inputTokens", "promptTokens");
+          counters.outputTokens += usageNumber(stepUsage, "outputTokens", "completionTokens");
+          counters.totalTokens += usageNumber(stepUsage, "totalTokens", "totalTokens");
+          const backstageNarration =
+            step.text.trim().length > 0 && step.toolCalls.length > 0;
+          if (backstageNarration) counters.backstageNarrationCount += 1;
+          if (step.text.trim()) {
+            agentTranscript.push({
+              turn: turnIndex + 1,
+              step: step.stepNumber,
+              text: step.text,
+              backstageNarration,
+            });
+          }
+          trace.record("agent.step", runtime.nowSec, {
+            turn: turnIndex + 1,
+            step: step.stepNumber,
+            finishReason: step.finishReason,
+            text: step.text,
+            reasoningText: step.reasoningText,
+            toolCalls: serializable(step.toolCalls),
+            toolResults: serializable(step.toolResults),
+            usage: serializable(step.usage),
+            backstageNarration,
+          });
+        },
+      });
+
+      try {
+        const result = await agent.generate({
+          messages,
+          timeout: { totalMs: config.timeoutMs },
+        });
+        syncRuntimeClock();
+        const durationMs = Math.round(performance.now() - turnStartedAt);
+        // Runtime state is durable performance memory. Do not carry raw likes,
+        // searches, analyses, or tool transcripts into the next planning turn.
+        messages = [];
+
+        if (
+          !runtime.acceptedThisTurn &&
+          runtime.stats.rejectedTransitions > rejectedBeforeTurn &&
+          /\b(?:playing|queued|accepted|transitioned)\b/i.test(result.text)
+        ) {
+          counters.falseSuccessClaims += 1;
+          trace.record("agent.false_success_claim", runtime.nowSec, {
+            turn: turnIndex + 1,
+            text: result.text,
+          });
+        }
+        trace.record("turn.finished", runtime.nowSec, {
+          turn: turnIndex + 1,
+          durationMs,
+          accepted: runtime.acceptedThisTurn,
+          text: result.text,
+          usage: serializable(result.totalUsage),
+        });
+      } catch (error) {
+        syncRuntimeClock();
+        const rawError = error instanceof Error ? error.message : String(error);
+        terminalError =
+          /(?:Delay was aborted|operation timed out)/i.test(rawError)
+            ? `Turn ${turnIndex + 1} deadline exceeded after ${config.timeoutMs}ms without accepted transition`
+            : rawError;
+        trace.record("turn.failed", runtime.nowSec, {
+          turn: turnIndex + 1,
+          error: terminalError,
+          rawError,
+        });
+        break;
+      }
+
+      if (!runtime.acceptedThisTurn) {
+        terminalError = `Turn ${turnIndex + 1} ended without accepted transition`;
+        trace.record("episode.holding_loop", runtime.nowSec, {
+          turn: turnIndex + 1,
+          error: terminalError,
+        });
+        break;
+      }
+      const played = runtime.snapshot().playedTrackIds;
+      acceptedTrackIds.push(played.at(-1)!);
+      if (turnIndex < config.transitions - 1) {
+        runtime.advanceToNextPlanningWindow();
+        trace.record("playback.advanced", runtime.nowSec, {
+          turn: turnIndex + 1,
+          state: runtime.snapshot(),
+        });
+      }
+    }
+  } catch (error) {
+    if (!terminalError) {
+      terminalError = error instanceof Error ? error.message : String(error);
+    }
+    trace.record("episode.failed", runtime?.nowSec ?? 0, {
+      error: terminalError,
+    });
+  } finally {
+    await mcp?.close().catch(() => {});
+  }
+
+  const duplicateAcceptedTracks =
+    acceptedTrackIds.length - new Set(acceptedTrackIds).size;
+  const analysisCalls =
+    (counters.toolCalls.track_analysis ?? 0) +
+    (counters.toolCalls.compare_track_analysis ?? 0);
+  const stateReads = runtime?.stats.stateReads ?? 0;
+  const impossibleScheduleAttempts = runtime?.stats.impossibleScheduleAttempts ?? 0;
+  const completedRatio = acceptedTrackIds.length / config.transitions;
+  const coherenceEvidence = buildCoherenceEvidence(runtime);
+  const invalidReason = benchInvalidReason({
+    terminalError,
+    mcpFailures: counters.mcpFailures,
+  });
+  const summary: BenchSummary = {
+    ok:
+      terminalError === null &&
+      acceptedTrackIds.length === config.transitions &&
+      duplicateAcceptedTracks === 0 &&
+      stateReads >= config.transitions &&
+      impossibleScheduleAttempts === 0 &&
+      (counters.toolCalls.likes ?? 0) > 0 &&
+      (counters.toolCalls.tracks ?? 0) > 0 &&
+      analysisCalls > 0 &&
+      counters.falseSuccessClaims === 0 &&
+      counters.backstageNarrationCount === 0,
+    validity: invalidReason ? "invalid" : "valid",
+    invalidReason,
+    runId: config.runId,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    model: config.model,
+    provider: config.provider,
+    scenario: config.scenario,
+    prompt: config.prompt,
+    planningLeadSec: config.planningLeadSec,
+    outgoingTrack,
+    requestedTransitions: config.transitions,
+    acceptedTransitions: acceptedTrackIds.length,
+    acceptedTrackIds,
+    duplicateAcceptedTracks,
+    stateReads,
+    rejectedTransitions: runtime?.stats.rejectedTransitions ?? 0,
+    impossibleScheduleAttempts,
+    toolCalls: counters.toolCalls,
+    toolFailures: counters.toolFailures,
+    scheduledTrackIds: [...new Set(counters.scheduledTrackIds)],
+    analysisTrackIds: [...new Set(counters.analysisTrackIds)],
+    falseSuccessClaims: counters.falseSuccessClaims,
+    backstageNarrationCount: counters.backstageNarrationCount,
+    analysisBudgetRejections: counters.analysisBudgetRejections,
+    discoveryBudgetRejections: counters.discoveryBudgetRejections,
+    tokens: {
+      input: counters.inputTokens,
+      output: counters.outputTokens,
+      total: counters.totalTokens,
+    },
+    simulatedTimeSec: runtime?.nowSec ?? 0,
+    tracePath: config.tracePath,
+    summaryPath: config.summaryPath,
+    reportPath: config.reportPath,
+    configPath: config.configPath,
+    error: terminalError,
+    continuity: {
+      status:
+        terminalError === null &&
+        acceptedTrackIds.length === config.transitions &&
+        impossibleScheduleAttempts === 0
+          ? "pass"
+          : "fail",
+      completedRatio,
+      noAcceptedTransition: acceptedTrackIds.length === 0,
+      impossibleScheduleAttempts,
+      steps: (runtime?.transitionOutcomes ?? []).map((transition) => ({
+        fromTrackId: transition.fromTrackId,
+        toTrackId: transition.toTrackId,
+        acceptedAtSec: transition.acceptedAtSec,
+        scheduledAtSec: transition.scheduledAtSec,
+        blendDurationSec: transition.blendDurationSec,
+      })),
+    },
+    coherenceEvidence,
+    agentTranscript,
+    claim:
+      "Mechanical bench result only. Musical quality requires real-audio listening review.",
+  };
+  trace.record("episode.finished", runtime?.nowSec ?? 0, { ...summary });
+  writeRunArtifacts(config, summary);
+  process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  return summary;
+}
+
+if (import.meta.main) {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(`${benchHelp()}\n`);
+  } else {
+    try {
+      const summary = await runBench(parseBenchConfig());
+      if (!summary.ok) process.exitCode = 1;
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    }
+  }
+}

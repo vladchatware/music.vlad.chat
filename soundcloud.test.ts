@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { allLikes, resolveTrackStreamUrl, track } from "./soundcloud";
+import { allLikes, meLibrary, resolveTrackStreamUrl, track } from "./soundcloud";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -55,6 +55,31 @@ describe("allLikes", () => {
     await expect(allLikes("7", "token")).resolves.toMatchObject([{ id: 1 }, { id: 2 }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]?.[0].toString()).toBe("https://api.soundcloud.com/likes-next");
+  });
+});
+
+describe("meLibrary", () => {
+  it("keeps required library data when listening history is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("forbidden", { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 7,
+        username: "listener",
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        collection: [{ id: 2 }],
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        collection: [{ id: 3 }],
+      })));
+
+    await expect(meLibrary("user-token")).resolves.toMatchObject({
+      profile: { id: 7, username: "listener" },
+      recentlyPlayed: [],
+      likes: [{ id: 2 }],
+      playlists: [{ id: 3 }],
+      historyAvailable: false,
+    });
   });
 });
 

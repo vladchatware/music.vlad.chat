@@ -40,6 +40,30 @@ function analysisRoute(
 
 auth.addHttpRoutes(http);
 
+analysisRoute("/soundcloud/service-credentials", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+
+  // Prefer env var (set via `npx convex env set` on the deployment).
+  const envAccess = process.env.SOUNDCLOUD_SERVICE_USER_ACCESS_TOKEN;
+  if (envAccess) {
+    return json({
+      accessToken: envAccess,
+      refreshToken: process.env.SOUNDCLOUD_SERVICE_USER_REFRESH_TOKEN ?? null,
+    });
+  }
+
+  // Fallback: look up the auth account in the database (production).
+  const body = await req.json().catch(() => null) as { soundcloudUserId?: unknown } | null;
+  if (typeof body?.soundcloudUserId !== "string" || !body.soundcloudUserId) {
+    return json({ error: "soundcloudUserId is required" }, 400);
+  }
+  const credentials = await ctx.runQuery(internal.users.serviceSoundcloudCredentials, {
+    soundcloudUserId: body.soundcloudUserId,
+  });
+  if (!credentials) return json({ error: "Service user SoundCloud credentials not found" }, 404);
+  return json(credentials);
+});
+
 http.route({
   path: "/instagram/webhook",
   method: "GET",
@@ -181,6 +205,27 @@ analysisRoute("/analysis/claim", async (ctx, req) => {
     return json({ job });
   } catch (error) {
     console.error("Analysis claim failed", error);
+    return json({ error: "Failed to claim analysis job" }, 500);
+  }
+});
+
+analysisRoute("/analysis/claim-specific", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as { cacheKey?: string; leaseDurationMs?: number };
+    if (!body.cacheKey) return json({ error: "cacheKey is required" }, 400);
+    const leaseDurationMs = Math.min(
+      30 * 60_000,
+      Math.max(60_000, Number(body.leaseDurationMs) || 15 * 60_000),
+    );
+    const result = await ctx.runMutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: body.cacheKey,
+      leaseToken: crypto.randomUUID(),
+      leaseDurationMs,
+    });
+    return json(result);
+  } catch (error) {
+    console.error("Specific analysis claim failed", error);
     return json({ error: "Failed to claim analysis job" }, 500);
   }
 });
