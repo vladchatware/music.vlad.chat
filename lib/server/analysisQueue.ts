@@ -119,7 +119,7 @@ export async function enqueueTrackAnalyses(
         }
         result = await response.json() as AnalysisEnqueueResult;
       }
-      if (result.enqueued > 0 || result.existing > 0) {
+      if (result.enqueued > 0) {
         await Promise.all(normalized.map((trackId) =>
           start(trackAnalysisWorkflow, [
             `soundcloud:${trackId}:${TRACK_ANALYSIS_VERSION}`,

@@ -1,6 +1,6 @@
-import { fetch as fetchWorkflow, sleep } from "workflow";
+import { fetch as fetchWorkflow, RetryableError } from "workflow";
 
-type WorkerOutcome =
+export type WorkerOutcome =
   | { status: "completed" | "done" | "dead" }
   | { status: "busy" | "waiting"; retryAfterMs: number };
 
@@ -21,19 +21,21 @@ async function dispatchTrackAnalysis(cacheKey: string): Promise<WorkerOutcome> {
     body: JSON.stringify({ cacheKey }),
   });
   if (!response.ok) {
-    throw new Error(`Analysis worker failed with status ${response.status}`);
+    throw new RetryableError(`Analysis worker failed with status ${response.status}`, {
+      retryAfter: 5_000,
+    });
   }
-  return await response.json() as WorkerOutcome;
+  const outcome = await response.json() as WorkerOutcome;
+  if (outcome.status === "busy" || outcome.status === "waiting") {
+    throw new RetryableError(`Worker ${outcome.status}`, {
+      retryAfter: outcome.retryAfterMs,
+    });
+  }
+  return outcome;
 }
 
 export async function trackAnalysisWorkflow(cacheKey: string): Promise<WorkerOutcome> {
   "use workflow";
 
-  while (true) {
-    const outcome = await dispatchTrackAnalysis(cacheKey);
-    if (outcome.status !== "busy" && outcome.status !== "waiting") {
-      return outcome;
-    }
-    await sleep(Math.max(1_000, Math.min(30 * 60_000, outcome.retryAfterMs)));
-  }
+  return await dispatchTrackAnalysis(cacheKey);
 }

@@ -205,6 +205,30 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function drainQueue(): Promise<void> {
+  while (!stopping) {
+    if (activeJobs >= concurrency) {
+      await wait(1_000);
+      continue;
+    }
+    try {
+      const job = await queue.claim();
+      if (!job) {
+        await wait(5_000);
+        continue;
+      }
+      activeJobs += 1;
+      recordWorkerState();
+      processJob(job)
+        .catch((error) => captureWorkerException("drain_process", error, { cacheKey: job.cacheKey }))
+        .finally(() => { activeJobs -= 1; recordWorkerState(); });
+    } catch (error) {
+      captureWorkerException("drain_claim", error, {});
+      await wait(5_000);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) return;
   stopping = true;
@@ -229,3 +253,4 @@ Sentry.logger.info("Track analysis worker started", {
 });
 Sentry.metrics.count("analysis.worker.started", 1, { attributes: workerMetricAttributes });
 recordWorkerState();
+drainQueue();
