@@ -201,6 +201,34 @@ const server = Bun.serve({
   },
 });
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function drainLoop(): Promise<void> {
+  while (!stopping) {
+    if (activeJobs >= concurrency) {
+      await wait(1_000);
+      continue;
+    }
+    try {
+      const job = await queue.claim();
+      if (!job) {
+        await wait(30_000);
+        continue;
+      }
+      activeJobs += 1;
+      recordWorkerState();
+      processJob(job)
+        .catch((e) => captureWorkerException("drain_process", e, { cacheKey: job.cacheKey }))
+        .finally(() => { activeJobs -= 1; recordWorkerState(); });
+    } catch (e) {
+      captureWorkerException("drain_claim", e, {});
+      await wait(30_000);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) return;
   stopping = true;
@@ -225,3 +253,4 @@ Sentry.logger.info("Track analysis worker started", {
 });
 Sentry.metrics.count("analysis.worker.started", 1, { attributes: workerMetricAttributes });
 recordWorkerState();
+drainLoop();
