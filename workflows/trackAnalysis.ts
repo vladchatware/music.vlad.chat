@@ -26,8 +26,8 @@ async function dispatchTrackAnalysis(cacheKey: string): Promise<WorkerOutcome> {
     });
   }
   const outcome = await response.json() as WorkerOutcome;
-  if (outcome.status === "busy" || outcome.status === "waiting") {
-    throw new RetryableError(`Worker ${outcome.status}`, {
+  if (outcome.status === "waiting") {
+    throw new RetryableError(`Worker waiting`, {
       retryAfter: outcome.retryAfterMs,
     });
   }
