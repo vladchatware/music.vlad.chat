@@ -41,14 +41,13 @@ services:
     command:
       - tunnel
       - --no-autoupdate
-      - --url
-      - http://analysis-worker:3001
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       analysis-worker:
         condition: service_healthy
     networks: [analysis]
-    ports:
-      - "3001"
 
 networks:
   analysis:
