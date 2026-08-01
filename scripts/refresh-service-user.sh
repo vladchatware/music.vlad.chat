@@ -27,7 +27,7 @@ ENV="$ROOT/.env.local"
 load_env() {
   local key="$1"
   if [ -f "$ENV" ]; then
-    grep -E "^${key}=" "$ENV" | tail -1 | sed "s/^${key}=//"
+    grep -E "^${key}=" "$ENV" | tail -1 | sed "s/^${key}=//" || true
   fi
 }
 

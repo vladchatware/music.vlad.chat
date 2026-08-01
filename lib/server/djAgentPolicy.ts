@@ -322,7 +322,12 @@ export type DJAgentMode =
 export function getDJAgentMode(value: unknown): DJAgentMode {
   if (hasSuccessfulPlayerAction(value)) return "post_player_preparation";
   if (hasRejectedPlayerAction(value)) return "recovery";
-  if (shouldUsePreparedCandidatePool(value)) return "prepared_selection";
+  if (
+    shouldUsePreparedCandidatePool(value) ||
+    getDiscoveredTrackIds(value).length > 0
+  ) {
+    return "prepared_selection";
+  }
   return "fresh_discovery";
 }
 

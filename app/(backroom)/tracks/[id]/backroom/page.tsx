@@ -6,13 +6,31 @@ import { api } from "@/convex/_generated/api";
 import { rankTransitionCandidates, suggestTransitionWindows, type DJPerformancePlan } from "@/lib/dj";
 import { TRACK_ANALYSIS_VERSION, type AnalysisSegment, type TrackAnalysis } from "@/lib/trackAnalysis";
 
-import { track } from "@/soundcloud";
+import { refreshUserToken, track } from "@/soundcloud";
 
 // In development with a service user, fetch a user token from the Convex
 // HTTP endpoint to avoid rate-limiting the shared client-credentials auth.
-let _serviceToken: string | undefined;
+let _cachedToken: { token: string; refreshToken: string; expiresAt: number } | undefined;
+function _decodeTokenExp(token: string): number {
+  try {
+    const payload = token.split(".")[1];
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return (decoded.exp as number) * 1000;
+  } catch {
+    return 0;
+  }
+}
 async function serviceUserToken(): Promise<string | undefined> {
-  if (_serviceToken) return _serviceToken;
+  if (_cachedToken && Date.now() < _cachedToken.expiresAt) return _cachedToken.token;
+  if (_cachedToken?.refreshToken) {
+    try {
+      const refreshed = await refreshUserToken(_cachedToken.refreshToken);
+      _cachedToken = { ...refreshed, expiresAt: _decodeTokenExp(refreshed.accessToken) };
+      return _cachedToken.token;
+    } catch {
+      _cachedToken = undefined;
+    }
+  }
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
   const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/+$/, "").replace(/\/api$/, "");
   if (!secret || !siteUrl) return undefined;
@@ -24,8 +42,8 @@ async function serviceUserToken(): Promise<string | undefined> {
       cache: "no-store",
     });
     if (!res.ok) return undefined;
-    const { accessToken } = await res.json() as { accessToken: string };
-    _serviceToken = accessToken;
+    const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
+    _cachedToken = { token: accessToken, refreshToken: refreshToken ?? "", expiresAt: _decodeTokenExp(accessToken) };
     return accessToken;
   } catch {
     return undefined;

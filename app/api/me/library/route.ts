@@ -36,9 +36,20 @@ async function developmentServiceLibrary() {
     throw new Error(payload?.error ?? `Service credentials request failed (${res.status})`);
   }
 
-  const { accessToken } = await res.json() as { accessToken: string };
-  const library = await meLibrary(accessToken);
-  return { ...library, source: "service_user" as const };
+  const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
+
+  try {
+    const library = await meLibrary(accessToken);
+    return { ...library, source: "service_user" as const };
+  } catch (error) {
+    const status = errorStatus(error);
+    if ((status === 401 || status === 403) && refreshToken) {
+      const refreshed = await refreshUserToken(refreshToken);
+      const library = await meLibrary(refreshed.accessToken);
+      return { ...library, source: "service_user" as const };
+    }
+    throw error;
+  }
 }
 
 function serviceUserError(error: unknown) {

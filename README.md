@@ -36,8 +36,10 @@ music.vlad.chat is a web application that combines AI music curation with real-t
 - **Model Context Protocol (MCP)** - Enhanced AI capabilities
 
 ### Audio Processing
+- **Superpowered WebAssembly** - Two-deck transport, decoding, time stretching, EQ, mixing, compression, and limiting
+- **AudioWorklet** - Deterministic real-time render clock and final browser audio-device output
 - **FFT Analyzer** - Real-time frequency analysis
-- **Web Audio API** - Audio playback and analysis
+- **Web Audio API** - Audio-device output and visualization taps
 - **Essentia.js Worker** - Offline beat, key, energy, structure, semantic mood, vocal presence, and cue-point analysis
 
 ## DJ Analysis Worker
@@ -126,6 +128,9 @@ SITE_URL=http://localhost:3000
 SOUNDCLOUD_CLIENT_ID=<your-soundcloud-client-id>
 SOUNDCLOUD_CLIENT_SECRET=<your-soundcloud-client-secret>
 
+# Required for any non-local Superpowered deployment
+NEXT_PUBLIC_SUPERPOWERED_LICENSE_KEY=<your-registered-superpowered-js-license>
+
 # Sentry runtime (use the same DSN for browser, server, and edge)
 NEXT_PUBLIC_SENTRY_DSN=<your-sentry-dsn>
 SENTRY_DSN=<your-sentry-dsn>
@@ -135,6 +140,10 @@ SENTRY_ORG=<your-sentry-org-slug>
 SENTRY_PROJECT=<your-sentry-project-slug>
 SENTRY_AUTH_TOKEN=<your-sentry-auth-token>
 ```
+
+Superpowered's evaluation key is used only on localhost. It does not permit public deployment.
+See [docs/superpowered-audio-engine.md](docs/superpowered-audio-engine.md) for engine architecture,
+licensing, browser requirements, and transport API.
 
 4. Set up Convex:
 ```bash

@@ -8,6 +8,15 @@ afterEach(() => {
 });
 
 describe("resolveTrackStreamUrl", () => {
+  it("refuses preview-only audio when a caller requires the full track", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      preview_mp3_128_url: "https://api.soundcloud.test/preview",
+    }), { status: 200 }));
+
+    await expect(resolveTrackStreamUrl(42, "token", 10, false))
+      .rejects.toThrow("No full stream URL");
+  });
+
   it("bounds a stalled CDN redirect lookup", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({

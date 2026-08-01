@@ -78,9 +78,10 @@ export function useTransitionController(options: TransitionControllerOptions) {
     activeDeckRef,
     bpmDetectorRef,
     deckStatusRef,
+    engineRef,
     getActiveAnalyzer,
     getActiveEQ,
-    getDeckElement,
+    getDeckState,
     getInactiveAnalyzer,
     getInactiveDeckId,
     getInactiveEQ,
@@ -145,8 +146,8 @@ export function useTransitionController(options: TransitionControllerOptions) {
       if (!djTrack) return;
       await waitForDeckCanPlay(inactiveDeckId);
 
-      const deck = getDeckElement(inactiveDeckId);
-      const mediaDurationSec = getFiniteDurationSec(deck?.duration);
+      const deck = getDeckState(inactiveDeckId);
+      const mediaDurationSec = getFiniteDurationSec(deck.durationSec);
       const metadataDurationSec = getFiniteDurationSec(djTrack.duration);
       if (isLikelyPreviewStream({ metadataDurationSec, mediaDurationSec })) {
         logEngine("engine.cue.rejected_preview_stream", {
@@ -176,7 +177,7 @@ export function useTransitionController(options: TransitionControllerOptions) {
       const deckSnapshot = createDeckSnapshot(
         inactiveDeckId,
         effectiveTrack,
-        deck?.currentTime ?? 0,
+        deck.positionSec,
         beatGrid,
         null,
       );
@@ -203,23 +204,23 @@ export function useTransitionController(options: TransitionControllerOptions) {
         elapsedMs: Math.round(performance.now() - startedAt),
       });
     },
-    [getDeckElement, getInactiveDeckId, loadTrack, logEngine, waitForDeckCanPlay],
+    [getDeckState, getInactiveDeckId, loadTrack, logEngine, waitForDeckCanPlay],
   );
 
   const planTransition = useCallback(() => {
     const state = engineState.djState;
     if (state.type !== "cueing") return;
 
-    const activeDeckEl = getDeckElement(state.activeDeck.id);
-    const cueDeckEl = getDeckElement(state.cueDeck.id);
-    const currentTime = activeDeckEl?.currentTime ?? state.activeDeck.positionSec;
+    const activeDeckEl = getDeckState(state.activeDeck.id);
+    const cueDeckEl = getDeckState(state.cueDeck.id);
+    const currentTime = activeDeckEl.positionSec;
     const { plan, rawPlan, diagnostics } = resolveTransitionPlan({
       outgoingDeck: state.activeDeck,
       incomingDeck: state.cueDeck,
       analysis: state.analysis,
       currentTimeSec: currentTime,
-      outgoingDurationSec: getFiniteDurationSec(activeDeckEl?.duration),
-      incomingDurationSec: getFiniteDurationSec(cueDeckEl?.duration),
+      outgoingDurationSec: getFiniteDurationSec(activeDeckEl.durationSec),
+      incomingDurationSec: getFiniteDurationSec(cueDeckEl.durationSec),
       performanceIntent: performanceIntentRef.current,
     });
 
@@ -236,21 +237,21 @@ export function useTransitionController(options: TransitionControllerOptions) {
       performanceReason: plan.performance?.reason ?? null,
     });
     dispatch({ type: "PLAN_TRANSITION", plan });
-  }, [engineState.djState, getDeckElement, logEngine]);
+  }, [engineState.djState, getDeckState, logEngine]);
 
   const replanPlannedTransition = useCallback(() => {
     const state = engineState.djState;
     if (state.type !== "planned") return;
-    const activeDeckEl = getDeckElement(state.activeDeck.id);
-    const cueDeckEl = getDeckElement(state.cueDeck.id);
-    const currentTime = activeDeckEl?.currentTime ?? state.activeDeck.positionSec;
+    const activeDeckEl = getDeckState(state.activeDeck.id);
+    const cueDeckEl = getDeckState(state.cueDeck.id);
+    const currentTime = activeDeckEl.positionSec;
     const { plan: nextPlan, rawPlan: rawNextPlan, diagnostics } = resolveTransitionPlan({
       outgoingDeck: state.activeDeck,
       incomingDeck: state.cueDeck,
       analysis: state.analysis,
       currentTimeSec: currentTime,
-      outgoingDurationSec: getFiniteDurationSec(activeDeckEl?.duration),
-      incomingDurationSec: getFiniteDurationSec(cueDeckEl?.duration),
+      outgoingDurationSec: getFiniteDurationSec(activeDeckEl.durationSec),
+      incomingDurationSec: getFiniteDurationSec(cueDeckEl.durationSec),
       performanceIntent: performanceIntentRef.current,
     });
     transitionPlanRef.current = nextPlan;
@@ -267,22 +268,22 @@ export function useTransitionController(options: TransitionControllerOptions) {
       performanceDiagnostics: diagnostics,
     });
     dispatch({ type: "PLAN_TRANSITION", plan: nextPlan });
-  }, [engineState.djState, getDeckElement, logEngine]);
+  }, [engineState.djState, getDeckState, logEngine]);
 
   const startCrossfade = useCallback(async () => {
     const state = engineState.djState;
     if (state.type !== "planned") return;
     if (crossfadeStartTimeRef.current !== null) return;
 
-    const outgoingDeck = getDeckElement(state.activeDeck.id);
-    const incomingDeck = getDeckElement(state.cueDeck.id);
-    if (!outgoingDeck || !incomingDeck) return;
+    const outgoingDeck = getDeckState(state.activeDeck.id);
+    const incomingDeck = getDeckState(state.cueDeck.id);
+    if (!outgoingDeck.loaded || !incomingDeck.loaded) return;
     if (!deckStatusRef.current[state.cueDeck.id].canPlay) return;
 
     const plannedCrossfadeDurationSec = state.plan.crossfadeDurationSec;
-    const incomingDurationSec = incomingDeck.duration;
-    const outgoingRemainingSec = Number.isFinite(outgoingDeck.duration)
-      ? Math.max(0, outgoingDeck.duration - outgoingDeck.currentTime)
+    const incomingDurationSec = incomingDeck.durationSec;
+    const outgoingRemainingSec = Number.isFinite(outgoingDeck.durationSec)
+      ? Math.max(0, outgoingDeck.durationSec - outgoingDeck.positionSec)
       : null;
 
     let effectiveCrossfadeDurationSec = plannedCrossfadeDurationSec;
@@ -353,8 +354,8 @@ export function useTransitionController(options: TransitionControllerOptions) {
       crossfadeDurationSec: state.plan.crossfadeDurationSec,
       performance: state.plan.performance ?? null,
       plannedStartSec: state.plan.startBoundary.timeSec,
-      actualOutgoingTimeSec: outgoingDeck.currentTime,
-      timingDriftSec: outgoingDeck.currentTime - state.plan.startBoundary.timeSec,
+      actualOutgoingTimeSec: outgoingDeck.positionSec,
+      timingDriftSec: outgoingDeck.positionSec - state.plan.startBoundary.timeSec,
     });
 
     if (outgoingEQ && incomingEQ) {
@@ -363,28 +364,38 @@ export function useTransitionController(options: TransitionControllerOptions) {
     }
 
     if (state.plan.tempoAdjustment.feasible) {
-      incomingDeck.playbackRate = state.plan.tempoAdjustment.targetPlaybackRate;
+      engineRef.current.setTempo(
+        state.cueDeck.id,
+        state.plan.tempoAdjustment.targetPlaybackRate,
+      );
     } else {
-      incomingDeck.playbackRate = 1;
+      engineRef.current.setTempo(state.cueDeck.id, 1);
     }
     logEngine("engine.crossfade.automation_configured", {
       crossfaderCurve: state.plan.performance?.crossfaderCurve ?? "linear",
       eqPreset: state.plan.performance?.eqPreset ?? "planner_curve",
       bassSwapAt: state.plan.performance?.bassSwapAt ?? null,
-      incomingPlaybackRate: incomingDeck.playbackRate,
+      incomingPlaybackRate: state.plan.tempoAdjustment.feasible
+        ? state.plan.tempoAdjustment.targetPlaybackRate
+        : 1,
       durationSec: effectiveCrossfadeDurationSec,
     });
 
     try {
       const mixInSec =
         state.plan.performance?.incomingStartSec ?? state.cueDeck.cuePoints?.mixInSec ?? 0;
-      const latestSafeEntry = Number.isFinite(incomingDeck.duration)
-        ? Math.max(0, incomingDeck.duration - effectiveCrossfadeDurationSec - 1)
+      const latestSafeEntry = Number.isFinite(incomingDeck.durationSec)
+        ? Math.max(0, incomingDeck.durationSec - effectiveCrossfadeDurationSec - 1)
         : mixInSec;
-      incomingDeck.currentTime = Math.min(mixInSec, latestSafeEntry);
-      incomingDeck.volume = 0;
-      outgoingDeck.volume = 1;
-      await incomingDeck.play();
+      await engineRef.current.scheduleTransition({
+        outgoingDeck: state.activeDeck.id,
+        incomingDeck: state.cueDeck.id,
+        incomingStartSec: Math.min(mixInSec, latestSafeEntry),
+        durationSec: effectiveCrossfadeDurationSec,
+        curve: state.plan.performance?.crossfaderCurve ?? "linear",
+        outgoingEQ: state.plan.eqCurve.outgoing,
+        incomingEQ: state.plan.eqCurve.incoming,
+      });
       const startedOutgoingEnergy = getActiveAnalyzer()?.getEnergy("overall") ?? outgoingEnergy;
       const startedIncomingEnergy = getInactiveAnalyzer()?.getEnergy("overall") ?? incomingEnergy;
       const startedHandoffEnergyMismatch = computeHandoffEnergyMismatch({
@@ -432,7 +443,7 @@ export function useTransitionController(options: TransitionControllerOptions) {
     engineState.djState,
     getActiveAnalyzer,
     getActiveEQ,
-    getDeckElement,
+    getDeckState,
     getInactiveAnalyzer,
     getInactiveEQ,
     logEngine,
@@ -444,26 +455,16 @@ export function useTransitionController(options: TransitionControllerOptions) {
     const state = engineState.djState;
     if (state.type !== "crossfading") return;
 
-    const outgoingDeck = getDeckElement(state.outgoingDeck.id);
-    const incomingDeck = getDeckElement(state.incomingDeck.id);
     const completionSample = {
       outgoingEnergyAtEnd: getActiveAnalyzer()?.getEnergy("overall") ?? 0,
       incomingEnergyAtEnd: getInactiveAnalyzer()?.getEnergy("overall") ?? 0,
     };
 
-    if (outgoingDeck) {
-      try {
-        // Silence before transport mutation. pause()/seek can emit a final media frame.
-        outgoingDeck.volume = 0;
-        outgoingDeck.pause();
-        outgoingDeck.currentTime = 0;
-      } catch { }
-      outgoingDeck.playbackRate = 1;
-    }
-    if (incomingDeck) {
-      incomingDeck.playbackRate = 1;
-      incomingDeck.volume = 1;
-    }
+    engineRef.current.setGain(state.outgoingDeck.id, 0);
+    engineRef.current.stop(state.outgoingDeck.id);
+    engineRef.current.setTempo(state.outgoingDeck.id, 1);
+    engineRef.current.setTempo(state.incomingDeck.id, 1);
+    engineRef.current.setGain(state.incomingDeck.id, 1);
 
     // Outgoing deck is muted, so resetting it is inaudible. Incoming EQ curve already
     // finishes at unity; resetting audible filters here can create a completion spike.
@@ -499,7 +500,7 @@ export function useTransitionController(options: TransitionControllerOptions) {
     });
     dispatch({ type: "CROSSFADE_COMPLETE" });
     actions.resetTransition();
-  }, [actions, engineState.djState, getActiveAnalyzer, getActiveEQ, getDeckElement, getInactiveAnalyzer, getInactiveEQ, logEngine, recordTransitionOutcome]);
+  }, [actions, engineState.djState, getActiveAnalyzer, getActiveEQ, getInactiveAnalyzer, getInactiveEQ, logEngine, recordTransitionOutcome]);
 
   useEffect(() => {
     if (engineState.djState.type !== "playing") return;

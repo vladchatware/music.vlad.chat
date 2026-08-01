@@ -20,4 +20,36 @@ describe("getScheduledCandidateIds", () => {
 
     expect(getScheduledCandidateIds(messages)).toEqual([4, 5, 6]);
   });
+
+  it("rejects numeric prefixes from aborted streaming tool inputs", () => {
+    const messages = [{
+      id: "assistant-aborted",
+      role: "assistant",
+      parts: [{
+        type: "dynamic-tool",
+        toolName: "schedule_track_analysis",
+        toolCallId: "call-aborted",
+        state: "input-streaming",
+        input: { ids: [719] },
+      }],
+    }] as UIMessage[];
+
+    expect(getScheduledCandidateIds(messages)).toEqual([]);
+  });
+
+  it("does not trust a schedule until its output is available", () => {
+    const messages = [{
+      id: "assistant-incomplete",
+      role: "assistant",
+      parts: [{
+        type: "dynamic-tool",
+        toolName: "schedule_track_analysis",
+        toolCallId: "call-incomplete",
+        state: "input-available",
+        input: { ids: [719940358] },
+      }],
+    }] as UIMessage[];
+
+    expect(getScheduledCandidateIds(messages)).toEqual([]);
+  });
 });

@@ -8,6 +8,7 @@ import { compactDJMessages } from "./chatTransport";
 import { getScheduledCandidateIds } from "./chatPerformanceMemory";
 import {
   playerToolInputSchema,
+  resolvePreparedPlayerSelection,
   type PlayerToolInput,
 } from "@/lib/dj";
 import type {
@@ -27,6 +28,16 @@ export type PlayerRequestOutcome =
 
 export function shouldContinueAgentEpisode(messages: UIMessage[]): boolean {
   return lastAssistantMessageIsCompleteWithToolCalls({ messages });
+}
+
+function getPreparedCandidateIds(value: unknown): number[] {
+  if (!value || typeof value !== "object") return [];
+  const memory = (value as { performanceMemory?: unknown }).performanceMemory;
+  if (!memory || typeof memory !== "object") return [];
+  const ids = (memory as { candidateTrackIds?: unknown }).candidateTrackIds;
+  return Array.isArray(ids)
+    ? ids.filter((id): id is number => Number.isSafeInteger(id) && Number(id) > 0)
+    : [];
 }
 
 export function classifyAgentEpisodeFinish(
@@ -320,7 +331,9 @@ export function useRevibeChat(opts: {
       opts.onAgentSessionFinished?.("error");
     },
     onFinish: ({ messages: currentMessages, isAbort, isDisconnect, isError }) => {
-      const scheduledCandidateIds = getScheduledCandidateIds(currentMessages);
+      const scheduledCandidateIds = isAbort || isDisconnect || isError
+        ? []
+        : getScheduledCandidateIds(currentMessages);
       if (scheduledCandidateIds.length > 0) {
         opts.onScheduledCandidates?.(scheduledCandidateIds);
         playbackDebug("chat.performance_memory.candidate_capture", {
@@ -383,7 +396,13 @@ export function useRevibeChat(opts: {
       }
 
       const parsedInput = playerToolInputSchema.safeParse(ctx.toolCall.input);
-      if (!parsedInput.success) {
+      const preparedInput = parsedInput.success
+        ? null
+        : resolvePreparedPlayerSelection(
+            ctx.toolCall.input,
+            getPreparedCandidateIds(getDJStateRef.current?.()),
+          );
+      if (!parsedInput.success && !preparedInput) {
         addToolResult({
           tool: ctx.toolCall.toolName,
           toolCallId: ctx.toolCall.toolCallId,
@@ -398,7 +417,7 @@ export function useRevibeChat(opts: {
         });
         return;
       }
-      const request = parsedInput.data;
+      const request = parsedInput.success ? parsedInput.data : preparedInput!;
       const outcome = await orchestratorRef.current?.handlePlayerRequest(request);
 
       const output =

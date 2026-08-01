@@ -41,14 +41,12 @@ export function computeAgentSessionDeadlineAtMs(opts: {
   safetyMarginMs?: number;
   minDurationMs?: number;
 }): number {
-  const maxDurationMs = opts.maxDurationMs ?? 70_000;
   const safetyMarginMs = opts.safetyMarginMs ?? 10_000;
-  const minDurationMs = opts.minDurationMs ?? 3_000;
-  const availableMs = Math.max(
-    minDurationMs,
-    opts.remainingSec * 1_000 - safetyMarginMs,
-  );
-  return opts.nowMs + Math.min(maxDurationMs, availableMs);
+  const availableMs = Math.max(0, opts.remainingSec * 1_000 - safetyMarginMs);
+  const durationMs = opts.maxDurationMs === undefined
+    ? availableMs
+    : Math.min(opts.maxDurationMs, availableMs);
+  return opts.nowMs + durationMs;
 }
 
 export function computePlaybackAgentSessionDeadlineAtMs(opts: {
@@ -58,6 +56,7 @@ export function computePlaybackAgentSessionDeadlineAtMs(opts: {
   endedThresholdSec?: number;
   shortMediaThresholdSec?: number;
   recoveryDurationMs?: number;
+  maxDurationMs?: number;
 }): number {
   const endedThresholdSec = opts.endedThresholdSec ?? 0.25;
   const shortMediaThresholdSec = opts.shortMediaThresholdSec ?? 35;

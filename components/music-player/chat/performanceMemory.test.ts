@@ -10,6 +10,11 @@ import {
 const track = (id: number) => ({ id, title: `track-${id}`, artist: `artist-${id}` });
 
 describe("performance memory compaction", () => {
+  it("starts from a bounded researched candidate pool", () => {
+    expect(createPerformanceMemory("stay live", [1, 2, 2, -1, 3]).candidateTrackIds)
+      .toEqual([1, 2, 3]);
+  });
+
   it("keeps the live-set intent while bounding played tracks and transitions", () => {
     let memory = createPerformanceMemory("keep a fluid frutiger aero set");
 

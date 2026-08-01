@@ -10,6 +10,8 @@ function safeReturnTo(value: string | undefined, id: string | undefined): string
     const target = new URL(value, "http://internal");
     if (
       target.pathname === "/backroom" ||
+      target.pathname === "/bench" ||
+      /^\/bench\/[A-Za-z0-9._-]+$/.test(target.pathname) ||
       /^\/tracks\/\d+\/backroom$/.test(target.pathname)
     ) {
       return `${target.pathname}${target.search}`;

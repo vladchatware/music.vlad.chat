@@ -34,6 +34,21 @@ describe("createDJAgentStepPolicy candidate memory", () => {
     expect(policy.nextRequiredTool()).toBeUndefined();
     expect(shouldUsePreparedCandidatePool(messages)).toBe(true);
   });
+
+  it("forces bounded exploration stages from supplied live state", () => {
+    const user = { role: "user", parts: [{ type: "text", text: "discover similar tracks" }] };
+    const policy = createDJAgentStepPolicy([user], { hasInitialDJState: true });
+    expect(policy.nextRequiredTool()).toEqual({ type: "tool", toolName: "likes" });
+
+    policy.recordStep({ toolName: "likes" });
+    expect(policy.nextRequiredTool()).toEqual({ type: "tool", toolName: "tracks" });
+
+    policy.recordStep({ toolName: "tracks" });
+    expect(policy.nextRequiredTool()).toEqual({ type: "tool", toolName: "schedule_track_analysis" });
+
+    policy.recordStep({ toolName: "schedule_track_analysis" });
+    expect(policy.nextRequiredTool()).toBeUndefined();
+  });
 });
 
 describe("hasSuccessfulPlayerAction", () => {
@@ -149,6 +164,20 @@ describe("hasDJToolCall", () => {
 });
 
 describe("getDJAgentMode", () => {
+  it("commits from first completed discovery response instead of opening another research turn", () => {
+    const afterLikes = [{
+      role: "assistant",
+      parts: [{
+        type: "tool-likes",
+        output: {
+          content: [{ type: "text", text: "101 Artist - First (180s)\n102 Artist - Second (210s)" }],
+        },
+      }],
+    }];
+
+    expect(getDJAgentMode(afterLikes)).toBe("prepared_selection");
+  });
+
   it("replays the episode modes without reopening discovery", () => {
     const user = { role: "user", parts: [{ type: "text", text: "play similar hidden gems" }] };
     expect(getDJAgentMode([user])).toBe("fresh_discovery");

@@ -36,7 +36,7 @@ describe("analysis worker job", () => {
   it("resolves, decodes, analyzes, and returns versioned result", async () => {
     const result = await processAnalysisJob(job);
     expect(soundcloud.track).toHaveBeenCalledWith("12", undefined);
-    expect(soundcloud.resolveTrackStreamUrl).toHaveBeenCalledWith("12", undefined);
+    expect(soundcloud.resolveTrackStreamUrl).toHaveBeenCalledWith("12", undefined, 15_000, false);
     expect(decoder.decodeUrlToMonoPcm).toHaveBeenCalledWith("https://cdn.example/audio.mp3");
     expect(result.sourceTrackId).toBe("12");
     expect(result.analysisVersion).toBe("essentia-dj-v1");
@@ -50,10 +50,21 @@ describe("analysis worker job", () => {
     expect(decoder.decodeUrlToMonoPcm).not.toHaveBeenCalled();
   });
 
+  it("marks missing SoundCloud tracks as permanently non-streamable", async () => {
+    const error = Object.assign(new Error("SoundCloud API error 404"), { status: 404 });
+    soundcloud.track.mockRejectedValue(error);
+
+    await expect(processAnalysisJob(job)).rejects.toThrow(
+      "[NON_STREAMABLE] SoundCloud API error 404",
+    );
+    expect(soundcloud.resolveTrackStreamUrl).not.toHaveBeenCalled();
+    expect(decoder.decodeUrlToMonoPcm).not.toHaveBeenCalled();
+  });
+
   it("reuses a parent-provided SoundCloud token", async () => {
     await processAnalysisJob(job, { soundCloudAccessToken: "shared-token" });
     expect(soundcloud.track).toHaveBeenCalledWith("12", "shared-token");
-    expect(soundcloud.resolveTrackStreamUrl).toHaveBeenCalledWith("12", "shared-token");
+    expect(soundcloud.resolveTrackStreamUrl).toHaveBeenCalledWith("12", "shared-token", 15_000, false);
   });
 
   it("enriches current musical segments with model predictions", async () => {

@@ -50,8 +50,20 @@ async function resolveStreamWithServiceUser(id: string): Promise<string> {
         cache: "no-store",
       });
       if (res.ok) {
-        const { accessToken } = await res.json() as { accessToken: string };
-        return await resolveTrackStreamUrl(id, accessToken);
+        const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
+        try {
+          return await resolveTrackStreamUrl(id, accessToken);
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : '';
+          const isTokenError = getErrorStatus(error) === 401
+            || errMsg.includes('token error')
+            || errMsg.includes('CDN auth error');
+          if (isTokenError && refreshToken) {
+            const refreshed = await refreshUserToken(refreshToken);
+            return resolveTrackStreamUrl(id, refreshed.accessToken);
+          }
+          throw error;
+        }
       }
     } catch {
       // Fall through to client-credentials auth

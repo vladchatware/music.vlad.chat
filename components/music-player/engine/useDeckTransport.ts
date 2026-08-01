@@ -7,6 +7,7 @@ import {
   type DJState,
   type DJTrack,
 } from "@/lib/dj";
+import { streamTrack } from "@/lib/soundcloud";
 import type { SoundCloudTrack } from "../types";
 import type { MusicPlayerStore } from "../store/useMusicPlayerStore";
 import {
@@ -47,33 +48,26 @@ export function useDeckTransport(options: DeckTransportOptions) {
   } = options;
   const {
     activeDeckRef,
-    audioContextRef,
     bpmDetectorRef,
     deckStatusRef,
-    getActiveDeckElement,
+    engineRef,
+    getActiveDeckState,
   } = audio;
 
   const play = useCallback(async () => {
-    const deck = getActiveDeckElement();
-    if (!deck || !deck.src) return;
-
-    if (audioContextRef.current?.state === "suspended") {
-      await audioContextRef.current.resume();
-    }
-
-    await deck.play();
+    const deck = getActiveDeckState();
+    if (!deck.loaded) return;
+    await engineRef.current.play(activeDeckRef.current);
     ensureListeningSegment(performance.now());
     if (djStateTypeRef.current === "ready" || djStateTypeRef.current === "paused") {
       dispatch({ type: "PLAY" });
     }
 
     window.obsstudio?.startRecording();
-  }, [ensureListeningSegment, getActiveDeckElement]);
+  }, [ensureListeningSegment, getActiveDeckState]);
 
   const pause = useCallback(() => {
-    const deck = getActiveDeckElement();
-    if (!deck) return;
-    deck.pause();
+    engineRef.current.pause(activeDeckRef.current);
     if (
       djStateTypeRef.current === "playing" ||
       djStateTypeRef.current === "cueing" ||
@@ -84,17 +78,17 @@ export function useDeckTransport(options: DeckTransportOptions) {
     finalizeCurrentListeningSegment(performance.now());
 
     window.obsstudio?.stopRecording();
-  }, [finalizeCurrentListeningSegment, getActiveDeckElement]);
+  }, [finalizeCurrentListeningSegment]);
 
   const togglePlay = useCallback(async () => {
-    const deck = getActiveDeckElement();
-    if (!deck || !deck.src) return;
-    if (deck.paused) {
+    const deck = getActiveDeckState();
+    if (!deck.loaded) return;
+    if (!deck.playing) {
       await play();
     } else {
       pause();
     }
-  }, [getActiveDeckElement, pause, play]);
+  }, [getActiveDeckState, pause, play]);
 
   const loadTrack = useCallback(
     async (track: SoundCloudTrack, deckId: DeckId): Promise<DJTrack | null> => {
@@ -122,6 +116,37 @@ export function useDeckTransport(options: DeckTransportOptions) {
       if (deckId === activeDeckRef.current) {
         energyHistoryRef.current = [];
         bpmDetectorRef.current?.reset();
+      }
+
+      const url = streamTrack(track.id);
+      if (!url) throw new Error(`Track ${track.id} has no stream URL`);
+      try {
+        const loaded = await engineRef.current.loadDeck(deckId, {
+          id: track.id,
+          url,
+          bpm: track.bpm,
+          durationSec:
+            Number.isFinite(track.duration) && (track.duration ?? 0) > 0
+              ? (track.duration as number) / 1000
+              : null,
+        });
+        deckStatusRef.current[deckId] = {
+          canPlay: true,
+          metadataLoaded: true,
+          isPlaying: false,
+          lastError: null,
+        };
+        logEngine("engine.track.loaded", {
+          deckId,
+          trackId: track.id,
+          durationSec: loaded.durationSec,
+          transport: "superpowered",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        deckStatusRef.current[deckId].lastError = message;
+        logEngine("engine.track.load_failed", { deckId, trackId: track.id, message });
+        throw error;
       }
 
       return djTrack;

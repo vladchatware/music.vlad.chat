@@ -104,4 +104,28 @@ describe("createDJAgentTools player provenance", () => {
       },
     }).success).toBe(false);
   });
+
+  it("uses the compact decision contract for an already prepared pool", () => {
+    const tools = createDJAgentTools(undefined, {
+      playerCandidateIds: [101, 102],
+      compactPlayerSelection: true,
+    });
+
+    expect(tools.player.inputSchema.safeParse({
+      id: 101,
+      energyArc: "preserve",
+      reason: "Carry the bright water texture forward.",
+    }).success).toBe(true);
+    expect(tools.player.inputSchema.safeParse({
+      id: 101,
+      performance: {
+        energyArc: "preserve",
+      },
+    }).success).toBe(false);
+    expect(tools.player.inputSchema.safeParse({
+      id: 999,
+      energyArc: "preserve",
+      reason: "Unknown candidate.",
+    }).success).toBe(false);
+  });
 });
