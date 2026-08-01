@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const convex = vi.hoisted(() => ({ fetchMutation: vi.fn() }));
+const workflow = vi.hoisted(() => ({ start: vi.fn() }));
 const sentry = vi.hoisted(() => {
   const spans: Array<{
     options: Record<string, unknown>;
@@ -24,6 +25,7 @@ const sentry = vi.hoisted(() => {
 });
 vi.mock("convex/nextjs", () => convex);
 vi.mock("@sentry/nextjs", () => sentry);
+vi.mock("workflow/api", () => workflow);
 vi.mock("../../convex/_generated/api", () => ({
   api: { trackAnalysis: { enqueueForViewer: "enqueueForViewer" } },
 }));
@@ -36,6 +38,8 @@ const originalEnv = { ...process.env };
 afterEach(() => {
   vi.restoreAllMocks();
   convex.fetchMutation.mockReset();
+  workflow.start.mockReset();
+  workflow.start.mockResolvedValue({ runId: "run-id" });
   sentry.spans.length = 0;
   sentry.startSpan.mockClear();
   sentry.startInactiveSpan.mockClear();
@@ -84,6 +88,7 @@ describe("enqueueTrackAnalysis", () => {
     expect(sentry.spans[0].setStatus).toHaveBeenCalledWith({ code: 1, message: "ok" });
     expect(sentry.spans[0].end).toHaveBeenCalledOnce();
     expect(sentry.startSpan).toHaveBeenCalledWith({ name: "track-analysis enqueue" }, expect.any(Function));
+    expect(workflow.start).toHaveBeenCalledOnce();
   });
 
   it("deduplicates and batches candidate tracks", async () => {
@@ -100,6 +105,7 @@ describe("enqueueTrackAnalysis", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
       trackIds: ["42", "43", "44"], priority: 10,
     });
+    expect(workflow.start).toHaveBeenCalledTimes(3);
   });
 
   it("uses viewer-authenticated mutation when a Convex token is available", async () => {
@@ -126,6 +132,21 @@ describe("enqueueTrackAnalysis", () => {
       }],
     }, { token: "convex-token" });
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(workflow.start).toHaveBeenCalledOnce();
+  });
+
+  it("does not start workflows when every track is already cached", async () => {
+    process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
+    process.env.CONVEX_SITE_URL = "https://fixture.convex.site";
+    process.env.ANALYSIS_SERVICE_SECRET = "secret";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response('{"enqueued":0,"cached":2,"existing":0}', { status: 200 }),
+    );
+
+    await expect(enqueueTrackAnalyses([42, 43])).resolves.toEqual({
+      enqueued: 0, cached: 2, existing: 0,
+    });
+    expect(workflow.start).not.toHaveBeenCalled();
   });
 
 });

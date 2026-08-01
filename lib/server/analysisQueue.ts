@@ -2,6 +2,8 @@ import { TRACK_ANALYSIS_VERSION } from "../trackAnalysis";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "../../convex/_generated/api";
 import * as Sentry from "@sentry/nextjs";
+import { start } from "workflow/api";
+import { trackAnalysisWorkflow } from "../../workflows/trackAnalysis";
 
 const ANALYSIS_QUEUE_NAME = "track-analysis";
 
@@ -46,6 +48,7 @@ export async function enqueueTrackAnalyses(
   priority = 0,
   convexToken?: string,
   force?: boolean,
+  soundcloudUserId?: string,
 ): Promise<AnalysisEnqueueResult | null> {
   if (process.env.DJ_ANALYSIS_QUEUE_ENABLED !== "true") return null;
   const normalized = [...new Set(trackIds.map(String).filter((id) => /^\d+$/.test(id)))].slice(0, 20);
@@ -106,6 +109,7 @@ export async function enqueueTrackAnalyses(
             trackIds: normalized,
             priority,
             force,
+            soundcloudUserId,
             analysisVersion: TRACK_ANALYSIS_VERSION,
             traceContexts,
           }),
@@ -114,6 +118,13 @@ export async function enqueueTrackAnalyses(
           throw new Error(`Analysis enqueue failed with status ${response.status}`);
         }
         result = await response.json() as AnalysisEnqueueResult;
+      }
+      if (result.enqueued > 0) {
+        await Promise.all(normalized.map((trackId) =>
+          start(trackAnalysisWorkflow, [
+            `soundcloud:${trackId}:${TRACK_ANALYSIS_VERSION}`,
+          ])
+        ));
       }
       for (const { span } of publications) span.setStatus({ code: 1, message: "ok" });
       parentSpan.setStatus({ code: 1, message: "ok" });

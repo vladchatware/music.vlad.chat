@@ -209,6 +209,27 @@ analysisRoute("/analysis/claim", async (ctx, req) => {
   }
 });
 
+analysisRoute("/analysis/claim-specific", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  try {
+    const body = (await req.json()) as { cacheKey?: string; leaseDurationMs?: number };
+    if (!body.cacheKey) return json({ error: "cacheKey is required" }, 400);
+    const leaseDurationMs = Math.min(
+      30 * 60_000,
+      Math.max(60_000, Number(body.leaseDurationMs) || 15 * 60_000),
+    );
+    const result = await ctx.runMutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: body.cacheKey,
+      leaseToken: crypto.randomUUID(),
+      leaseDurationMs,
+    });
+    return json(result);
+  } catch (error) {
+    console.error("Specific analysis claim failed", error);
+    return json({ error: "Failed to claim analysis job" }, 500);
+  }
+});
+
 analysisRoute("/analysis/complete", async (ctx, req) => {
   if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
   try {

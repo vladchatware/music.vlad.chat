@@ -66,6 +66,17 @@ export class SoundCloudAuthError extends Error {
   }
 }
 
+export class SoundCloudApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message)
+    this.name = 'SoundCloudApiError'
+  }
+}
+
 function retryAfterMs(response: Response): number | undefined {
   const value = response.headers.get('retry-after')
   if (!value) return undefined
@@ -531,21 +542,23 @@ async function authenticatedSoundCloudGet<T>(
   })
   if (!res.ok) {
     const body = await res.text()
-    const error = new Error(`SoundCloud API error ${res.status}: ${body}`)
-    ;(error as any).status = res.status
-    ;(error as any).retryAfterMs = retryAfterMs(res)
-    throw error
+    throw new SoundCloudApiError(
+      `SoundCloud API error ${res.status}: ${body}`,
+      res.status,
+      retryAfterMs(res),
+    )
   }
   return res.json() as Promise<T>
 }
 
 export async function meLibrary(userToken: string): Promise<SoundCloudMeLibrary> {
+  const historyRequest = authenticatedSoundCloudGet<CollectionResponse<Track>>(
+    '/me/recently-played/tracks?limit=25&linked_partitioning=true',
+    userToken,
+  ).then(collectionFromResponse, () => null)
   const [profile, recentlyPlayed, likesPayload, playlistsPayload] = await Promise.all([
     authenticatedSoundCloudGet<User>('/me', userToken),
-    authenticatedSoundCloudGet<CollectionResponse<Track>>(
-      '/me/recently-played/tracks?limit=25&linked_partitioning=true',
-      userToken,
-    ),
+    historyRequest,
     authenticatedSoundCloudGet<CollectionResponse<Track>>(
       '/me/likes/tracks?limit=50&linked_partitioning=true',
       userToken,
@@ -558,10 +571,10 @@ export async function meLibrary(userToken: string): Promise<SoundCloudMeLibrary>
 
   return {
     profile,
-    recentlyPlayed: collectionFromResponse(recentlyPlayed),
+    recentlyPlayed: recentlyPlayed ?? [],
     likes: collectionFromResponse(likesPayload),
     playlists: collectionFromResponse(playlistsPayload),
-    historyAvailable: true,
+    historyAvailable: recentlyPlayed !== null,
     source: "oauth",
   }
 }

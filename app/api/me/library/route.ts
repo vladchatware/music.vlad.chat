@@ -10,7 +10,7 @@ function errorStatus(error: unknown): number | undefined {
   return typeof error.status === "number" ? error.status : undefined;
 }
 
-async function developmentServiceLibrary() {
+async function developmentServiceLibrary(soundcloudUserId?: string) {
   // In dev, we can't OAuth against SoundCloud (redirect URI mismatch).
   // Tokens are stored as Convex env vars via `bun run refresh:service-user`
   // and served by the /soundcloud/service-credentials endpoint.
@@ -28,8 +28,9 @@ async function developmentServiceLibrary() {
       authorization: `Bearer ${secret}`,
       "content-type": "application/json",
     },
-    body: "{}",
+    body: JSON.stringify(soundcloudUserId ? { soundcloudUserId } : {}),
     cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
     const payload = await res.json().catch(() => null) as { error?: string } | null;
@@ -65,6 +66,26 @@ function serviceUserError(error: unknown) {
   );
 }
 
+function libraryError(error: unknown) {
+  const status = errorStatus(error);
+  console.error("Failed to load SoundCloud library:", error);
+  return NextResponse.json(
+    { error: "Could not load SoundCloud library" },
+    { status: status === 429 ? 429 : 502 },
+  );
+}
+
+function expiredSessionError(error: unknown) {
+  console.error("Failed to refresh SoundCloud library session:", error);
+  return NextResponse.json(
+    {
+      error: "SoundCloud session expired. Please sign in again.",
+      code: "TOKEN_EXPIRED",
+    },
+    { status: 401 },
+  );
+}
+
 export async function GET() {
   const isDev = process.env.NODE_ENV === "development";
   const serviceUserId = isDev ? process.env.SOUNDCLOUD_USER_ID : undefined;
@@ -73,7 +94,7 @@ export async function GET() {
   if (!convexToken) {
     if (isDev) {
       try {
-        return NextResponse.json(await developmentServiceLibrary());
+        return NextResponse.json(await developmentServiceLibrary(serviceUserId));
       } catch (error) {
         return serviceUserError(error);
       }
@@ -90,7 +111,7 @@ export async function GET() {
   if (!tokens?.accessToken) {
     if (isDev) {
       try {
-        return NextResponse.json(await developmentServiceLibrary());
+        return NextResponse.json(await developmentServiceLibrary(serviceUserId));
       } catch (error) {
         return serviceUserError(error);
       }
@@ -106,8 +127,9 @@ export async function GET() {
   } catch (error) {
     const status = errorStatus(error);
     if ((status === 401 || status === 403) && tokens.refreshToken) {
+      let refreshed: Awaited<ReturnType<typeof refreshUserToken>>;
       try {
-        const refreshed = await refreshUserToken(tokens.refreshToken);
+        refreshed = await refreshUserToken(tokens.refreshToken);
         await fetchMutation(
           api.users.updateSoundcloudTokens,
           {
@@ -116,23 +138,17 @@ export async function GET() {
           },
           { token: convexToken },
         );
-        return NextResponse.json(await meLibrary(refreshed.accessToken));
       } catch (refreshError) {
-        console.error("Failed to refresh SoundCloud library session:", refreshError);
-        return NextResponse.json(
-          {
-            error: "SoundCloud session expired. Please sign in again.",
-            code: "TOKEN_EXPIRED",
-          },
-          { status: 401 },
-        );
+        return expiredSessionError(refreshError);
+      }
+
+      try {
+        return NextResponse.json(await meLibrary(refreshed.accessToken));
+      } catch (retryError) {
+        return libraryError(retryError);
       }
     }
 
-    console.error("Failed to load SoundCloud library:", error);
-    return NextResponse.json(
-      { error: "Could not load SoundCloud library" },
-      { status: status === 429 ? 429 : 502 },
-    );
+    return libraryError(error);
   }
 }

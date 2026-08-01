@@ -5,11 +5,6 @@ vi.mock("@/soundcloud", () => ({
   refreshUserToken: vi.fn(),
 }));
 
-vi.mock("@/lib/server/soundcloudServiceUser", () => ({
-  getServiceSoundCloudCredentials: vi.fn(),
-  updateServiceSoundCloudCredentials: vi.fn(),
-}));
-
 vi.mock("convex/nextjs", () => ({
   fetchMutation: vi.fn(),
   fetchQuery: vi.fn(),
@@ -31,10 +26,6 @@ vi.mock("@/convex/_generated/api", () => ({
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 
-import {
-  getServiceSoundCloudCredentials,
-  updateServiceSoundCloudCredentials,
-} from "@/lib/server/soundcloudServiceUser";
 import { meLibrary, refreshUserToken } from "@/soundcloud";
 
 import { GET } from "./route";
@@ -59,6 +50,7 @@ describe("/api/me/library", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("requires authentication", async () => {
@@ -67,6 +59,22 @@ describe("/api/me/library", () => {
     const response = await GET();
 
     expect(response.status).toBe(401);
+    expect(meLibrary).not.toHaveBeenCalled();
+  });
+
+  it("ignores service-user configuration outside development", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
+    vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
+    vi.stubEnv("CONVEX_SITE_URL", "https://convex.example");
+    vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
+    const credentialFetch = vi.fn();
+    vi.stubGlobal("fetch", credentialFetch);
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
+    expect(credentialFetch).not.toHaveBeenCalled();
     expect(meLibrary).not.toHaveBeenCalled();
   });
 
@@ -80,29 +88,42 @@ describe("/api/me/library", () => {
 
   it("uses configured service user without OAuth in development", async () => {
     vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
+    vi.stubEnv("CONVEX_SITE_URL", "https://convex.example/api");
     vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
     vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
-    vi.mocked(getServiceSoundCloudCredentials).mockResolvedValue({
+    const credentialFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       accessToken: "service-access",
       refreshToken: "service-refresh",
-    });
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", credentialFetch);
 
     const response = await GET();
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ source: "service_user" });
-    expect(getServiceSoundCloudCredentials).toHaveBeenCalledWith("service-user");
+    expect(credentialFetch).toHaveBeenCalledWith(
+      "https://convex.example/soundcloud/service-credentials",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ soundcloudUserId: "service-user" }),
+        headers: expect.objectContaining({
+          authorization: "Bearer analysis-secret",
+        }),
+      }),
+    );
     expect(meLibrary).toHaveBeenCalledWith("service-access");
   });
 
-  it("refreshes and persists the service user's expired token", async () => {
+  it("refreshes the service user's expired token", async () => {
     vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
+    vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
+    vi.stubEnv("CONVEX_SITE_URL", "https://convex.example");
     vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
-    vi.mocked(getServiceSoundCloudCredentials).mockResolvedValue({
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       accessToken: "expired-service-access",
       refreshToken: "service-refresh",
-    });
+    }), { status: 200 })));
     vi.mocked(meLibrary)
       .mockRejectedValueOnce(Object.assign(new Error("expired"), { status: 401 }))
       .mockResolvedValueOnce(library as never);
@@ -114,10 +135,7 @@ describe("/api/me/library", () => {
     const response = await GET();
 
     expect(response.status).toBe(200);
-    expect(updateServiceSoundCloudCredentials).toHaveBeenCalledWith("service-user", {
-      accessToken: "fresh-service-access",
-      refreshToken: "fresh-service-refresh",
-    });
+    expect(refreshUserToken).toHaveBeenCalledWith("service-refresh");
     expect(meLibrary).toHaveBeenLastCalledWith("fresh-service-access");
   });
 
@@ -139,5 +157,35 @@ describe("/api/me/library", () => {
       { token: "convex-token" },
     );
     expect(meLibrary).toHaveBeenLastCalledWith("fresh-token");
+  });
+
+  it("preserves a retry rate limit after refreshing the user token", async () => {
+    vi.mocked(meLibrary)
+      .mockRejectedValueOnce(Object.assign(new Error("expired"), { status: 401 }))
+      .mockRejectedValueOnce(Object.assign(new Error("rate limited"), { status: 429 }));
+    vi.mocked(refreshUserToken).mockResolvedValue({
+      accessToken: "fresh-token",
+      refreshToken: "fresh-refresh",
+    });
+
+    const response = await GET();
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      error: "Could not load SoundCloud library",
+    });
+  });
+
+  it("reports refresh failures as an expired session", async () => {
+    vi.mocked(meLibrary)
+      .mockRejectedValueOnce(Object.assign(new Error("expired"), { status: 401 }));
+    vi.mocked(refreshUserToken).mockRejectedValue(new Error("refresh rejected"));
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TOKEN_EXPIRED",
+    });
   });
 });

@@ -4,7 +4,7 @@
   "description": "Virtual DJ",
   "main": "index.js",
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "start:local": "next dev --turbopack",
@@ -12,6 +12,10 @@
     "analysis:worker": "bun run workers/track-analysis/index.ts",
     "analysis:prepare-models": "bun run workers/track-analysis/prepareModels.ts --accept-noncommercial-license",
     "analysis:queue-likes": "bun run workers/track-analysis/enqueueLikes.ts",
+    "analysis:infra:validate": "docker compose --env-file workers/track-analysis/.env -f workers/track-analysis/compose.yaml config --quiet",
+    "analysis:infra:up": "docker compose --env-file workers/track-analysis/.env -f workers/track-analysis/compose.yaml up -d --build",
+    "analysis:infra:logs": "docker compose --env-file workers/track-analysis/.env -f workers/track-analysis/compose.yaml logs -f analysis-worker cloudflared",
+    "analysis:infra:down": "docker compose --env-file workers/track-analysis/.env -f workers/track-analysis/compose.yaml down",
     "eval:dj-agent": "bun run scripts/eval-dj-agent.ts",
     "eval:dj-live-flow": "bun run scripts/eval-dj-live-flow.ts",
     "eval:dj-rejection-flow": "DJ_EVAL_REJECT_FIRST_PLAYER=true bun run scripts/eval-dj-live-flow.ts",
@@ -71,6 +75,7 @@
     "serverless-http": "^3.2.0",
     "stripe": "^19.1.0",
     "three": "^0.180.0",
+    "workflow": "^4.6.2",
     "zod": "^3.25.53",
     "zustand": "^5.0.8"
   },

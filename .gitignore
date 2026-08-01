@@ -15,3 +15,4 @@ coverage/
 logs/*.ndjson
 logs/dj-bench/
 workers/track-analysis/models/
+/.swc

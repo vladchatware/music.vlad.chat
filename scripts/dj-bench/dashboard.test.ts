@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { writeBenchmarkDashboard } from "./dashboard";
+import { renderBenchmarkDashboard, writeBenchmarkDashboard } from "./dashboard";
 import type { BenchSummary } from "./report";
 
 function run(overrides: Partial<BenchSummary>): BenchSummary {
@@ -104,5 +104,13 @@ describe("benchmark dashboard", () => {
     expect(html).toContain("Coherence trajectory");
     expect(html).toContain("Episode drill-down");
     expect(html).toContain("opencode/deepseek-v4-flash · lasting-set-v1");
+  });
+
+  it("renders report links for the HTTP dashboard route", () => {
+    const html = renderBenchmarkDashboard("/tmp/dj-bench", [run({})], (summary) =>
+      `/bench?run=${summary.runId}`,
+    );
+
+    expect(html).toContain('href="/bench?run=run-1"');
   });
 });

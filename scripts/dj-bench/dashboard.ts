@@ -158,11 +158,17 @@ function modelTable(runs: BenchSummary[]): string {
   }).join("");
 }
 
-function runTable(runs: BenchSummary[], root: string): string {
+function runTable(
+  runs: BenchSummary[],
+  root: string,
+  reportUrl?: (run: BenchSummary) => string,
+): string {
   return runs.map((run) => {
-    const relativeReport = run.reportPath.startsWith(root)
-      ? `.${run.reportPath.slice(root.length)}`
-      : `file://${run.reportPath}`;
+    const relativeReport = reportUrl
+      ? reportUrl(run)
+      : run.reportPath.startsWith(root)
+        ? `.${run.reportPath.slice(root.length)}`
+        : `file://${run.reportPath}`;
     return `<tr>
       <td><a href="${escapeHtml(relativeReport)}">${escapeHtml(run.runId)}</a></td>
       <td><span class="status ${run.ok ? "pass" : infrastructureFailure(run) || invalidRun(run) ? "infra" : "fail"}">${run.ok ? "PASS" : invalidRun(run) ? "INVALID" : infrastructureFailure(run) ? "INFRA" : "FAIL"}</span></td>
@@ -177,9 +183,11 @@ function runTable(runs: BenchSummary[], root: string): string {
   }).join("");
 }
 
-export function writeBenchmarkDashboard(root: string, runs: BenchSummary[]): string {
-  mkdirSync(root, { recursive: true });
-  const outputPath = join(root, "benchmark.html");
+export function renderBenchmarkDashboard(
+  root: string,
+  runs: BenchSummary[],
+  reportUrl?: (run: BenchSummary) => string,
+): string {
   const evaluated = runs.filter(
     (run) => !infrastructureFailure(run) && !invalidRun(run),
   );
@@ -227,9 +235,16 @@ export function writeBenchmarkDashboard(root: string, runs: BenchSummary[]): str
 </section>
 <section class="panel wide"><h2>Coherence trajectory</h2><div class="note">Measured evidence, not listening quality. Exact-key badge intentionally conservative.</div>${coherenceChart(completeEvidence)}</section>
 <section class="panel wide"><h2>Model/config comparison</h2><table><thead><tr><th>Model</th><th>Attempts</th><th>Evaluated</th><th>Pass</th><th>Continuity</th><th>Coherence coverage</th><th>Median tokens</th></tr></thead><tbody>${modelTable(runs)}</tbody></table></section>
-<section class="panel wide"><h2>Episode drill-down</h2><table><thead><tr><th>Run</th><th>Status</th><th>Model</th><th>Prompt policy</th><th>Scenario</th><th>Coverage</th><th>Coherence pairs</th><th>Tokens</th><th>Class</th></tr></thead><tbody>${runTable(runs, root)}</tbody></table></section>
+<section class="panel wide"><h2>Episode drill-down</h2><table><thead><tr><th>Run</th><th>Status</th><th>Model</th><th>Prompt policy</th><th>Scenario</th><th>Coverage</th><th>Coherence pairs</th><th>Tokens</th><th>Class</th></tr></thead><tbody>${runTable(runs, root, reportUrl)}</tbody></table></section>
 <p class="note">Musical coherence remains unvalidated until real-audio listening scores exist. Dashboard reports mechanical continuity and analysis evidence only.</p>
 </main></body></html>`;
+  return html;
+}
+
+export function writeBenchmarkDashboard(root: string, runs: BenchSummary[]): string {
+  mkdirSync(root, { recursive: true });
+  const outputPath = join(root, "benchmark.html");
+  const html = renderBenchmarkDashboard(root, runs);
   writeFileSync(outputPath, html);
   return outputPath;
 }

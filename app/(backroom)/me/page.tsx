@@ -13,8 +13,13 @@ export const metadata: Metadata = {
 };
 
 export default async function MePage() {
-  const token = await convexAuthNextjsToken();
-  const user = token ? await fetchQuery(api.users.viewer, {}, { token }) : null;
+  let user = null;
+  try {
+    const token = await convexAuthNextjsToken();
+    user = token ? await fetchQuery(api.users.viewer, {}, { token }) : null;
+  } catch {
+    user = null;
+  }
   const hasDevelopmentServiceUser =
     process.env.NODE_ENV === "development" && Boolean(process.env.SOUNDCLOUD_USER_ID);
 

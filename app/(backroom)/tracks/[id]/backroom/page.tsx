@@ -11,21 +11,18 @@ import { refreshUserToken, track } from "@/soundcloud";
 // In development with a service user, fetch a user token from the Convex
 // HTTP endpoint to avoid rate-limiting the shared client-credentials auth.
 let _cachedToken: { token: string; refreshToken: string; expiresAt: number } | undefined;
-function _decodeTokenExp(token: string): number {
-  try {
-    const payload = token.split(".")[1];
-    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-    return (decoded.exp as number) * 1000;
-  } catch {
-    return 0;
-  }
-}
+const SERVICE_TOKEN_CACHE_MS = 5 * 60_000;
+
 async function serviceUserToken(): Promise<string | undefined> {
   if (_cachedToken && Date.now() < _cachedToken.expiresAt) return _cachedToken.token;
   if (_cachedToken?.refreshToken) {
     try {
       const refreshed = await refreshUserToken(_cachedToken.refreshToken);
-      _cachedToken = { ...refreshed, expiresAt: _decodeTokenExp(refreshed.accessToken) };
+      _cachedToken = {
+        token: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS,
+      };
       return _cachedToken.token;
     } catch {
       _cachedToken = undefined;
@@ -38,12 +35,20 @@ async function serviceUserToken(): Promise<string | undefined> {
     const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify(
+        process.env.SOUNDCLOUD_USER_ID
+          ? { soundcloudUserId: process.env.SOUNDCLOUD_USER_ID }
+          : {},
+      ),
       cache: "no-store",
     });
     if (!res.ok) return undefined;
     const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
-    _cachedToken = { token: accessToken, refreshToken: refreshToken ?? "", expiresAt: _decodeTokenExp(accessToken) };
+    _cachedToken = {
+      token: accessToken,
+      refreshToken: refreshToken ?? "",
+      expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS,
+    };
     return accessToken;
   } catch {
     return undefined;

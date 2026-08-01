@@ -1,0 +1,53 @@
+name: music-track-analysis
+
+services:
+  analysis-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.worker
+      args:
+        ESSENTIA_MODELS_ACCEPT_LICENSE: ${ESSENTIA_MODELS_ACCEPT_LICENSE:-true}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      ANALYSIS_SERVICE_SECRET: ${ANALYSIS_SERVICE_SECRET:?Set ANALYSIS_SERVICE_SECRET}
+      ANALYSIS_WORKER_CONCURRENCY: ${ANALYSIS_WORKER_CONCURRENCY:-1}
+      CONVEX_SITE_URL: ${CONVEX_SITE_URL:?Set CONVEX_SITE_URL}
+      SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID:?Set SOUNDCLOUD_CLIENT_ID}
+      SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET:?Set SOUNDCLOUD_CLIENT_SECRET}
+      SOUNDCLOUD_ACCESS_TOKEN: ${SOUNDCLOUD_ACCESS_TOKEN:-}
+      SOUNDCLOUD_REFRESH_TOKEN: ${SOUNDCLOUD_REFRESH_TOKEN:-}
+      SOUNDCLOUD_ACCESS_TOKEN_EXPIRES_AT: ${SOUNDCLOUD_ACCESS_TOKEN_EXPIRES_AT:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-1}
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const r=await fetch("http://127.0.0.1:3001/health");if(!r.ok)process.exit(1)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 20m
+    networks: [analysis]
+
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://analysis-worker:3001
+    depends_on:
+      analysis-worker:
+        condition: service_healthy
+    networks: [analysis]
+
+networks:
+  analysis:
+    driver: bridge

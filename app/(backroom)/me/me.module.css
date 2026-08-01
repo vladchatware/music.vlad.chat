@@ -238,8 +238,7 @@
   background: var(--section);
 }
 
-.sectionNav button[aria-pressed="true"] {
-  color: var(--ink);
+.sectionNav button[aria-selected="true"] {
   background: var(--acid);
   color: #111;
 }
