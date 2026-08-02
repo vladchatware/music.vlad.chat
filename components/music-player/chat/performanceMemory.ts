@@ -25,8 +25,18 @@ const MAX_PLAYED_TRACKS = 12;
 const MAX_RECENT_TRANSITIONS = 6;
 const MAX_CANDIDATE_TRACKS = 12;
 
-export function createPerformanceMemory(intent: string): PerformanceMemory {
-  return { intent, playedTracks: [], recentTransitions: [], candidateTrackIds: [] };
+export function createPerformanceMemory(
+  intent: string,
+  candidateTrackIds: readonly number[] = [],
+): PerformanceMemory {
+  return {
+    intent,
+    playedTracks: [],
+    recentTransitions: [],
+    candidateTrackIds: [...new Set(candidateTrackIds.filter(
+      (id) => Number.isInteger(id) && id > 0,
+    ))].slice(-MAX_CANDIDATE_TRACKS),
+  };
 }
 
 export function appendPlayedTrack(

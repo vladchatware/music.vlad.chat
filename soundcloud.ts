@@ -410,6 +410,7 @@ export const resolveTrackStreamUrl = async (
   id: string | number,
   userToken?: string,
   timeoutMs = 15_000,
+  allowPreview = true,
 ): Promise<string> => {
   const access_token = userToken ?? await readAccessToken()
   if (!access_token) throw new Error('No access token available')
@@ -427,7 +428,9 @@ export const resolveTrackStreamUrl = async (
     throw e
   }
   const body = await res.json() as Record<string, unknown>
-  const streamUrl = (body.http_mp3_128_url ?? body.preview_mp3_128_url) as string | undefined
+  const streamUrl = (
+    body.http_mp3_128_url ?? (allowPreview ? body.preview_mp3_128_url : undefined)
+  ) as string | undefined
   if (!streamUrl) {
     const bodySnippet = JSON.stringify(body).slice(0, 500)
     const isTokenIssue = body.error_description || body.error || body.errors

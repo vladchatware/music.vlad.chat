@@ -18,8 +18,9 @@ export type BenchProvider = "gateway" | "opencode";
 export interface BenchConfig {
   provider: BenchProvider;
   model: string;
+  targetDurationSec: number;
   transitions: number;
-  timeoutMs: number;
+  timeoutMs?: number;
   maxSteps: number;
   clockSpeed: number;
   planningLeadSec: number;
@@ -30,6 +31,7 @@ export interface BenchConfig {
   summaryPath: string;
   reportPath: string;
   configPath: string;
+  manifestPath: string;
   mcpUrl: string;
   cookie?: string;
   outgoingTrackId?: number;
@@ -54,6 +56,11 @@ function readPositiveInt(value: string | undefined, fallback: number, name: stri
     throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
+}
+
+function readOptionalPositiveInt(value: string | undefined, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  return readPositiveInt(value, 1, name);
 }
 
 function readPositiveNumber(value: string | undefined, fallback: number, name: string): number {
@@ -96,6 +103,7 @@ function artifactPaths(argv: string[]) {
       summaryPath: join(runDir, `${stem}.summary.json`),
       reportPath: join(runDir, `${stem}.report.md`),
       configPath: join(runDir, `${stem}.config.json`),
+      manifestPath: join(runDir, `${stem}.manifest.json`),
     };
   }
   const runId = defaultRunId();
@@ -107,6 +115,7 @@ function artifactPaths(argv: string[]) {
     summaryPath: join(runDir, "summary.json"),
     reportPath: join(runDir, "report.md"),
     configPath: join(runDir, "config.json"),
+    manifestPath: join(runDir, "manifest.json"),
   };
 }
 
@@ -138,10 +147,14 @@ export function parseBenchConfig(
       readValue(argv, "--model") ??
       env.DJ_MODEL ??
       (providerValue === "opencode" ? "deepseek-v4-flash" : "deepseek/deepseek-v4-flash"),
-    transitions: readPositiveInt(readValue(argv, "--transitions"), 5, "--transitions"),
-    timeoutMs: readPositiveInt(
+    targetDurationSec: readPositiveNumber(readValue(argv, "--duration-min"), 90, "--duration-min") * 60,
+    transitions: readPositiveInt(
+      readValue(argv, "--max-transitions") ?? readValue(argv, "--transitions"),
+      64,
+      "--max-transitions",
+    ),
+    timeoutMs: readOptionalPositiveInt(
       readValue(argv, "--timeout-ms") ?? env.DJ_EVAL_TIMEOUT_MS,
-      55_000,
       "--timeout-ms",
     ),
     maxSteps: readPositiveInt(readValue(argv, "--max-steps"), 8, "--max-steps"),
@@ -174,7 +187,9 @@ Usage: bun run bench:dj [options]
 Options:
   --provider <name>        gateway or opencode (auto: opencode when key exists)
   --model <id>             Gateway/provider model (default: DJ_MODEL)
-  --transitions <count>    Accepted transitions in episode (default: 5)
+  --duration-min <minutes> Audible set target (default: 90)
+  --max-transitions <n>    Safety ceiling before target is reached (default: 64)
+  --transitions <count>    Deprecated alias for --max-transitions
   --timeout-ms <ms>        Per-turn model timeout (default: 55000)
   --max-steps <count>      Tool-loop step ceiling (default: 8)
   --clock-speed <factor>   Convert wall latency into simulated playback time

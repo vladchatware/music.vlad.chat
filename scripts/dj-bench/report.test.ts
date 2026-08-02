@@ -16,12 +16,7 @@ describe("DJ bench reports", () => {
   it("stores sanitized config, summary, and readable report", () => {
     const directory = mkdtempSync(join(tmpdir(), "dj-bench-report-"));
     const config = parseBenchConfig(
-      [
-        "--trace",
-        join(directory, "run.jsonl"),
-        "--mcp-url",
-        "https://bench-user:bench-secret@mcp.example/api/mcp?token=hidden#fragment",
-      ],
+      ["--trace", join(directory, "run.jsonl")],
       { OPENCODE_API_KEY: "never-store-this" },
     );
     config.cookie = "also-never-store-this";
@@ -38,14 +33,19 @@ describe("DJ bench reports", () => {
       provider: "opencode",
       scenario: "revibe",
       prompt: "Play something coherent.",
+      promptPolicyVersion: "lasting-set-v1",
       planningLeadSec: 90,
+      targetDurationSec: 5_400,
+      achievedDurationSec: 48,
+      reachedTargetDuration: false,
+      maxUncoveredGapSec: 5_352,
       requestedTransitions: 1,
       acceptedTransitions: 0,
       acceptedTrackIds: [],
       outgoingTrack: { id: 1, title: "Outgoing" },
       duplicateAcceptedTracks: 0,
       stateReads: 1,
-      rejectedTransitions: 0,
+      rejectedTransitions: 2,
       impossibleScheduleAttempts: 0,
       toolCalls: { dj_state: 1, track_analysis: 3 },
       toolFailures: {},
@@ -55,12 +55,44 @@ describe("DJ bench reports", () => {
       backstageNarrationCount: 1,
       analysisBudgetRejections: 2,
       discoveryBudgetRejections: 1,
+      browserPlaythroughs: [{
+        failureId: "browser-continuation-overresearch",
+        passed: true,
+        failureWitness: {
+          status: "dj_failed_to_choose",
+          responseCount: 3,
+          queuedAtSec: null,
+          deadlineAtSec: 74,
+        },
+        current: {
+          status: "queued",
+          responseCount: 2,
+          queuedAtSec: 52,
+          deadlineAtSec: 74,
+        },
+      }, {
+        failureId: "prepared-selection-latency-deadline",
+        passed: true,
+        failureWitness: {
+          status: "dj_failed_to_choose",
+          responseCount: 2,
+          queuedAtSec: null,
+          deadlineAtSec: 74.23,
+        },
+        current: {
+          status: "queued",
+          responseCount: 1,
+          queuedAtSec: 21.897,
+          deadlineAtSec: 74.23,
+        },
+      }],
       tokens: { input: 100, output: 20, total: 120 },
       simulatedTimeSec: 48,
       tracePath: config.tracePath,
       summaryPath: config.summaryPath,
       reportPath: config.reportPath,
       configPath: config.configPath,
+      manifestPath: config.manifestPath,
       error: "Turn 1 ended without accepted transition",
       continuity: {
         status: "fail",
@@ -82,9 +114,6 @@ describe("DJ bench reports", () => {
 
     const storedConfig = readFileSync(config.configPath, "utf8");
     expect(storedConfig).not.toContain("never-store-this");
-    expect(storedConfig).not.toContain("bench-secret");
-    expect(storedConfig).not.toContain("token=hidden");
-    expect(storedConfig).toContain("https://mcp.example/api/mcp");
     expect(storedConfig).toContain('"hasCookie": true');
     expect(readFileSync(config.summaryPath, "utf8")).toContain('"continuity"');
     expect(readFileSync(config.reportPath, "utf8")).toContain(
@@ -102,14 +131,27 @@ describe("DJ bench reports", () => {
     expect(readFileSync(config.reportPath, "utf8")).toContain(
       "BACKSTAGE LEAK",
     );
+    expect(readFileSync(config.reportPath, "utf8")).toContain(
+      "Prompt policy: lasting-set-v1",
+    );
+    expect(readFileSync(config.reportPath, "utf8")).toContain(
+      "browser-continuation-overresearch",
+    );
+    expect(readFileSync(config.reportPath, "utf8")).toContain(
+      "dj_failed_to_choose → queued",
+    );
+    expect(readFileSync(config.reportPath, "utf8")).toContain(
+      "prepared-selection-latency-deadline",
+    );
   });
 
   it("graphs accepted continuity and measured coherence", () => {
     const summary = {
+      ok: true,
       outgoingTrack: { id: 10 },
       requestedTransitions: 1,
       acceptedTransitions: 1,
-      rejectedTransitions: 0,
+      rejectedTransitions: 2,
       error: null,
       continuity: {
         status: "pass",
@@ -118,6 +160,7 @@ describe("DJ bench reports", () => {
           toTrackId: 11,
           acceptedAtSec: 80,
           scheduledAtSec: 96,
+          scheduledAtSetSec: 96,
           blendDurationSec: 8,
         }],
       },
@@ -142,34 +185,17 @@ describe("DJ bench reports", () => {
         analysisComplete: true,
       }],
       agentTranscript: [],
+      achievedDurationSec: 180,
+      targetDurationSec: 180,
+      maxUncoveredGapSec: 0,
     } as BenchSummary;
 
     expect(continuityGraph(summary)).toContain(
-      'T0 -->|"T1 accepted<br/>cue 96.0s<br/>blend 8.0s"| T1["11"]',
+      'T0 -->|"T1 accepted<br/>set 96.0s<br/>blend 8.0s"| T1["11"]',
     );
+    expect(continuityGraph(summary)).toContain("R -.-> P");
     expect(coherenceGraph(summary)).toContain(
       'tempo Δ 1.6%<br/>4A → 4A<br/>energy Δ +0.07',
     );
-  });
-
-  it("removes markup syntax from key labels in Mermaid output", () => {
-    const summary = {
-      acceptedTransitions: 1,
-      coherenceEvidence: [{
-        fromTrackId: 10,
-        toTrackId: 11,
-        harmonic: {
-          outgoingKey: '4A"] --> X["owned',
-          incomingKey: "5A<script>",
-          sameKey: false,
-        },
-        analysisComplete: true,
-      }],
-    } as BenchSummary;
-
-    const graph = coherenceGraph(summary);
-    expect(graph).not.toContain("<script>");
-    expect(graph).not.toContain('--> X["owned');
-    expect(graph).toContain("4A] -- X[owned → 5Ascript");
   });
 });

@@ -1,27 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { benchInvalidReason } from "./validity";
+import { hasValidCandidatePreparation } from "./validity";
 
-describe("DJ bench validity", () => {
-  it("invalidates infrastructure and MCP tool failures", () => {
-    expect(benchInvalidReason({
-      terminalError: "Could not connect to MCP at http://localhost:3000/api/mcp.",
-      mcpFailures: 0,
-    })).toContain("Could not connect");
-    expect(benchInvalidReason({
-      terminalError: null,
-      mcpFailures: 1,
-    })).toBe("1 MCP tool failure(s)");
-    expect(benchInvalidReason({
-      terminalError: "Turn 1 deadline exceeded after 1000ms without accepted transition",
-      mcpFailures: 0,
-    })).toContain("deadline exceeded");
+describe("DJ bench preparation validity", () => {
+  it("accepts a validated prepared opening without redundant cold-start discovery", () => {
+    expect(hasValidCandidatePreparation({
+      preparedOpening: true,
+      likesCalls: 0,
+      tracksCalls: 0,
+    })).toBe(true);
   });
 
-  it("keeps a model holding loop as a valid performance result", () => {
-    expect(benchInvalidReason({
-      terminalError: "Turn 1 ended without accepted transition",
-      mcpFailures: 0,
-    })).toBeNull();
+  it("requires both live discovery sources when no prepared opening exists", () => {
+    expect(hasValidCandidatePreparation({
+      preparedOpening: false,
+      likesCalls: 1,
+      tracksCalls: 1,
+    })).toBe(true);
+    expect(hasValidCandidatePreparation({
+      preparedOpening: false,
+      likesCalls: 0,
+      tracksCalls: 1,
+    })).toBe(false);
   });
 });

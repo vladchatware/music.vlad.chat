@@ -33,7 +33,15 @@ export async function processAnalysisJob(
   dependencies: ProcessDependencies = {},
 ): Promise<TrackAnalysis> {
   const startedAt = Date.now();
-  const metadata = await track(job.sourceTrackId, dependencies.soundCloudAccessToken);
+  let metadata: Awaited<ReturnType<typeof track>>;
+  try {
+    metadata = await track(job.sourceTrackId, dependencies.soundCloudAccessToken);
+  } catch (error) {
+    if (isNonStreamableError(error)) {
+      throw new Error(`[NON_STREAMABLE] ${error instanceof Error ? error.message : String(error)}`);
+    }
+    throw error;
+  }
   if (!metadata?.streamable) throw new Error("[NON_STREAMABLE] SoundCloud track is not streamable");
   const durationSec = Number(metadata.duration) / 1000;
   if (!Number.isFinite(durationSec) || durationSec <= 0) throw new Error("Invalid track duration");
@@ -41,7 +49,12 @@ export async function processAnalysisJob(
 
   let streamUrl: string;
   try {
-    streamUrl = await resolveTrackStreamUrl(job.sourceTrackId, dependencies.soundCloudAccessToken);
+    streamUrl = await resolveTrackStreamUrl(
+      job.sourceTrackId,
+      dependencies.soundCloudAccessToken,
+      15_000,
+      false,
+    );
   } catch (error) {
     if (isNonStreamableError(error)) {
       throw new Error(`[NON_STREAMABLE] ${error instanceof Error ? error.message : String(error)}`);

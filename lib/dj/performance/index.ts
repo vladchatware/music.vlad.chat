@@ -4,3 +4,4 @@ export * from "./compiler";
 export * from "./crossfader";
 export * from "./loop";
 export * from "./previewClock";
+export * from "./preparedSelection";

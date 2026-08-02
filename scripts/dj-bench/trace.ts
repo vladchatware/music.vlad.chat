@@ -36,6 +36,7 @@ export function formatTraceEvent(event: TraceEvent): string {
 
 export class TraceRecorder {
   private sequence = 0;
+  private recordedEvents: TraceEvent[] = [];
   private readonly startedAt = performance.now();
 
   constructor(
@@ -59,9 +60,14 @@ export class TraceRecorder {
       type,
       ...details,
     };
+    this.recordedEvents.push(event);
     appendFileSync(this.path, `${JSON.stringify(event)}\n`);
     if (!this.quiet) this.print(event);
     return event;
+  }
+
+  get events(): readonly TraceEvent[] {
+    return this.recordedEvents;
   }
 
   private print(event: TraceEvent) {

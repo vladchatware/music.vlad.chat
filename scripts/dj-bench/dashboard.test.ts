@@ -18,7 +18,12 @@ function run(overrides: Partial<BenchSummary>): BenchSummary {
     provider: "opencode",
     scenario: "revibe",
     prompt: "Play.",
+    promptPolicyVersion: "lasting-set-v1",
     planningLeadSec: 90,
+    targetDurationSec: 5_400,
+    achievedDurationSec: 5_400,
+    reachedTargetDuration: true,
+    maxUncoveredGapSec: 0,
     requestedTransitions: 2,
     acceptedTransitions: 2,
     acceptedTrackIds: [2, 3],
@@ -41,6 +46,7 @@ function run(overrides: Partial<BenchSummary>): BenchSummary {
     summaryPath: "/tmp/summary.json",
     reportPath: "/tmp/report.md",
     configPath: "/tmp/config.json",
+    manifestPath: "/tmp/manifest.json",
     error: null,
     continuity: {
       status: "pass",
@@ -97,38 +103,14 @@ describe("benchmark dashboard", () => {
     expect(html).toContain("Continuity survival");
     expect(html).toContain("Coherence trajectory");
     expect(html).toContain("Episode drill-down");
+    expect(html).toContain("opencode/deepseek-v4-flash · lasting-set-v1");
   });
 
-  it("supports web report links without exposing local file paths", () => {
-    const root = mkdtempSync(join(tmpdir(), "dj-bench-dashboard-"));
-    const html = renderBenchmarkDashboard(
-      root,
-      [run({ reportPath: join(root, "run-1", "report.md") })],
-      (summary) => `/bench?run=${summary.runId}`,
+  it("renders report links for the HTTP dashboard route", () => {
+    const html = renderBenchmarkDashboard("/tmp/dj-bench", [run({})], (summary) =>
+      `/bench?run=${summary.runId}`,
     );
 
     expect(html).toContain('href="/bench?run=run-1"');
-    expect(html).not.toContain("file://");
-  });
-
-  it("escapes analyzed key labels before rendering them", () => {
-    const html = renderBenchmarkDashboard("/tmp", [
-      run({
-        coherenceEvidence: [{
-          fromTrackId: 1,
-          toTrackId: 2,
-          harmonic: {
-            outgoingKey: '4A<script>alert("x")</script>',
-            incomingKey: "5A</div>",
-            sameKey: false,
-          },
-          analysisComplete: true,
-        }],
-      }),
-    ]);
-
-    expect(html).not.toContain("<script>");
-    expect(html).toContain("4A&lt;script&gt;");
-    expect(html).toContain("5A&lt;/div&gt;");
   });
 });

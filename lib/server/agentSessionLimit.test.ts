@@ -7,7 +7,19 @@ import {
   getBoundedDJToolChoice,
   hasUsablePostPlayerAnalysis,
   MAX_DJ_AGENT_STEPS,
+  getDJRequestTimeoutMs,
 } from "./agentSessionLimit";
+
+describe("getDJRequestTimeoutMs", () => {
+  it("inherits the browser session's exact remaining time", () => {
+    expect(getDJRequestTimeoutMs(136_941.2)).toBe(136_942);
+  });
+
+  it("adds no independent timeout when the browser has no finite deadline", () => {
+    expect(getDJRequestTimeoutMs(undefined)).toBeUndefined();
+    expect(getDJRequestTimeoutMs(Number.POSITIVE_INFINITY)).toBeUndefined();
+  });
+});
 
 describe("classifyAgentTurnOutcome", () => {
   it("marks exhausted tool-step budget without player action as agent holding loop", () => {
@@ -122,6 +134,16 @@ describe("getDJAgentToolChoice", () => {
       decisionDeadlineMs: DJ_PLAYER_DECISION_DEADLINE_MS,
       recoveryStateRefreshed: true,
     })).toEqual({ type: "tool", toolName: "player" });
+  });
+
+  it("refreshes candidates after recovery state before retrying player", () => {
+    expect(getDJAgentToolChoice({
+      mode: "recovery",
+      stepNumber: 0,
+      maxSteps: MAX_DJ_AGENT_STEPS,
+      policyChoice: { type: "tool", toolName: "tracks" },
+      recoveryStateRefreshed: true,
+    })).toEqual({ type: "tool", toolName: "tracks" });
   });
 
   it("starts next-track analysis immediately after an accepted player action", () => {

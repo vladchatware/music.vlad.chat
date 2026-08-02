@@ -6,12 +6,36 @@ import {
   type PlayerToolInput,
 } from "../../lib/dj";
 import type { FailureName } from "./config";
+import {
+  isLastingBodyTrack,
+  MIN_FUTURE_TRACK_RUNWAY_SEC,
+  minimumDwellExitSec,
+} from "../../lib/dj/lastingSet";
+import type {
+  BenchAudibleSegment,
+  BenchTimelineTrack,
+  BenchTimelineTransition,
+} from "./timeline";
+import { analyzeAudibleCoverage } from "./timeline";
 
 export const performTransitionInputSchema = playerToolInputSchema
   .extend({
     expectedStateRevision: z.number().int().nonnegative(),
   })
   .strict();
+
+export function createPerformTransitionInputSchema(candidateIds: number[]) {
+  const ids = [...new Set(candidateIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (ids.length === 0) return performTransitionInputSchema;
+  const idSchema = ids.length === 1
+    ? z.literal(ids[0]!)
+    : z.union(ids.map((id) => z.literal(id)) as [
+        z.ZodLiteral<number>,
+        z.ZodLiteral<number>,
+        ...z.ZodLiteral<number>[],
+      ]);
+  return performTransitionInputSchema.extend({ id: idSchema }).strict();
+}
 
 export type PerformTransitionInput = z.infer<typeof performTransitionInputSchema>;
 
@@ -39,6 +63,9 @@ interface MockDeck {
   track: CandidateTrack | null;
   positionSec: number;
   status: "empty" | "playing" | "queued";
+  setStartSec: number;
+  sourceStartSec: number;
+  playbackRate: number;
 }
 
 export interface TransitionOutcome {
@@ -46,6 +73,9 @@ export interface TransitionOutcome {
   toTrackId: number;
   acceptedAtSec: number;
   scheduledAtSec: number;
+  scheduledAtSetSec: number;
+  incomingStartSec: number;
+  incomingPlaybackRate: number;
   blendDurationSec: number;
   performance: DJPerformancePlan;
 }
@@ -208,7 +238,6 @@ function enrichTrack(
   return {
     ...track,
     bpm: analysisNumber(analysis, ["tempo", "bpm"]) ?? track.bpm,
-    durationSec: analysisNumber(analysis, ["durationSec"]) ?? track.durationSec,
   };
 }
 
@@ -346,6 +375,13 @@ function normalizedTempoAdjustmentPercent(outgoingBpm: number, incomingBpm: numb
   return Math.abs(outgoingBpm / equivalent - 1) * 100;
 }
 
+function normalizedTempoPlaybackRate(outgoingBpm: number, incomingBpm: number): number {
+  const equivalent = [incomingBpm / 2, incomingBpm, incomingBpm * 2].sort(
+    (left, right) => Math.abs(left - outgoingBpm) - Math.abs(right - outgoingBpm),
+  )[0]!;
+  return outgoingBpm / equivalent;
+}
+
 export class MockDJRuntime {
   private simulatedTimeSec: number;
   private revision = 1;
@@ -355,6 +391,8 @@ export class MockDJRuntime {
   private analyses = new Map<number, Record<string, unknown>>();
   private playedTrackIds: number[];
   private outcomes: TransitionOutcome[] = [];
+  private segments: BenchAudibleSegment[] = [];
+  private timelineTransitions: BenchTimelineTransition[] = [];
   private acceptedInTurn = false;
   private actionAttemptsInTurn = 0;
   private injectedFailures = new Set<FailureName>();
@@ -378,12 +416,39 @@ export class MockDJRuntime {
     const initialTrack = initial
       ? enrichTrack(initial.track, initial.analysis)
       : INITIAL_TRACK;
-    const positionSec = Math.max(0, initialTrack.durationSec - planningLeadSec);
-    this.simulatedTimeSec = positionSec;
+    const positionSec = 0;
+    this.simulatedTimeSec = 0;
     this.decks = {
-      A: { id: "A", track: initialTrack, positionSec, status: "playing" },
-      B: { id: "B", track: null, positionSec: 0, status: "empty" },
+      A: {
+        id: "A",
+        track: initialTrack,
+        positionSec,
+        status: "playing",
+        setStartSec: 0,
+        sourceStartSec: 0,
+        playbackRate: 1,
+      },
+      B: {
+        id: "B",
+        track: null,
+        positionSec: 0,
+        status: "empty",
+        setStartSec: 0,
+        sourceStartSec: 0,
+        playbackRate: 1,
+      },
     };
+    this.segments.push({
+      id: `track-${initialTrack.id}-0`,
+      trackId: initialTrack.id,
+      title: initialTrack.title,
+      artist: initialTrack.artist,
+      setStartSec: 0,
+      setEndSec: initialTrack.durationSec,
+      sourceStartSec: 0,
+      sourceEndSec: initialTrack.durationSec,
+      playbackRate: 1,
+    });
     this.playedTrackIds = [initialTrack.id];
     if (initial) this.analyses.set(initialTrack.id, initial.analysis);
   }
@@ -398,6 +463,47 @@ export class MockDJRuntime {
 
   get transitionOutcomes(): readonly TransitionOutcome[] {
     return this.outcomes;
+  }
+
+  get audibleCoverageEndSec() {
+    const furthestEnd = this.segments.reduce(
+      (maximum, segment) => Math.max(maximum, segment.setEndSec),
+      0,
+    );
+    return analyzeAudibleCoverage(this.segments, furthestEnd).continuousThroughSec;
+  }
+
+  audibleCoverage(targetDurationSec: number) {
+    return analyzeAudibleCoverage(this.segments, targetDurationSec);
+  }
+
+  get audibleSegments(): readonly BenchAudibleSegment[] {
+    return this.segments;
+  }
+
+  get transitions(): readonly BenchTimelineTransition[] {
+    return this.timelineTransitions;
+  }
+
+  get remainingCandidateCount() {
+    return [...this.candidates.keys()].filter((id) =>
+      !this.playedTrackIds.includes(id)
+    ).length;
+  }
+
+  get timelineTracks(): BenchTimelineTrack[] {
+    const tracks = new Map<number, BenchTimelineTrack>();
+    for (const segment of this.segments) {
+      const candidate = this.candidates.get(segment.trackId) ??
+        Object.values(this.decks).find((deck) => deck.track?.id === segment.trackId)?.track;
+      tracks.set(segment.trackId, candidate ?? {
+        id: segment.trackId,
+        title: segment.title,
+        artist: segment.artist,
+        durationSec: segment.sourceEndSec,
+      });
+    }
+    return [...tracks.values()];
   }
 
   analysisFor(trackId: number): Record<string, unknown> | undefined {
@@ -417,11 +523,13 @@ export class MockDJRuntime {
     if (!Number.isFinite(seconds) || seconds < 0) return;
     this.simulatedTimeSec += seconds;
     const active = this.decks[this.activeDeckId];
-    active.positionSec += seconds;
+    active.positionSec += seconds * active.playbackRate;
   }
 
   registerCandidates(value: unknown): CandidateTrack[] {
-    const discovered = extractCandidateTracks(value);
+    const discovered = extractCandidateTracks(value).filter((candidate) =>
+      isLastingBodyTrack(candidate.durationSec)
+    );
     for (const candidate of discovered) {
       const analysis = this.analyses.get(candidate.id);
       this.candidates.set(
@@ -437,7 +545,14 @@ export class MockDJRuntime {
     for (const { trackId, analysis } of discovered) {
       this.analyses.set(trackId, analysis);
       const candidate = this.candidates.get(trackId);
-      if (candidate) this.candidates.set(trackId, enrichTrack(candidate, analysis));
+      if (candidate) {
+        const enriched = enrichTrack(candidate, analysis);
+        if (isLastingBodyTrack(enriched.durationSec)) {
+          this.candidates.set(trackId, enriched);
+        } else {
+          this.candidates.delete(trackId);
+        }
+      }
       const active = this.decks[this.activeDeckId];
       if (active.track?.id === trackId) {
         active.track = enrichTrack(active.track, analysis);
@@ -463,12 +578,16 @@ export class MockDJRuntime {
       activeTrackAnalysis: active.track
         ? (() => {
             const analysis = this.analyses.get(active.track!.id);
-            return analysis
-              ? compactTrackAnalysis(analysis, active.positionSec)
-              : null;
+            if (!analysis) return null;
+            return {
+              ...compactTrackAnalysis(analysis, active.positionSec),
+              durationSec: active.track!.durationSec,
+            };
           })()
         : null,
       currentTimeSec: active.positionSec,
+      activeTrackSetStartSec: active.setStartSec,
+      activeTrackAudibleSec: Math.max(0, this.simulatedTimeSec - active.setStartSec),
       durationSec: active.track?.durationSec ?? 0,
       section: this.sectionFor(active),
       transition: null,
@@ -476,6 +595,11 @@ export class MockDJRuntime {
       candidateTrackIds: [...this.candidates.keys()].filter(
         (id) => !this.playedTrackIds.includes(id),
       ),
+      candidates: [...this.candidates.values()]
+        .filter(({ id }) =>
+          !this.playedTrackIds.includes(id)
+        )
+        .slice(0, 16),
       recentTransitionOutcomes: this.outcomes.slice(-4),
     };
   }
@@ -565,22 +689,43 @@ export class MockDJRuntime {
     }
 
     const blendSec = blendDurationSec(input.performance, activeTrack.bpm ?? 120);
+    const incomingPlaybackRate = input.performance.tempo.mode === "match" && candidate.bpm
+      ? normalizedTempoPlaybackRate(activeTrack.bpm ?? 120, candidate.bpm)
+      : 1;
+    const incomingRunwaySec = (candidate.durationSec - incomingStartSec) / incomingPlaybackRate;
+    if (incomingRunwaySec < MIN_FUTURE_TRACK_RUNWAY_SEC) {
+      this.stats.impossibleScheduleAttempts += 1;
+      return this.reject(
+        "insufficient_track_runway",
+        "Choose a longer track or an earlier entry that leaves at least 95 audible seconds.",
+      );
+    }
     const scheduledAtSec = emergencyCut
       ? active.positionSec + minimumRunwaySec
       : Math.max(
           active.positionSec + 8,
           requestedExitSec ?? activeTrack.durationSec - Math.max(24, blendSec),
+          minimumDwellExitSec({
+            currentSourceSec: active.positionSec,
+            audibleSec: Math.max(0, this.simulatedTimeSec - active.setStartSec),
+            playbackRate: active.playbackRate,
+          }),
         );
     if (scheduledAtSec + blendSec > activeTrack.durationSec + 1) {
       this.stats.impossibleScheduleAttempts += 1;
       return this.reject("blend_exceeds_track", "Choose earlier exit or shorter blend.");
     }
 
+    const scheduledAtSetSec = active.setStartSec +
+      (scheduledAtSec - active.sourceStartSec) / active.playbackRate;
     const transition: TransitionOutcome = {
       fromTrackId: activeTrack.id,
       toTrackId: candidate.id,
       acceptedAtSec: this.simulatedTimeSec,
       scheduledAtSec,
+      scheduledAtSetSec,
+      incomingStartSec,
+      incomingPlaybackRate,
       blendDurationSec: blendSec,
       performance: input.performance,
     };
@@ -590,7 +735,45 @@ export class MockDJRuntime {
       track: candidate,
       positionSec: incomingStartSec,
       status: "queued",
+      setStartSec: scheduledAtSetSec,
+      sourceStartSec: incomingStartSec,
+      playbackRate: incomingPlaybackRate,
     };
+    const activeSegment = [...this.segments]
+      .reverse()
+      .find((segment) => segment.trackId === activeTrack.id && segment.setStartSec === active.setStartSec);
+    if (activeSegment) {
+      activeSegment.setEndSec = scheduledAtSetSec + blendSec;
+      activeSegment.sourceEndSec = Math.min(
+        activeTrack.durationSec,
+        scheduledAtSec + blendSec * active.playbackRate,
+      );
+    }
+    this.segments.push({
+      id: `track-${candidate.id}-${this.outcomes.length + 1}`,
+      trackId: candidate.id,
+      title: candidate.title,
+      artist: candidate.artist,
+      setStartSec: scheduledAtSetSec,
+      setEndSec: scheduledAtSetSec +
+        (candidate.durationSec - incomingStartSec) / incomingPlaybackRate,
+      sourceStartSec: incomingStartSec,
+      sourceEndSec: candidate.durationSec,
+      playbackRate: incomingPlaybackRate,
+    });
+    this.timelineTransitions.push({
+      id: `transition-${this.outcomes.length + 1}`,
+      fromTrackId: activeTrack.id,
+      toTrackId: candidate.id,
+      acceptedAtSetSec: this.simulatedTimeSec,
+      setStartSec: scheduledAtSetSec,
+      setEndSec: scheduledAtSetSec + blendSec,
+      outgoingStartSec: scheduledAtSec,
+      incomingStartSec,
+      incomingPlaybackRate,
+      blendDurationSec: blendSec,
+      performance: input.performance,
+    });
     this.outcomes.push(transition);
     this.playedTrackIds.push(candidate.id);
     this.acceptedInTurn = true;
@@ -613,14 +796,21 @@ export class MockDJRuntime {
       track: null,
       positionSec: 0,
       status: "empty",
+      setStartSec: 0,
+      sourceStartSec: 0,
+      playbackRate: 1,
     };
     this.activeDeckId = incomingDeckId;
     incoming.status = "playing";
-    incoming.positionSec = Math.max(
-      incoming.positionSec,
-      Math.max(0, incoming.track.durationSec - planningLeadSec),
+    const transition = this.timelineTransitions.at(-1);
+    if (!transition) throw new Error("Accepted transition has no timeline mapping");
+    const planningSourceSec = Math.max(
+      incoming.sourceStartSec + transition.blendDurationSec * incoming.playbackRate,
+      incoming.track.durationSec - planningLeadSec,
     );
-    this.simulatedTimeSec += planningLeadSec;
+    incoming.positionSec = Math.min(incoming.track.durationSec, planningSourceSec);
+    this.simulatedTimeSec = incoming.setStartSec +
+      (incoming.positionSec - incoming.sourceStartSec) / incoming.playbackRate;
     this.revision += 1;
   }
 

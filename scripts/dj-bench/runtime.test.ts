@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MockDJRuntime,
+  createPerformTransitionInputSchema,
   extractCandidateTracks,
   extractTrackAnalyses,
   type PerformTransitionInput,
@@ -31,6 +32,13 @@ function transition(id: number, revision: number): PerformTransitionInput {
 }
 
 describe("MockDJRuntime", () => {
+  it("builds transition schema from exact unplayed candidate IDs", () => {
+    const schema = createPerformTransitionInputSchema([201, 202]);
+
+    expect(schema.safeParse(transition(100, 1)).success).toBe(false);
+    expect(schema.safeParse(transition(201, 1)).success).toBe(true);
+  });
+
   it("extracts MCP text candidates", () => {
     expect(extractCandidateTracks({ content: [{ type: "text", text: candidateText }] }))
       .toEqual([
@@ -61,14 +69,14 @@ describe("MockDJRuntime", () => {
       analysis,
     });
     expect(runtime.snapshot()).toMatchObject({
-      activeTrack: { id: 301, title: "Real Opener", bpm: 110, durationSec: 180 },
+      activeTrack: { id: 301, title: "Real Opener", bpm: 110, durationSec: 240 },
       activeTrackAnalysis: {
         trackId: "301",
-        durationSec: 180,
+        durationSec: 240,
         tempo: { bpm: 110 },
         tonal: { camelotKey: "8B" },
       },
-      currentTimeSec: 90,
+      currentTimeSec: 0,
       playedTrackIds: [301],
     });
   });
@@ -130,13 +138,99 @@ describe("MockDJRuntime", () => {
   it("accepts one discovered unplayed transition per turn", () => {
     const runtime = new MockDJRuntime();
     runtime.registerCandidates(candidateText);
+    expect(runtime.remainingCandidateCount).toBe(2);
+    expect(runtime.snapshot()).toMatchObject({
+      candidates: [
+        { id: 201, title: "Aqua Memory", durationSec: 204 },
+        { id: 202, title: "Soft Terminal", durationSec: 210 },
+      ],
+      activeTrackAudibleSec: 0,
+    });
     runtime.beginTurn();
     const revision = runtime.readState().stateRevision;
 
     expect(runtime.performTransition(transition(201, revision)).status).toBe("accepted");
+    expect(runtime.remainingCandidateCount).toBe(1);
     expect(runtime.performTransition(transition(202, runtime.snapshot().stateRevision)))
       .toMatchObject({ status: "rejected", reason: "action_already_accepted" });
     expect(runtime.stats.acceptedTransitions).toBe(1);
+  });
+
+  it("keeps short tracks out of the autonomous candidate pool", () => {
+    const runtime = new MockDJRuntime();
+    expect(runtime.registerCandidates([
+      { id: 301, title: "Short clip", duration: 29_780 },
+      { id: 302, title: "Body track", duration: 180_000 },
+    ])).toEqual([expect.objectContaining({ id: 302 })]);
+    expect(runtime.snapshot().candidateTrackIds).toEqual([302]);
+  });
+
+  it("does not let preview analysis rewrite authoritative track duration", () => {
+    const runtime = new MockDJRuntime();
+    runtime.registerCandidates([{ id: 302, title: "Misreported", duration: 180_000 }]);
+    runtime.registerTrackAnalyses({
+      analysis: { trackId: 302, durationSec: 29.78 },
+    });
+    expect(runtime.snapshot()).toMatchObject({
+      candidateTrackIds: [302],
+      candidates: [{ id: 302, durationSec: 180 }],
+    });
+  });
+
+  it("does not let late preview analysis shrink the active deck behind its playhead", () => {
+    const runtime = new MockDJRuntime([], 1, {
+      track: { id: 301, title: "Full track", durationSec: 292 },
+      analysis: { trackId: "301", durationSec: 292 },
+    });
+    runtime.advance(202);
+
+    runtime.registerTrackAnalyses({
+      analysis: { trackId: 301, durationSec: 29.78, tempo: { bpm: 144.375 } },
+    });
+
+    expect(runtime.snapshot()).toMatchObject({
+      currentTimeSec: 202,
+      durationSec: 292,
+      activeTrack: { durationSec: 292, bpm: 144.375 },
+    });
+  });
+
+  it("builds seekable set-time and source-time mappings", () => {
+    const runtime = new MockDJRuntime([], 1, undefined, 90);
+    runtime.registerCandidates(candidateText);
+    runtime.beginTurn();
+    const revision = runtime.readState().stateRevision;
+    const accepted = runtime.performTransition(transition(201, revision));
+
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      transition: {
+        scheduledAtSetSec: 75,
+        scheduledAtSec: 75,
+        incomingStartSec: 16,
+        incomingPlaybackRate: 124 / 125,
+      },
+    });
+    expect(runtime.audibleSegments).toEqual([
+      expect.objectContaining({
+        trackId: 100,
+        setStartSec: 0,
+        setEndSec: expect.any(Number),
+        sourceStartSec: 0,
+      }),
+      expect.objectContaining({
+        trackId: 201,
+        setStartSec: 75,
+        sourceStartSec: 16,
+        sourceEndSec: 204,
+      }),
+    ]);
+    expect(runtime.transitions[0]).toMatchObject({
+      fromTrackId: 100,
+      toTrackId: 201,
+      setStartSec: 75,
+    });
+    expect(runtime.audibleCoverageEndSec).toBeCloseTo(264.516, 3);
   });
 
   it("treats section notBeforeSec as a lower bound, not a literal past cue", () => {
@@ -190,7 +284,7 @@ describe("MockDJRuntime", () => {
     runtime.beginTurn();
     const revision = runtime.readState().stateRevision;
     const past = transition(201, revision);
-    past.performance.exit = { anchor: "time", timeSec: 100 };
+    past.performance.exit = { anchor: "time", timeSec: 0 };
     expect(runtime.performTransition(past))
       .toMatchObject({ status: "rejected", reason: "exit_in_past" });
 

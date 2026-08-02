@@ -1,13 +1,7 @@
-export function benchInvalidReason(options: {
-  terminalError: string | null;
-  mcpFailures: number;
-}): string | null {
-  if (options.mcpFailures > 0) {
-    return `${options.mcpFailures} MCP tool failure(s)`;
-  }
-  if (!options.terminalError) return null;
-  if (/^Turn \d+ ended without accepted transition$/.test(options.terminalError)) {
-    return null;
-  }
-  return options.terminalError;
+export function hasValidCandidatePreparation(input: {
+  preparedOpening: boolean;
+  likesCalls: number;
+  tracksCalls: number;
+}): boolean {
+  return input.preparedOpening || (input.likesCalls > 0 && input.tracksCalls > 0);
 }

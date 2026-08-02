@@ -7,7 +7,7 @@ import type {
   StructureMap,
 } from "./dj/types";
 
-export const TRACK_ANALYSIS_VERSION = "essentia-dj-v7";
+export const TRACK_ANALYSIS_VERSION = "essentia-dj-v8";
 export const TRACK_ANALYSIS_SOURCE = "soundcloud";
 
 export type TrackCuePoints = {

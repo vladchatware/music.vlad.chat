@@ -315,9 +315,9 @@ describe("computeAgentSessionDeadlineAtMs", () => {
     );
   });
 
-  it("caps a long runway at seventy seconds", () => {
+  it("uses the real remaining-audio runway instead of the old seventy-second cap", () => {
     expect(computeAgentSessionDeadlineAtMs({ nowMs: 1_000, remainingSec: 120 })).toBe(
-      71_000,
+      111_000,
     );
   });
 

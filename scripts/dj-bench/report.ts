@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import type { BenchConfig } from "./config";
+import type { BenchTimelineManifest } from "./timeline";
 
 export interface CoherenceEvidence {
   fromTrackId: number;
@@ -29,7 +30,27 @@ export interface ContinuityStep {
   toTrackId: number;
   acceptedAtSec: number;
   scheduledAtSec: number;
+  scheduledAtSetSec: number;
   blendDurationSec: number;
+}
+
+export interface BrowserPlaythroughProof {
+  failureId: string;
+  passed: boolean;
+  failureWitness: {
+    status: "queued" | "dj_failed_to_choose" | "agent_holding_loop";
+    responseCount: number;
+    queuedAtSec: number | null;
+    deadlineAtSec: number;
+    events?: unknown[];
+  };
+  current: {
+    status: "queued" | "dj_failed_to_choose" | "agent_holding_loop";
+    responseCount: number;
+    queuedAtSec: number | null;
+    deadlineAtSec: number;
+    events?: unknown[];
+  };
 }
 
 export interface BenchSummary {
@@ -43,7 +64,12 @@ export interface BenchSummary {
   provider: string;
   scenario: string;
   prompt: string;
+  promptPolicyVersion?: string;
   planningLeadSec: number;
+  targetDurationSec: number;
+  achievedDurationSec: number;
+  reachedTargetDuration: boolean;
+  maxUncoveredGapSec: number;
   requestedTransitions: number;
   acceptedTransitions: number;
   acceptedTrackIds: number[];
@@ -56,16 +82,31 @@ export interface BenchSummary {
   toolFailures: Record<string, number>;
   scheduledTrackIds: number[];
   analysisTrackIds: number[];
+  preparedAnalysis?: {
+    acceptedWithReadyAnalysis: number;
+    coverage: number;
+  };
+  pacing?: {
+    status: "pass" | "fail";
+    minimumDwellSec: number;
+    minimumBodyTrackDurationSec: number;
+    completedDwellsSec: number[];
+    underMinimumDwellCount: number;
+    shortBodyTrackIds: number[];
+  };
   falseSuccessClaims: number;
   backstageNarrationCount: number;
   analysisBudgetRejections: number;
   discoveryBudgetRejections: number;
+  browserPlaythrough?: BrowserPlaythroughProof;
+  browserPlaythroughs?: BrowserPlaythroughProof[];
   tokens: { input: number; output: number; total: number };
   simulatedTimeSec: number;
   tracePath: string;
   summaryPath: string;
   reportPath: string;
   configPath: string;
+  manifestPath: string;
   error: string | null;
   continuity: {
     status: "pass" | "fail";
@@ -79,6 +120,7 @@ export interface BenchSummary {
     turn: number;
     step: number;
     text: string;
+    reasoningText?: string;
     backstageNarration: boolean;
   }>;
   claim: string;
@@ -122,7 +164,7 @@ function coherenceRows(summary: BenchSummary): string {
         ? `${item.tempo.outgoingBpm.toFixed(1)} → ${item.tempo.incomingBpm.toFixed(1)} (${item.tempo.normalizedDeltaPercent.toFixed(1)}%)`
         : "unscorable";
       const harmonic = item.harmonic
-        ? `${mermaidText(item.harmonic.outgoingKey)} → ${mermaidText(item.harmonic.incomingKey)}${item.harmonic.sameKey ? " (same)" : ""}`
+        ? `${item.harmonic.outgoingKey} → ${item.harmonic.incomingKey}${item.harmonic.sameKey ? " (same)" : ""}`
         : "unscorable";
       return `| ${item.fromTrackId} → ${item.toTrackId} | ${item.analysisComplete ? "complete" : "partial"} | ${tempo} | ${harmonic} | ${display(item.energy?.delta)} |`;
     }),
@@ -167,12 +209,12 @@ export function continuityGraph(summary: BenchSummary): string {
   summary.continuity.steps.forEach((step, index) => {
     const next = index + 1;
     lines.push(
-      `  T${index} -->|"T${next} accepted<br/>cue ${step.scheduledAtSec.toFixed(1)}s<br/>blend ${step.blendDurationSec.toFixed(1)}s"| T${next}["${step.toTrackId}"]:::track`,
+      `  T${index} -->|"T${next} accepted<br/>set ${step.scheduledAtSetSec.toFixed(1)}s<br/>blend ${step.blendDurationSec.toFixed(1)}s"| T${next}["${step.toTrackId}"]:::track`,
     );
   });
   if (summary.continuity.status === "pass") {
     const last = summary.continuity.steps.length;
-    lines.push(`  T${last} --> P["CONTINUITY PASS<br/>${summary.acceptedTransitions}/${summary.requestedTransitions} transitions"]:::pass`);
+    lines.push(`  T${last} --> P["CONTINUITY PASS<br/>${(summary.achievedDurationSec / 60).toFixed(1)} min covered"]:::pass`);
   } else {
     const last = summary.continuity.steps.length;
     const reason = mermaidText(summary.error ?? "Transition contract failed");
@@ -180,7 +222,7 @@ export function continuityGraph(summary: BenchSummary): string {
   }
   if (summary.rejectedTransitions > 0) {
     lines.push(`  R["${summary.rejectedTransitions} rejected attempt(s)"]:::fail`);
-    lines.push("  R -.-> F");
+    lines.push(`  R -.-> ${summary.ok ? "P" : "F"}`);
   }
   return [...lines, "```"].join("\n");
 }
@@ -205,7 +247,7 @@ export function coherenceGraph(summary: BenchSummary): string {
       ? `tempo Δ ${item.tempo.normalizedDeltaPercent.toFixed(1)}%`
       : "tempo unscorable";
     const key = item.harmonic
-      ? `${mermaidText(item.harmonic.outgoingKey)} → ${mermaidText(item.harmonic.incomingKey)}`
+      ? `${item.harmonic.outgoingKey} → ${item.harmonic.incomingKey}`
       : "key unscorable";
     const energy = item.energy
       ? `energy Δ ${item.energy.delta >= 0 ? "+" : ""}${item.energy.delta.toFixed(2)}`
@@ -226,41 +268,35 @@ export function writeRunConfig(config: BenchConfig) {
     runId: config.runId,
     provider: config.provider,
     model: config.model,
+    targetDurationSec: config.targetDurationSec,
     transitions: config.transitions,
     timeoutMs: config.timeoutMs,
     maxSteps: config.maxSteps,
     clockSpeed: config.clockSpeed,
     planningLeadSec: config.planningLeadSec,
     failures: [...config.failures],
-    mcpUrl: publicMcpUrl(config.mcpUrl),
+    mcpUrl: config.mcpUrl,
     outgoingTrackId: config.outgoingTrackId,
     prompt: config.prompt,
     scenario: config.scenario,
     tracePath: config.tracePath,
     summaryPath: config.summaryPath,
     reportPath: config.reportPath,
+    manifestPath: config.manifestPath,
     hasCookie: Boolean(config.cookie),
     hasOpenCodeApiKey: Boolean(config.opencodeApiKey),
   };
   writeFileSync(config.configPath, `${JSON.stringify(sanitized, null, 2)}\n`);
 }
 
-export function publicMcpUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return "<invalid MCP URL>";
-  }
-}
-
-export function writeRunArtifacts(config: BenchConfig, summary: BenchSummary) {
+export function writeRunArtifacts(
+  config: BenchConfig,
+  summary: BenchSummary,
+  manifest?: BenchTimelineManifest,
+) {
   ensureParent(config.summaryPath);
   writeFileSync(config.summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
+  if (manifest) writeFileSync(config.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   const report = `# DJ Bench Report
 
@@ -276,21 +312,38 @@ ${summary.error ? `Failure: \`${summary.error}\`\n` : ""}
 - Started: ${summary.startedAt}
 - Finished: ${summary.finishedAt}
 - Prompt: ${summary.prompt}
+- Prompt policy: ${summary.promptPolicyVersion ?? "legacy/unversioned"}
 - Planning runway: ${summary.planningLeadSec}s
+- Set coverage: ${(summary.achievedDurationSec / 60).toFixed(1)} / ${(summary.targetDurationSec / 60).toFixed(1)} min
 
 ## Continuity
 
 ${continuityGraph(summary)}
 
-- Accepted transitions: ${summary.acceptedTransitions}/${summary.requestedTransitions}
-- Completion: ${(summary.continuity.completedRatio * 100).toFixed(0)}%
+- Accepted transitions: ${summary.acceptedTransitions}
+- Duration completion: ${(summary.continuity.completedRatio * 100).toFixed(0)}%
+- Maximum uncovered gap: ${summary.maxUncoveredGapSec.toFixed(2)}s
 - Rejected transitions: ${summary.rejectedTransitions}
 - Impossible schedules: ${summary.impossibleScheduleAttempts}
 - False success claims: ${summary.falseSuccessClaims}
 - Backstage narration leaks: ${summary.backstageNarrationCount}
 - Analysis calls rejected by turn budget: ${summary.analysisBudgetRejections}
 - Discovery calls rejected by turn budget: ${summary.discoveryBudgetRejections}
+- Accepted transitions with ready incoming analysis: ${summary.preparedAnalysis?.acceptedWithReadyAnalysis ?? 0}/${summary.acceptedTransitions} (${(((summary.preparedAnalysis?.coverage ?? 0) * 100)).toFixed(0)}%)
+- Pacing contract: ${summary.pacing?.status ?? "unscored"}; ${summary.pacing?.underMinimumDwellCount ?? 0} dwell(s) below ${summary.pacing?.minimumDwellSec ?? 75}s; ${(summary.pacing?.shortBodyTrackIds ?? []).length} short body track(s)
 - Accepted track IDs: ${summary.acceptedTrackIds.join(", ") || "none"}
+
+## Regular-player regression
+
+${(summary.browserPlaythroughs ?? (summary.browserPlaythrough ? [summary.browserPlaythrough] : [])).length > 0
+  ? (summary.browserPlaythroughs ?? [summary.browserPlaythrough!]).map((proof) => [
+      `- Failure ID: \`${proof.failureId}\``,
+      `- Regression witness: ${proof.failureWitness.status} (${proof.failureWitness.responseCount} browser responses)`,
+      `- Current policy: ${proof.current.status} (${proof.current.responseCount} browser responses)`,
+      `- Proof: ${proof.failureWitness.status} → ${proof.current.status}`,
+      `- Contract: ${proof.passed ? "pass" : "fail"}`,
+    ].join("\n")).join("\n\n")
+  : "_No regular-player playthrough proof recorded._"}
 
 ## Coherence evidence
 
@@ -323,6 +376,7 @@ ${transcriptRows(summary)}
 - Trace: \`${summary.tracePath}\`
 - Summary: \`${summary.summaryPath}\`
 - Config: \`${summary.configPath}\`
+- Timeline manifest: \`${summary.manifestPath}\`
 
 > ${summary.claim}
 `;

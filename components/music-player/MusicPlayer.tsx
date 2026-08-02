@@ -10,6 +10,10 @@ import { api } from "@/convex/_generated/api";
 import { fetchTrack } from "@/lib/soundcloud";
 import { playbackDebug } from "@/lib/playbackDebug";
 import { CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
+import {
+  isLastingBodyTrack,
+  minimumDwellExitSec,
+} from "@/lib/dj/lastingSet";
 
 import { MusicPlayerScene } from "./Scene";
 import { MusicPlayerOverlay } from "./Overlay";
@@ -27,6 +31,7 @@ import {
   createPerformanceMemory,
   type PerformanceMemoryTrack,
 } from "./chat/performanceMemory";
+import { FRUTIGER_AERO_OPENING_TRACK_IDS } from "@/lib/dj/performance/frutigerAeroPreparedSet";
 import { type SoundCloudTrack } from "./types";
 import { getPlayerEntryAction } from "./interactionPolicy";
 import { useDJEngine } from "./engine/useDJEngine";
@@ -97,7 +102,11 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     [],
   );
   const playedTrackIdsRef = useRef<number[]>([]);
-  const performanceMemoryRef = useRef(createPerformanceMemory(REVIBE_PROMPT));
+  const activeTrackHeardRef = useRef<{ trackId: number; startedAtMs: number } | null>(null);
+  const performanceMemoryRef = useRef(createPerformanceMemory(
+    REVIBE_PROMPT,
+    FRUTIGER_AERO_OPENING_TRACK_IDS,
+  ));
   const autoCueConfig = useMemo(() => {
     if (playbackProfile !== "trackFocus") return undefined;
     // Track route: hold the current track's strongest section longer before queueing next.
@@ -222,6 +231,9 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           agentSessionId: agentSession.id,
         });
         const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
+        if (agentSession.source !== "user" && !isLastingBodyTrack(newTrack.duration)) {
+          throw new Error(`Track ${id} is too short for autonomous continuity`);
+        }
         const deadlineCheck = agentSessionController.enforceDeadline();
         if (deadlineCheck.outcome === "failed") {
           throw new Error(`Player action missed live deadline: ${deadlineCheck.reason}`);
@@ -233,7 +245,27 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           djState.type === "crossfading";
 
         if (shouldCue) {
-          await cueNextTrack(newTrack, performancePlan);
+          const heard = activeTrackHeardRef.current;
+          const audibleSec = heard?.trackId === activeTrack?.id
+            ? Math.max(0, (performance.now() - heard.startedAtMs) / 1_000)
+            : 0;
+          const notBeforeSec = minimumDwellExitSec({
+            currentSourceSec: playback.currentTimeSec,
+            audibleSec,
+          });
+          const boundedPerformancePlan: PlayerToolInput["performance"] = {
+            ...performancePlan,
+            exit: performancePlan.exit.anchor === "time"
+              ? {
+                  ...performancePlan.exit,
+                  timeSec: Math.max(performancePlan.exit.timeSec, notBeforeSec),
+                }
+              : {
+                  ...performancePlan.exit,
+                  notBeforeSec: Math.max(performancePlan.exit.notBeforeSec ?? 0, notBeforeSec),
+                },
+          };
+          await cueNextTrack(newTrack, boundedPerformancePlan);
         } else {
           await loadInitialTrack(newTrack);
           await play();
@@ -285,6 +317,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       djState.type,
       loadInitialTrack,
       play,
+      playback.currentTimeSec,
     ],
   );
 
@@ -296,6 +329,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   useEffect(() => {
     const id = activeTrack?.id;
     if (!Number.isFinite(id)) return;
+    activeTrackHeardRef.current = { trackId: id as number, startedAtMs: performance.now() };
     const history = playedTrackIdsRef.current.filter((trackId) => trackId !== id);
     history.push(id as number);
     playedTrackIdsRef.current = history.slice(-32);

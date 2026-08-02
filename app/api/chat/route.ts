@@ -31,8 +31,10 @@ import {
   getDJAgentToolChoice,
   hasUsablePostPlayerAnalysis,
   MAX_DJ_AGENT_STEPS,
+  getDJRequestTimeoutMs,
 } from '@/lib/server/agentSessionLimit';
 import { repairMissingStreamPartStarts } from '@/lib/server/repairModelStream';
+import { getProductionDJModeInstruction } from '@/lib/dj/agentInstructions';
 
 function cleanCorrelation(value: unknown) {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 128) : undefined;
@@ -140,6 +142,7 @@ export async function POST(req: NextRequest) {
   const localAgentTools = createDJAgentTools(undefined, {
     maxForegroundAnalyses: hasSelectionEvidencePool ? 4 : 1,
     playerCandidateIds: candidatePlayerTrackIds,
+    compactPlayerSelection: agentMode === 'prepared_selection',
   })
   const requireMcpTool = (name: string) => {
     const remoteTool = soundcloudTools[name]
@@ -230,11 +233,9 @@ export async function POST(req: NextRequest) {
   const stepPolicy = createDJAgentStepPolicy(messages, {
     hasInitialDJState: Boolean(liveStateInstruction),
   })
+  const modeInstruction = getProductionDJModeInstruction(agentMode)
   const model = resolveDJModel(process.env.DJ_MODEL);
-  const timeoutMs = Math.min(
-    120_000,
-    Math.max(15_000, Number.parseInt(process.env.DJ_AGENT_TIMEOUT_MS ?? '55000', 10) || 55_000),
-  );
+  const timeoutMs = getDJRequestTimeoutMs(agentSessionRemainingMs);
   const startedAt = performance.now();
   const traceContext = {
     chatSessionId,
@@ -286,9 +287,9 @@ export async function POST(req: NextRequest) {
   const agent = new ToolLoopAgent({
     id: 'ai-dj-chat',
     model,
-    instructions: liveStateInstruction
-      ? `${systemMessage}\n\n${liveStateInstruction}`
-      : systemMessage,
+    instructions: [systemMessage, modeInstruction, liveStateInstruction]
+      .filter(Boolean)
+      .join('\n\n'),
     tools,
     stopWhen: postPlayerPreparation
       ? [hasUsablePostPlayerAnalysis, stepCountIs(analysisScheduleWasRequired ? 3 : 2)]
@@ -305,7 +306,7 @@ export async function POST(req: NextRequest) {
         mode: agentMode,
         stepNumber,
         maxSteps: MAX_DJ_AGENT_STEPS,
-        policyChoice: undefined,
+        policyChoice: stepPolicy.nextRequiredTool(),
         elapsedMs: agentSessionElapsedMs + performance.now() - startedAt,
         decisionDeadlineMs: DJ_PLAYER_DECISION_DEADLINE_MS,
         recoveryStateRefreshed,
@@ -407,7 +408,9 @@ export async function POST(req: NextRequest) {
   try {
     const result = await agent.stream({
       messages: await convertToModelMessages(messages),
-      abortSignal: AbortSignal.timeout(timeoutMs),
+      abortSignal: timeoutMs
+        ? AbortSignal.any([req.signal, AbortSignal.timeout(timeoutMs)])
+        : req.signal,
       experimental_transform: repairMissingStreamPartStarts(),
     });
     return result.toUIMessageStreamResponse({

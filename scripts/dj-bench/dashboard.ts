@@ -32,6 +32,14 @@ function invalidRun(run: BenchSummary): boolean {
   return run.validity === "invalid";
 }
 
+function targetDuration(run: BenchSummary): number {
+  return run.targetDurationSec ?? run.simulatedTimeSec;
+}
+
+function achievedDuration(run: BenchSummary): number {
+  return run.achievedDurationSec ?? run.simulatedTimeSec;
+}
+
 function failureClass(run: BenchSummary): string {
   if (invalidRun(run)) return "Invalid harness run";
   if (infrastructureFailure(run)) return "Infrastructure";
@@ -51,11 +59,15 @@ function continuityChart(runs: BenchSummary[]): string {
   if (runs.length === 0) {
     return '<div class="empty">No performance episodes. Infrastructure failures excluded.</div>';
   }
-  const maxTransitions = Math.max(...runs.map((run) => run.requestedTransitions));
-  const values = Array.from({ length: maxTransitions }, (_, index) => {
-    const transition = index + 1;
-    return runs.filter((run) => run.acceptedTransitions >= transition).length / runs.length;
-  });
+  const maxDuration = Math.max(...runs.map(targetDuration));
+  const intervalSec = 15 * 60;
+  const checkpoints = Array.from(
+    { length: Math.max(1, Math.ceil(maxDuration / intervalSec)) },
+    (_, index) => Math.min(maxDuration, (index + 1) * intervalSec),
+  );
+  const values = checkpoints.map((checkpoint) =>
+    runs.filter((run) => achievedDuration(run) >= checkpoint).length / runs.length,
+  );
   const width = 720;
   const height = 250;
   const left = 52;
@@ -63,7 +75,7 @@ function continuityChart(runs: BenchSummary[]): string {
   const plotWidth = width - left - 24;
   const plotHeight = height - top - 42;
   const x = (index: number) =>
-    left + (maxTransitions <= 1 ? plotWidth / 2 : index / (maxTransitions - 1) * plotWidth);
+    left + (checkpoints.length <= 1 ? plotWidth / 2 : index / (checkpoints.length - 1) * plotWidth);
   const y = (value: number) => top + (1 - value) * plotHeight;
   const points = values.map((value, index) => `${x(index)},${y(value)}`).join(" ");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Continuity survival curve">
@@ -74,7 +86,7 @@ function continuityChart(runs: BenchSummary[]): string {
     <polyline points="${points}" class="line"/>
     ${values.map((value, index) => `
       <circle cx="${x(index)}" cy="${y(value)}" r="5"/>
-      <text x="${x(index)}" y="${height - 12}" text-anchor="middle">T${index + 1}</text>
+      <text x="${x(index)}" y="${height - 12}" text-anchor="middle">${Math.round(checkpoints[index]! / 60)}m</text>
       <text x="${x(index)}" y="${y(value) - 10}" text-anchor="middle" class="value">${percent(value)}</text>
     `).join("")}
   </svg>`;
@@ -97,7 +109,7 @@ function coherenceChart(evidence: CoherenceEvidence[]): string {
       <div class="transition-id">T${index + 1}<small>${item.fromTrackId} → ${item.toTrackId}</small></div>
       <div><span class="metric-label">Tempo Δ ${tempo?.toFixed(1) ?? "—"}%</span><div class="bar"><i style="width:${tempoWidth}%"></i></div></div>
       <div><span class="metric-label">Energy Δ ${energy === undefined ? "—" : `${energy >= 0 ? "+" : ""}${energy.toFixed(2)}`}</span><div class="energy-axis"><i style="left:${energyPosition}%"></i></div></div>
-      <div class="key ${keyMatch ? "match" : "change"}">${item.harmonic ? `${escapeHtml(item.harmonic.outgoingKey)} → ${escapeHtml(item.harmonic.incomingKey)}` : "key —"}</div>
+      <div class="key ${keyMatch ? "match" : "change"}">${item.harmonic ? `${item.harmonic.outgoingKey} → ${item.harmonic.incomingKey}` : "key —"}</div>
     </div>`;
   }).join("");
   return `<div class="coherence-legend">Tempo bar: 0–16% normalized change · Energy axis: −0.5 to +0.5 · Key badge: exact Camelot match only</div>${rows}`;
@@ -123,15 +135,15 @@ function failureChart(runs: BenchSummary[]): string {
 function modelTable(runs: BenchSummary[]): string {
   const groups = new Map<string, BenchSummary[]>();
   for (const run of runs) {
-    const key = `${run.provider}/${run.model}`;
+    const key = `${run.provider}/${run.model} · ${run.promptPolicyVersion ?? "legacy/unversioned"}`;
     groups.set(key, [...(groups.get(key) ?? []), run]);
   }
   return [...groups.entries()].map(([model, attempts]) => {
     const evaluated = attempts.filter(
       (run) => !infrastructureFailure(run) && !invalidRun(run),
     );
-    const transitions = evaluated.reduce((total, run) => total + run.acceptedTransitions, 0);
-    const requested = evaluated.reduce((total, run) => total + run.requestedTransitions, 0);
+    const achieved = evaluated.reduce((total, run) => total + Math.min(achievedDuration(run), targetDuration(run)), 0);
+    const target = evaluated.reduce((total, run) => total + targetDuration(run), 0);
     const evidence = allEvidence(evaluated);
     const complete = evidence.filter((item) => item.analysisComplete).length;
     return `<tr>
@@ -139,7 +151,7 @@ function modelTable(runs: BenchSummary[]): string {
       <td>${attempts.length}</td>
       <td>${evaluated.length}</td>
       <td>${evaluated.length ? percent(evaluated.filter((run) => run.ok).length / evaluated.length) : "—"}</td>
-      <td>${requested ? percent(transitions / requested) : "—"}</td>
+      <td>${target ? percent(achieved / target) : "—"}</td>
       <td>${evidence.length ? percent(complete / evidence.length) : "—"}</td>
       <td>${median(evaluated.map((run) => run.tokens.total))?.toFixed(0) ?? "—"}</td>
     </tr>`;
@@ -161,8 +173,9 @@ function runTable(
       <td><a href="${escapeHtml(relativeReport)}">${escapeHtml(run.runId)}</a></td>
       <td><span class="status ${run.ok ? "pass" : infrastructureFailure(run) || invalidRun(run) ? "infra" : "fail"}">${run.ok ? "PASS" : invalidRun(run) ? "INVALID" : infrastructureFailure(run) ? "INFRA" : "FAIL"}</span></td>
       <td>${escapeHtml(run.model)}</td>
+      <td>${escapeHtml(run.promptPolicyVersion ?? "legacy/unversioned")}</td>
       <td>${escapeHtml(run.scenario)}</td>
-      <td>${run.acceptedTransitions}/${run.requestedTransitions}</td>
+      <td>${(achievedDuration(run) / 60).toFixed(1)}m / ${(targetDuration(run) / 60).toFixed(0)}m</td>
       <td>${(run.coherenceEvidence ?? []).filter((item) => item.analysisComplete).length}/${(run.coherenceEvidence ?? []).length}</td>
       <td>${run.tokens.total}</td>
       <td>${escapeHtml(failureClass(run))}</td>
@@ -180,14 +193,14 @@ export function renderBenchmarkDashboard(
   );
   const infrastructure = runs.filter((run) => infrastructureFailure(run)).length;
   const invalid = runs.filter((run) => invalidRun(run)).length;
-  const accepted = evaluated.reduce((total, run) => total + run.acceptedTransitions, 0);
-  const requested = evaluated.reduce((total, run) => total + run.requestedTransitions, 0);
+  const achieved = evaluated.reduce((total, run) => total + Math.min(achievedDuration(run), targetDuration(run)), 0);
+  const target = evaluated.reduce((total, run) => total + targetDuration(run), 0);
   const evidence = allEvidence(evaluated);
   const completeEvidence = evidence.filter((item) => item.analysisComplete);
   const passRate = evaluated.length
     ? evaluated.filter((run) => run.ok).length / evaluated.length
     : null;
-  const continuityRate = requested ? accepted / requested : null;
+  const continuityRate = target ? achieved / target : null;
   const coherenceCoverage = evidence.length ? completeEvidence.length / evidence.length : null;
   const tempoMedian = median(completeEvidence.flatMap((item) =>
     item.tempo ? [item.tempo.normalizedDeltaPercent] : []));
@@ -217,12 +230,12 @@ export function renderBenchmarkDashboard(
   <div class="card"><span>Excluded runs</span><b>${infrastructure + invalid}</b></div>
 </section>
 <section class="grid2">
-  <article class="panel"><h2>Continuity survival</h2><div class="note">Share of performance episodes surviving through each required transition.</div>${continuityChart(evaluated)}</article>
+  <article class="panel"><h2>Continuity survival</h2><div class="note">Share of performance episodes covering each 15-minute checkpoint.</div>${continuityChart(evaluated)}</article>
   <article class="panel"><h2>Failure taxonomy</h2><div class="note">Infrastructure separated from model performance.</div>${failureChart(runs)}</article>
 </section>
 <section class="panel wide"><h2>Coherence trajectory</h2><div class="note">Measured evidence, not listening quality. Exact-key badge intentionally conservative.</div>${coherenceChart(completeEvidence)}</section>
 <section class="panel wide"><h2>Model/config comparison</h2><table><thead><tr><th>Model</th><th>Attempts</th><th>Evaluated</th><th>Pass</th><th>Continuity</th><th>Coherence coverage</th><th>Median tokens</th></tr></thead><tbody>${modelTable(runs)}</tbody></table></section>
-<section class="panel wide"><h2>Episode drill-down</h2><table><thead><tr><th>Run</th><th>Status</th><th>Model</th><th>Scenario</th><th>Transitions</th><th>Coherence pairs</th><th>Tokens</th><th>Class</th></tr></thead><tbody>${runTable(runs, root, reportUrl)}</tbody></table></section>
+<section class="panel wide"><h2>Episode drill-down</h2><table><thead><tr><th>Run</th><th>Status</th><th>Model</th><th>Prompt policy</th><th>Scenario</th><th>Coverage</th><th>Coherence pairs</th><th>Tokens</th><th>Class</th></tr></thead><tbody>${runTable(runs, root, reportUrl)}</tbody></table></section>
 <p class="note">Musical coherence remains unvalidated until real-audio listening scores exist. Dashboard reports mechanical continuity and analysis evidence only.</p>
 </main></body></html>`;
   return html;

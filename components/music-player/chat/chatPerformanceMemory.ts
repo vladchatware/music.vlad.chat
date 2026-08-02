@@ -6,10 +6,15 @@ export function getScheduledCandidateIds(messages: UIMessage[]): number[] {
     if (!value || typeof value !== "object" || seen.has(value)) return;
     seen.add(value);
     const record = value as Record<string, unknown>;
-    const isSchedule =
-      scheduledContext ||
+    const isScheduleTool =
       record.toolName === "schedule_track_analysis" ||
       (typeof record.type === "string" && record.type.includes("schedule_track_analysis"));
+    // Streamed tool inputs can contain only a numeric prefix when playback moves
+    // to the next deck and aborts the response (for example 719 from 719940358).
+    // Only a completed schedule result is authoritative candidate evidence.
+    const isSchedule = scheduledContext || (
+      isScheduleTool && record.state === "output-available"
+    );
     if (isSchedule && Array.isArray(record.ids)) {
       for (const id of record.ids) {
         if (typeof id === "number" && Number.isInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);

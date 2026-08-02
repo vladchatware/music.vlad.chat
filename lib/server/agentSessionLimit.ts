@@ -10,6 +10,12 @@ export type DJAgentRunMode =
   | "prepared_selection"
   | "post_player_preparation";
 
+export function getDJRequestTimeoutMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.ceil(value)
+    : undefined;
+}
+
 type ForcedToolChoice<T extends string = string> = {
   type: "tool";
   toolName: T;
@@ -44,9 +50,10 @@ export function getDJAgentToolChoice<T extends string = never>(input: {
   postPlayerScheduleWasRequired?: boolean;
 }): ForcedToolChoice<T | "dj_state" | "player" | "track_analysis" | "schedule_track_analysis"> | undefined {
   if (input.mode === "recovery") {
-    return input.recoveryStateRefreshed
-      ? { type: "tool", toolName: "player" }
-      : { type: "tool", toolName: "dj_state" };
+    if (!input.recoveryStateRefreshed) {
+      return { type: "tool", toolName: "dj_state" };
+    }
+    return input.policyChoice ?? { type: "tool", toolName: "player" };
   }
   if (input.mode === "prepared_selection") {
     return { type: "tool", toolName: "player" };

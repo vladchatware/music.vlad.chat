@@ -7,8 +7,8 @@ describe("parseBenchConfig", () => {
     const config = parseBenchConfig([], {});
     expect(config).toMatchObject({
       provider: "gateway",
-      transitions: 5,
-      timeoutMs: 55_000,
+      targetDurationSec: 90 * 60,
+      transitions: 64,
       maxSteps: 8,
       clockSpeed: 1,
       planningLeadSec: 90,
@@ -18,11 +18,13 @@ describe("parseBenchConfig", () => {
     expect(config.failures.size).toBe(0);
     expect(config.tracePath).toMatch(/logs\/dj-bench\/.+\/trace\.jsonl$/);
     expect(config.reportPath).toMatch(/logs\/dj-bench\/.+\/report\.md$/);
+    expect(config.manifestPath).toMatch(/logs\/dj-bench\/.+\/manifest\.json$/);
   });
 
   it("parses model, episode, clock, failures, and scenario", () => {
     const config = parseBenchConfig([
       "--model", "openai/gpt-5-mini",
+      "--duration-min", "120",
       "--transitions=7",
       "--clock-speed", "4",
       "--planning-lead-sec", "120",
@@ -33,12 +35,18 @@ describe("parseBenchConfig", () => {
     ], {});
     expect(config.model).toBe("openai/gpt-5-mini");
     expect(config.transitions).toBe(7);
+    expect(config.targetDurationSec).toBe(120 * 60);
     expect(config.clockSpeed).toBe(4);
     expect(config.planningLeadSec).toBe(120);
     expect([...config.failures]).toEqual(["stale-state", "missing-analysis"]);
     expect(config.scenario).toBe("interventions");
     expect(config.outgoingTrackId).toBe(2094321906);
     expect(config.quiet).toBe(true);
+  });
+
+  it("has no independent turn cutoff unless explicitly requested", () => {
+    expect(parseBenchConfig([], {}).timeoutMs).toBeUndefined();
+    expect(parseBenchConfig(["--timeout-ms", "70000"], {}).timeoutMs).toBe(70_000);
   });
 
   it("rejects unknown failures and invalid counts", () => {
@@ -75,6 +83,7 @@ describe("parseBenchConfig", () => {
       summaryPath: "/tmp/my-run.summary.json",
       reportPath: "/tmp/my-run.report.md",
       configPath: "/tmp/my-run.config.json",
+      manifestPath: "/tmp/my-run.manifest.json",
     });
   });
 });

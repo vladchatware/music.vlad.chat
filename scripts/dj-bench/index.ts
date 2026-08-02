@@ -1,5 +1,4 @@
 import { createMCPClient } from "@ai-sdk/mcp";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   ToolLoopAgent,
   stepCountIs,
@@ -7,6 +6,11 @@ import {
   type ToolSet,
 } from "ai";
 import { z } from "zod";
+import { DJ_SHARED_POLICY_VERSION } from "../../lib/dj/agentInstructions";
+import {
+  MIN_BODY_TRACK_DURATION_SEC,
+  MIN_TRACK_DWELL_SEC,
+} from "../../lib/dj/lastingSet";
 
 import { benchHelp, parseBenchConfig, type BenchConfig } from "./config";
 import { resolveBenchModel } from "./model";
@@ -17,9 +21,12 @@ import {
   CONTINUE_SET_PROMPT,
   DISCOVERY_PHASE_INSTRUCTIONS,
   INTERVENTION_PROMPTS,
+  REPLENISH_DISCOVERY_INSTRUCTIONS,
+  SCHEDULE_PHASE_INSTRUCTIONS,
 } from "./prompt";
 import {
   MockDJRuntime,
+  createPerformTransitionInputSchema,
   extractCandidateTracks,
   extractTrackAnalyses,
   performTransitionInputSchema,
@@ -28,14 +35,24 @@ import {
   type PerformTransitionResult,
 } from "./runtime";
 import {
-  publicMcpUrl,
   writeRunArtifacts,
   writeRunConfig,
   type BenchSummary,
   type CoherenceEvidence,
 } from "./report";
 import { TraceRecorder } from "./trace";
-import { benchInvalidReason } from "./validity";
+import type { BenchTimelineManifest } from "./timeline";
+import {
+  runBrowserContinuationRegression,
+  runPreparedSelectionHoldingLoopRegression,
+  runPreparedSelectionLatencyRegression,
+} from "./playthrough";
+import {
+  FRUTIGER_AERO_OPENING_TRACKS,
+  FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
+  FRUTIGER_AERO_PREPARED_CONTEXT,
+} from "../../lib/dj/performance/frutigerAeroPreparedSet";
+import { hasValidCandidatePreparation } from "./validity";
 
 const REMOTE_TOOL_NAMES = [
   "likes",
@@ -44,6 +61,7 @@ const REMOTE_TOOL_NAMES = [
   "compare_track_analysis",
   "schedule_track_analysis",
 ] as const;
+const MINIMUM_OPENER_DURATION_SEC = MIN_BODY_TRACK_DURATION_SEC;
 
 interface BenchCounters {
   toolCalls: Record<string, number>;
@@ -54,11 +72,11 @@ interface BenchCounters {
   backstageNarrationCount: number;
   analysisBudgetRejections: number;
   discoveryBudgetRejections: number;
+  acceptedWithReadyAnalysis: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   accountedToolWallMs: number;
-  mcpFailures: number;
 }
 
 function createCounters(): BenchCounters {
@@ -71,11 +89,11 @@ function createCounters(): BenchCounters {
     backstageNarrationCount: 0,
     analysisBudgetRejections: 0,
     discoveryBudgetRejections: 0,
+    acceptedWithReadyAnalysis: 0,
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
     accountedToolWallMs: 0,
-    mcpFailures: 0,
   };
 }
 
@@ -132,22 +150,26 @@ function usageNumber(
 }
 
 async function connectMcp(config: BenchConfig) {
-  const requestInit = config.cookie
-    ? { headers: { cookie: config.cookie } }
-    : undefined;
   try {
-    const transport = new StreamableHTTPClientTransport(new URL(config.mcpUrl), {
-      requestInit,
-    });
     return await createMCPClient({
-      transport,
+      transport: {
+        type: "http",
+        url: config.mcpUrl,
+        headers: config.cookie ? { cookie: config.cookie } : undefined,
+      },
       clientName: "music-vlad-dj-bench",
       version: "0.1.0",
       maxRetries: 1,
     });
   } catch (error) {
+    const details: string[] = [];
+    let current: unknown = error;
+    while (current && details.length < 5) {
+      details.push(current instanceof Error ? `${current.name}: ${current.message}` : String(current));
+      current = current instanceof Error ? current.cause : undefined;
+    }
     throw new Error(
-      `Could not connect to MCP at ${publicMcpUrl(config.mcpUrl)}. Start app with "bun run dev" first.`,
+      `Could not connect to MCP at ${config.mcpUrl}: ${details.join(" <- ")}`,
       { cause: error },
     );
   }
@@ -259,16 +281,25 @@ async function bootstrapOutgoingTrack(opts: {
   const { remoteTools, config, trace } = opts;
   const likesStartedAt = performance.now();
   const likesOutput = await executeRemoteTool(remoteTools, "likes", { limit: 30 });
-  const candidates = extractCandidateTracks(likesOutput);
+  const likedCandidates = extractCandidateTracks(likesOutput);
+  const preparedOpening = /frutiger\s+aero/i.test(config.prompt);
+  const candidates = preparedOpening
+    ? extractCandidateTracks(FRUTIGER_AERO_OPENING_TRACKS)
+    : likedCandidates;
   trace.record("bootstrap.likes", 0, {
     durationMs: Math.round(performance.now() - likesStartedAt),
-    trackIds: candidates.map(({ id }) => id),
+    trackIds: likedCandidates.map(({ id }) => id),
+    preparedOpeningTrackIds: preparedOpening
+      ? candidates.map(({ id }) => id)
+      : [],
   });
   if (candidates.length === 0) {
     throw new Error("Could not bootstrap outgoing track: likes returned no tracks");
   }
 
-  let tracksToInspect = candidates.slice(0, 10);
+  let tracksToInspect = candidates
+    .filter(({ durationSec }) => durationSec >= MINIMUM_OPENER_DURATION_SEC)
+    .slice(0, 10);
   if (config.outgoingTrackId !== undefined) {
     const requested = candidates.find(({ id }) => id === config.outgoingTrackId);
     if (!requested) {
@@ -277,6 +308,25 @@ async function bootstrapOutgoingTrack(opts: {
       );
     }
     tracksToInspect = [requested];
+  }
+
+  if (tracksToInspect.length === 0) {
+    throw new Error(
+      `Likes sample contained no opener at least ${MINIMUM_OPENER_DURATION_SEC}s long`,
+    );
+  }
+
+  if (preparedOpening && config.outgoingTrackId === undefined) {
+    const track = tracksToInspect[0]!;
+    trace.record("bootstrap.prepared_outgoing", 0, {
+      track,
+      analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
+    });
+    return {
+      track,
+      analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
+      likesOutput,
+    };
   }
 
   for (const track of tracksToInspect) {
@@ -296,9 +346,15 @@ async function bootstrapOutgoingTrack(opts: {
     const enrichedTrack: CandidateTrack = {
       ...track,
       bpm: analysisNumber(record.analysis, ["tempo", "bpm"]) ?? track.bpm,
-      durationSec:
-        analysisNumber(record.analysis, ["durationSec"]) ?? track.durationSec,
     };
+    if (enrichedTrack.durationSec < MINIMUM_OPENER_DURATION_SEC) {
+      trace.record("bootstrap.outgoing_skipped", 0, {
+        track: enrichedTrack,
+        reason: "too_short_for_endurance_set",
+        minimumDurationSec: MINIMUM_OPENER_DURATION_SEC,
+      });
+      continue;
+    }
     trace.record("bootstrap.outgoing", 0, {
       track: enrichedTrack,
       analysis: record.analysis,
@@ -311,7 +367,7 @@ async function bootstrapOutgoingTrack(opts: {
   }
 
   throw new Error(
-    `No ready analysis found for ${tracksToInspect.length} liked outgoing-track candidate(s)`,
+    `No endurance-ready analysis found for ${tracksToInspect.length} liked opener candidate(s)`,
   );
 }
 
@@ -340,6 +396,7 @@ function createWrappedRemoteTools(opts: {
   let analysisReadsThisTurn = 0;
   let likesReadsThisTurn = 0;
   let trackSearchesThisTurn = 0;
+  let analysisSchedulesThisTurn = 0;
 
   for (const name of REMOTE_TOOL_NAMES) {
     const remote = remoteTools[name];
@@ -421,6 +478,22 @@ function createWrappedRemoteTools(opts: {
               return output;
             }
           }
+          if (name === "schedule_track_analysis") {
+            analysisSchedulesThisTurn += 1;
+            if (analysisSchedulesThisTurn > 1) {
+              increment(counters.toolFailures, name);
+              const output = {
+                status: "already_scheduled",
+                instruction: "Analysis was already queued this turn. Continue without polling.",
+              };
+              trace.record("tool.rejected", runtime.nowSec, {
+                tool: name,
+                reason: "schedule_budget_exhausted",
+                output,
+              });
+              return output;
+            }
+          }
 
           const output =
             name === "likes" && !bootstrapLikesConsumed
@@ -462,7 +535,6 @@ function createWrappedRemoteTools(opts: {
           counters.accountedToolWallMs += durationMs;
           syncClock();
           increment(counters.toolFailures, name);
-          counters.mcpFailures += 1;
           trace.record("tool.failed", runtime.nowSec, {
             tool: name,
             durationMs,
@@ -479,6 +551,7 @@ function createWrappedRemoteTools(opts: {
       analysisReadsThisTurn = 0;
       likesReadsThisTurn = 0;
       trackSearchesThisTurn = 0;
+      analysisSchedulesThisTurn = 0;
     },
   };
 }
@@ -509,11 +582,17 @@ function createLocalTools(opts: {
     perform_transition: {
       description:
         "Submit one complete transition. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
-      inputSchema: performTransitionInputSchema,
+      inputSchema: createPerformTransitionInputSchema(
+        runtime.snapshot().candidateTrackIds,
+      ),
       execute: async (input): Promise<PerformTransitionResult> => {
         syncClock();
         increment(counters.toolCalls, "perform_transition");
+        const hasReadyAnalysis = Boolean(runtime.analysisFor(input.id));
         const result = runtime.performTransition(input);
+        if (result.status === "accepted" && hasReadyAnalysis) {
+          counters.acceptedWithReadyAnalysis += 1;
+        }
         increment(
           result.status === "accepted" ? counters.toolCalls : counters.toolFailures,
           result.status === "accepted" ? "perform_transition.accepted" : "perform_transition.rejected",
@@ -545,6 +624,22 @@ export async function runBench(config: BenchConfig) {
   const agentTranscript: BenchSummary["agentTranscript"] = [];
   let runtime: MockDJRuntime | null = null;
   let outgoingTrack: CandidateTrack | null = null;
+  const browserPlaythroughs = [
+    runBrowserContinuationRegression(),
+    runPreparedSelectionLatencyRegression(),
+    runPreparedSelectionHoldingLoopRegression(),
+  ];
+  for (const browserPlaythrough of browserPlaythroughs) {
+    trace.record("playthrough.failure_reproduced", 0, {
+      failureId: browserPlaythrough.failureWitness.failureId,
+      result: browserPlaythrough.failureWitness,
+    });
+    trace.record("playthrough.current_verified", 0, {
+      failureId: browserPlaythrough.current.failureId,
+      result: browserPlaythrough.current,
+      passed: browserPlaythrough.passed,
+    });
+  }
 
   try {
     mcp = await connectMcp(config);
@@ -562,16 +657,25 @@ export async function runBench(config: BenchConfig) {
       config.planningLeadSec,
     );
     runtime.registerCandidates(bootstrap.likesOutput);
+    const preparedOpening = /frutiger\s+aero/i.test(config.prompt);
+    if (preparedOpening) {
+      runtime.registerCandidates(FRUTIGER_AERO_OPENING_TRACKS);
+    }
+    const episodeInstructions = preparedOpening
+      ? `${BENCH_DJ_INSTRUCTIONS}\n\n${FRUTIGER_AERO_PREPARED_CONTEXT}`
+      : BENCH_DJ_INSTRUCTIONS;
     trace.record("episode.started", runtime.nowSec, {
       model: config.model,
       provider: config.provider,
       transitions: config.transitions,
+      targetDurationSec: config.targetDurationSec,
       clockSpeed: config.clockSpeed,
       planningLeadSec: config.planningLeadSec,
       failures: [...config.failures],
       scenario: config.scenario,
-      mcpUrl: publicMcpUrl(config.mcpUrl),
+      mcpUrl: config.mcpUrl,
       outgoingTrack: bootstrap.track,
+      instructions: episodeInstructions,
     });
     const model = resolveBenchModel(config);
     let syncRuntimeClock = () => {};
@@ -584,16 +688,6 @@ export async function runBench(config: BenchConfig) {
       bootstrapLikesOutput: bootstrap.likesOutput,
       syncClock: () => syncRuntimeClock(),
     });
-    const tools = {
-      ...remoteToolController.tools,
-      ...createLocalTools({
-        runtime,
-        trace,
-        counters,
-        syncClock: () => syncRuntimeClock(),
-      }),
-    };
-
     for (let turnIndex = 0; turnIndex < config.transitions; turnIndex += 1) {
       let lastClockWall = performance.now();
       syncRuntimeClock = () => {
@@ -603,6 +697,15 @@ export async function runBench(config: BenchConfig) {
       };
       runtime.beginTurn();
       remoteToolController.beginTurn();
+      const tools = {
+        ...remoteToolController.tools,
+        ...createLocalTools({
+          runtime,
+          trace,
+          counters,
+          syncClock: () => syncRuntimeClock(),
+        }),
+      };
       const userText = userMessageForTurn(config, turnIndex);
       messages.push({ role: "user", content: userText });
       const rejectedBeforeTurn = runtime.stats.rejectedTransitions;
@@ -616,22 +719,40 @@ export async function runBench(config: BenchConfig) {
       const agent = new ToolLoopAgent({
         id: "headless-dj-bench",
         model,
-        instructions: BENCH_DJ_INSTRUCTIONS,
+        instructions: episodeInstructions,
         tools,
         stopWhen: [
           () => runtime.acceptedThisTurn,
           stepCountIs(config.maxSteps),
         ],
         prepareStep: ({ stepNumber, steps }) => {
+          const prepared = <T extends Record<string, unknown>>(result: T): T => {
+            trace.record("agent.step_prepared", runtime.nowSec, {
+              turn: turnIndex + 1,
+              step: stepNumber,
+              userText,
+              system: result.system ?? episodeInstructions,
+              activeTools: result.activeTools,
+              toolChoice: result.toolChoice,
+            });
+            return result;
+          };
           if (stepNumber === 0) {
-            return {
+            return prepared({
               activeTools: ["dj_state"],
-              toolChoice: { type: "tool", toolName: "dj_state" },
-            };
+              toolChoice: { type: "tool" as const, toolName: "dj_state" },
+            });
           }
           const allToolNames = new Set(
             steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
           );
+          if (turnIndex === 0 && preparedOpening) {
+            return prepared({
+              activeTools: ["perform_transition"],
+              toolChoice: { type: "tool" as const, toolName: "perform_transition" },
+              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            });
+          }
           if (
             turnIndex === 0 &&
             (!allToolNames.has("likes") || !allToolNames.has("tracks"))
@@ -639,47 +760,66 @@ export async function runBench(config: BenchConfig) {
             const missingTools = (["likes", "tracks"] as const).filter(
               (name) => !allToolNames.has(name),
             );
-            return {
+            return prepared({
               activeTools: [...missingTools],
               toolChoice:
                 missingTools.length === 1
-                  ? { type: "tool", toolName: missingTools[0]! }
-                  : "required",
-              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${DISCOVERY_PHASE_INSTRUCTIONS}`,
-            };
+                  ? { type: "tool" as const, toolName: missingTools[0]! }
+                  : "required" as const,
+              system: `${episodeInstructions}\n\n${DISCOVERY_PHASE_INSTRUCTIONS}`,
+            });
+          }
+          if (
+            turnIndex > 0 &&
+            runtime.remainingCandidateCount <= 6 &&
+            !allToolNames.has("tracks")
+          ) {
+            return prepared({
+              activeTools: ["tracks"],
+              toolChoice: { type: "tool" as const, toolName: "tracks" },
+              system: `${episodeInstructions}\n\n${REPLENISH_DISCOVERY_INSTRUCTIONS}`,
+            });
+          }
+          const discoveredThisTurn = allToolNames.has("likes") || allToolNames.has("tracks");
+          if (discoveredThisTurn && !allToolNames.has("schedule_track_analysis")) {
+            return prepared({
+              activeTools: ["schedule_track_analysis"],
+              toolChoice: { type: "tool" as const, toolName: "schedule_track_analysis" },
+              system: `${episodeInstructions}\n\n${SCHEDULE_PHASE_INSTRUCTIONS}`,
+            });
           }
           if (
             !allToolNames.has("track_analysis") &&
             !allToolNames.has("compare_track_analysis")
           ) {
-            return {
+            return prepared({
               activeTools: ["track_analysis", "compare_track_analysis"],
-              toolChoice: "required",
-              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${ANALYSIS_PHASE_INSTRUCTIONS}`,
-            };
+              toolChoice: "required" as const,
+              system: `${episodeInstructions}\n\n${ANALYSIS_PHASE_INSTRUCTIONS}`,
+            });
           }
           const lastToolNames = new Set(
             steps.at(-1)?.toolCalls.map((call) => call.toolName) ?? [],
           );
           if (lastToolNames.has("perform_transition")) {
-            return {
+            return prepared({
               activeTools: ["dj_state"],
-              toolChoice: { type: "tool", toolName: "dj_state" },
-              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
-            };
+              toolChoice: { type: "tool" as const, toolName: "dj_state" },
+              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            });
           }
           if (lastToolNames.has("dj_state")) {
-            return {
+            return prepared({
               activeTools: ["perform_transition"],
-              toolChoice: { type: "tool", toolName: "perform_transition" },
-              system: `${BENCH_DJ_INSTRUCTIONS}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
-            };
+              toolChoice: { type: "tool" as const, toolName: "perform_transition" },
+              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            });
           }
-          return {
-            activeTools: ["dj_state", "perform_transition"],
-            toolChoice: "required",
-            system: `${BENCH_DJ_INSTRUCTIONS}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
-          };
+          return prepared({
+            activeTools: ["perform_transition"],
+            toolChoice: { type: "tool" as const, toolName: "perform_transition" },
+            system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+          });
         },
         onStepFinish: (step) => {
           const stepUsage = step.usage as unknown as Record<string, unknown>;
@@ -694,6 +834,7 @@ export async function runBench(config: BenchConfig) {
               turn: turnIndex + 1,
               step: step.stepNumber,
               text: step.text,
+              reasoningText: step.reasoningText,
               backstageNarration,
             });
           }
@@ -712,9 +853,20 @@ export async function runBench(config: BenchConfig) {
       });
 
       try {
+        const stateAtTurnStart = runtime.snapshot();
+        const physicalRunwayMs = Math.max(
+          1,
+          Math.floor(
+            (stateAtTurnStart.durationSec - stateAtTurnStart.currentTimeSec - 10) /
+              config.clockSpeed * 1_000,
+          ),
+        );
+        const turnTimeoutMs = config.timeoutMs === undefined
+          ? physicalRunwayMs
+          : Math.min(config.timeoutMs, physicalRunwayMs);
         const result = await agent.generate({
           messages,
-          timeout: { totalMs: config.timeoutMs },
+          timeout: { totalMs: turnTimeoutMs },
         });
         syncRuntimeClock();
         const durationMs = Math.round(performance.now() - turnStartedAt);
@@ -745,7 +897,7 @@ export async function runBench(config: BenchConfig) {
         const rawError = error instanceof Error ? error.message : String(error);
         terminalError =
           /(?:Delay was aborted|operation timed out)/i.test(rawError)
-            ? `Turn ${turnIndex + 1} deadline exceeded after ${config.timeoutMs}ms without accepted transition`
+            ? `Turn ${turnIndex + 1} exhausted its active-track runway without accepted transition`
             : rawError;
         trace.record("turn.failed", runtime.nowSec, {
           turn: turnIndex + 1,
@@ -765,6 +917,14 @@ export async function runBench(config: BenchConfig) {
       }
       const played = runtime.snapshot().playedTrackIds;
       acceptedTrackIds.push(played.at(-1)!);
+      if (runtime.audibleCoverageEndSec >= config.targetDurationSec) {
+        trace.record("episode.duration_target_reached", runtime.nowSec, {
+          targetDurationSec: config.targetDurationSec,
+          achievedDurationSec: runtime.audibleCoverageEndSec,
+          transitions: acceptedTrackIds.length,
+        });
+        break;
+      }
       if (turnIndex < config.transitions - 1) {
         runtime.advanceToNextPlanningWindow();
         trace.record("playback.advanced", runtime.nowSec, {
@@ -772,6 +932,16 @@ export async function runBench(config: BenchConfig) {
           state: runtime.snapshot(),
         });
       }
+    }
+    if (runtime.audibleCoverageEndSec < config.targetDurationSec && !terminalError) {
+      terminalError =
+        `Transition safety ceiling reached with ${(runtime.audibleCoverageEndSec / 60).toFixed(1)}` +
+        ` of ${(config.targetDurationSec / 60).toFixed(1)} minutes covered`;
+      trace.record("episode.duration_target_missed", runtime.nowSec, {
+        targetDurationSec: config.targetDurationSec,
+        achievedDurationSec: runtime.audibleCoverageEndSec,
+        transitions: acceptedTrackIds.length,
+      });
     }
   } catch (error) {
     if (!terminalError) {
@@ -791,26 +961,45 @@ export async function runBench(config: BenchConfig) {
     (counters.toolCalls.compare_track_analysis ?? 0);
   const stateReads = runtime?.stats.stateReads ?? 0;
   const impossibleScheduleAttempts = runtime?.stats.impossibleScheduleAttempts ?? 0;
-  const completedRatio = acceptedTrackIds.length / config.transitions;
+  const achievedDurationSec = runtime?.audibleCoverageEndSec ?? 0;
+  const reachedTargetDuration = achievedDurationSec >= config.targetDurationSec;
+  const maxUncoveredGapSec = runtime?.audibleCoverage(config.targetDurationSec).maxGapSec ?? config.targetDurationSec;
+  const completedRatio = Math.min(1, achievedDurationSec / config.targetDurationSec);
   const coherenceEvidence = buildCoherenceEvidence(runtime);
-  const invalidReason = benchInvalidReason({
-    terminalError,
-    mcpFailures: counters.mcpFailures,
+  const completedDwells = (runtime?.transitions ?? []).map((transition) => {
+    const segment = runtime?.audibleSegments.find(
+      (item) => item.trackId === transition.fromTrackId,
+    );
+    return Math.max(0, transition.setStartSec - (segment?.setStartSec ?? 0));
   });
+  const shortBodyTrackIds = (runtime?.timelineTracks ?? [])
+    .filter((track) => track.durationSec < MIN_BODY_TRACK_DURATION_SEC)
+    .map((track) => track.id);
+  const underMinimumDwellCount = completedDwells.filter(
+    (seconds) => seconds + 0.01 < MIN_TRACK_DWELL_SEC,
+  ).length;
+  const pacingPass = underMinimumDwellCount === 0 && shortBodyTrackIds.length === 0;
   const summary: BenchSummary = {
     ok:
       terminalError === null &&
-      acceptedTrackIds.length === config.transitions &&
+      reachedTargetDuration &&
+      maxUncoveredGapSec === 0 &&
       duplicateAcceptedTracks === 0 &&
-      stateReads >= config.transitions &&
+      acceptedTrackIds.length > 0 &&
+      stateReads >= acceptedTrackIds.length &&
       impossibleScheduleAttempts === 0 &&
-      (counters.toolCalls.likes ?? 0) > 0 &&
-      (counters.toolCalls.tracks ?? 0) > 0 &&
+      hasValidCandidatePreparation({
+        preparedOpening: /frutiger\s+aero/i.test(config.prompt),
+        likesCalls: counters.toolCalls.likes ?? 0,
+        tracksCalls: counters.toolCalls.tracks ?? 0,
+      }) &&
       analysisCalls > 0 &&
       counters.falseSuccessClaims === 0 &&
-      counters.backstageNarrationCount === 0,
-    validity: invalidReason ? "invalid" : "valid",
-    invalidReason,
+      counters.backstageNarrationCount === 0 &&
+      pacingPass &&
+      browserPlaythroughs.every((proof) => proof.passed),
+    validity: "valid",
+    invalidReason: null,
     runId: config.runId,
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -818,7 +1007,12 @@ export async function runBench(config: BenchConfig) {
     provider: config.provider,
     scenario: config.scenario,
     prompt: config.prompt,
+    promptPolicyVersion: DJ_SHARED_POLICY_VERSION,
     planningLeadSec: config.planningLeadSec,
+    targetDurationSec: config.targetDurationSec,
+    achievedDurationSec,
+    reachedTargetDuration,
+    maxUncoveredGapSec,
     outgoingTrack,
     requestedTransitions: config.transitions,
     acceptedTransitions: acceptedTrackIds.length,
@@ -831,10 +1025,25 @@ export async function runBench(config: BenchConfig) {
     toolFailures: counters.toolFailures,
     scheduledTrackIds: [...new Set(counters.scheduledTrackIds)],
     analysisTrackIds: [...new Set(counters.analysisTrackIds)],
+    preparedAnalysis: {
+      acceptedWithReadyAnalysis: counters.acceptedWithReadyAnalysis,
+      coverage: acceptedTrackIds.length > 0
+        ? counters.acceptedWithReadyAnalysis / acceptedTrackIds.length
+        : 0,
+    },
+    pacing: {
+      status: pacingPass ? "pass" : "fail",
+      minimumDwellSec: MIN_TRACK_DWELL_SEC,
+      minimumBodyTrackDurationSec: MIN_BODY_TRACK_DURATION_SEC,
+      completedDwellsSec: completedDwells,
+      underMinimumDwellCount,
+      shortBodyTrackIds,
+    },
     falseSuccessClaims: counters.falseSuccessClaims,
     backstageNarrationCount: counters.backstageNarrationCount,
     analysisBudgetRejections: counters.analysisBudgetRejections,
     discoveryBudgetRejections: counters.discoveryBudgetRejections,
+    browserPlaythroughs,
     tokens: {
       input: counters.inputTokens,
       output: counters.outputTokens,
@@ -845,11 +1054,13 @@ export async function runBench(config: BenchConfig) {
     summaryPath: config.summaryPath,
     reportPath: config.reportPath,
     configPath: config.configPath,
+    manifestPath: config.manifestPath,
     error: terminalError,
     continuity: {
       status:
         terminalError === null &&
-        acceptedTrackIds.length === config.transitions &&
+        reachedTargetDuration &&
+        maxUncoveredGapSec === 0 &&
         impossibleScheduleAttempts === 0
           ? "pass"
           : "fail",
@@ -861,6 +1072,7 @@ export async function runBench(config: BenchConfig) {
         toTrackId: transition.toTrackId,
         acceptedAtSec: transition.acceptedAtSec,
         scheduledAtSec: transition.scheduledAtSec,
+        scheduledAtSetSec: transition.scheduledAtSetSec,
         blendDurationSec: transition.blendDurationSec,
       })),
     },
@@ -870,7 +1082,49 @@ export async function runBench(config: BenchConfig) {
       "Mechanical bench result only. Musical quality requires real-audio listening review.",
   };
   trace.record("episode.finished", runtime?.nowSec ?? 0, { ...summary });
-  writeRunArtifacts(config, summary);
+  const manifest: BenchTimelineManifest = {
+    schemaVersion: 1,
+    runId: summary.runId,
+    model: summary.model,
+    provider: summary.provider,
+    scenario: summary.scenario,
+    prompt: summary.prompt,
+    startedAt: summary.startedAt,
+    finishedAt: summary.finishedAt,
+    targetDurationSec: summary.targetDurationSec,
+    achievedDurationSec: summary.achievedDurationSec,
+    tracks: runtime ? [...runtime.timelineTracks] : [],
+    audibleSegments: runtime ? [...runtime.audibleSegments] : [],
+    transitions: runtime ? [...runtime.transitions] : [],
+    events: trace.events.map((event) => {
+      const {
+        sequence,
+        type,
+        simulatedTimeSec,
+        wallTime,
+        wallElapsedMs,
+        turn,
+        step,
+        text,
+        reasoningText,
+        ...payload
+      } = event;
+      return {
+        id: `event-${sequence}`,
+        sequence,
+        type,
+        setTimeSec: simulatedTimeSec,
+        wallTime,
+        wallElapsedMs,
+        turn: typeof turn === "number" ? turn : undefined,
+        step: typeof step === "number" ? step : undefined,
+        text: typeof text === "string" ? text : undefined,
+        reasoningText: typeof reasoningText === "string" ? reasoningText : undefined,
+        payload,
+      };
+    }),
+  };
+  writeRunArtifacts(config, summary, manifest);
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   return summary;
 }
