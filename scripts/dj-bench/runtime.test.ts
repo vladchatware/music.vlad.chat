@@ -39,6 +39,14 @@ describe("MockDJRuntime", () => {
     expect(schema.safeParse(transition(201, 1)).success).toBe(true);
   });
 
+  it("validates transition IDs against candidates discovered after schema creation", () => {
+    let candidateIds: number[] = [];
+    const schema = createPerformTransitionInputSchema(() => candidateIds);
+    expect(schema.safeParse(transition(201, 1)).success).toBe(false);
+    candidateIds = [201];
+    expect(schema.safeParse(transition(201, 1)).success).toBe(true);
+  });
+
   it("extracts MCP text candidates", () => {
     expect(extractCandidateTracks({ content: [{ type: "text", text: candidateText }] }))
       .toEqual([
@@ -163,6 +171,21 @@ describe("MockDJRuntime", () => {
       { id: 302, title: "Body track", duration: 180_000 },
     ])).toEqual([expect.objectContaining({ id: 302 })]);
     expect(runtime.snapshot().candidateTrackIds).toEqual([302]);
+  });
+
+  it("tracks short incoming runway as recoverable, not physically impossible", () => {
+    const runtime = new MockDJRuntime();
+    runtime.registerCandidates([{ id: 303, title: "Tight runway", duration: 120_000 }]);
+    runtime.beginTurn();
+    const input = transition(303, runtime.readState().stateRevision);
+    input.performance.entry = { anchor: "time", timeSec: 40 };
+
+    expect(runtime.performTransition(input)).toMatchObject({
+      status: "rejected",
+      reason: "insufficient_track_runway",
+    });
+    expect(runtime.stats.impossibleScheduleAttempts).toBe(0);
+    expect(runtime.stats.recoverableRunwayRejections).toBe(1);
   });
 
   it("does not let preview analysis rewrite authoritative track duration", () => {

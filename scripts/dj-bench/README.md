@@ -124,6 +124,11 @@ Real MCP mode returns likes, searches, and analysis to selected model. Run only
 when that data egress is intended and authorized. Use `--cookie` only when
 authenticated user-library access is required; never store cookie in trace.
 
+`/bench`, `/bench/[runId]`, and configured MCP endpoint are intentional public
+surfaces. Run artifacts may expose model text, reasoning, tool evidence, and
+track metadata, so never place credentials in prompts, MCP URLs, or trace data.
+MCP URL is stored verbatim for reproducibility because endpoint itself is public.
+
 ## Success boundary
 
 `ok: true` means duration and mechanical contract held:
@@ -134,6 +139,7 @@ authenticated user-library access is required; never store cookie in trace.
 - newly discovered candidates queued for future analysis;
 - requested set duration covered without a gap;
 - accepted tracks unique;
+- completed dwell times meet `MIN_TRACK_DWELL_SEC` and body tracks meet `MIN_BODY_TRACK_DURATION_SEC`;
 - no detected false success claim.
 
 It does not mean selections or transitions sound good. Real-audio listening

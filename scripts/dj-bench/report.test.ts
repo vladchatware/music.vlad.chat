@@ -147,7 +147,7 @@ describe("DJ bench reports", () => {
 
   it("graphs accepted continuity and measured coherence", () => {
     const summary = {
-      ok: true,
+      ok: false,
       outgoingTrack: { id: 10 },
       requestedTransitions: 1,
       acceptedTransitions: 1,

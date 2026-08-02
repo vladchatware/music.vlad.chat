@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import type { BenchSummary } from "../../scripts/dj-bench/report";
 import type { BenchTimelineManifest } from "../../scripts/dj-bench/timeline";
@@ -45,7 +45,13 @@ export function readBenchRun(
   root = benchRoot(),
 ): { summary: BenchSummary; manifest: BenchTimelineManifest | null } | null {
   if (!RUN_ID.test(runId)) return null;
-  const directory = join(root, runId);
+  const directory = resolve(root, runId);
+  const relativeDirectory = relative(root, directory);
+  if (
+    relativeDirectory === "" ||
+    relativeDirectory.startsWith("..") ||
+    isAbsolute(relativeDirectory)
+  ) return null;
   const summary = parseJson<BenchSummary>(join(directory, "summary.json"));
   if (!summary) return null;
   return {

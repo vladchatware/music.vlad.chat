@@ -240,11 +240,20 @@ export default function BenchInspector({
             style={{ left: `${transition.setStartSec / duration * 100}%`, top: 106 }}
             type="button"
             title={`Transition ${transition.fromTrackId} → ${transition.toTrackId}`}
+            aria-label={`Transition ${transition.fromTrackId} → ${transition.toTrackId}`}
             onClick={(event) => {
               event.stopPropagation();
-              const evidence = evidenceEvents.find((item) =>
-                item.type === "transition.accepted" && item.payload.trackId === transition.toTrackId,
-              );
+              const evidence = evidenceEvents
+                .filter((item) =>
+                  item.type === "transition.accepted" && item.payload.trackId === transition.toTrackId,
+                )
+                .reduce<BenchTimelineEvent | undefined>((closest, item) =>
+                  !closest ||
+                  Math.abs(item.setTimeSec - transition.setStartSec) <
+                    Math.abs(closest.setTimeSec - transition.setStartSec)
+                    ? item
+                    : closest,
+                undefined);
               seek(Math.max(0, transition.setStartSec - 10), evidence);
             }}
             key={transition.id}
@@ -256,6 +265,7 @@ export default function BenchInspector({
               style={{ left: `${event.setTimeSec / duration * 100}%`, top: 137 + index % 4 * 18 }}
               type="button"
               title={eventLabel(event)}
+              aria-label={eventLabel(event)}
               onClick={(click) => { click.stopPropagation(); seek(event.setTimeSec, event); }}
               key={event.id}
             />;

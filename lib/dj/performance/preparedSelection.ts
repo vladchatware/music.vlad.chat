@@ -13,12 +13,13 @@ export type PreparedPlayerSelection = z.infer<typeof preparedPlayerSelectionSche
 export function hydratePreparedPlayerSelection(
   selection: PreparedPlayerSelection,
 ): PlayerToolInput {
+  const intentionalReset = selection.energyArc === "reset";
   return {
     id: selection.id,
     performance: {
       energyArc: selection.energyArc,
       exit: { anchor: "next_phrase" },
-      entry: { anchor: "mix_in" },
+      entry: { anchor: intentionalReset ? "first_downbeat" : "mix_in" },
       blend: {
         duration: { bars: 8 },
         crossfaderCurve: "equal_power",

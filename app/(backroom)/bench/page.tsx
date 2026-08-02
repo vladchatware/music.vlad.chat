@@ -1,10 +1,6 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
-import { api } from "@/convex/_generated/api";
 import { listBenchRuns } from "@/lib/server/djBenchRuns";
 
 import styles from "./bench.module.css";
@@ -17,10 +13,6 @@ function duration(summary: { achievedDurationSec?: number; simulatedTimeSec: num
 }
 
 export default async function BenchPage() {
-  const token = await convexAuthNextjsToken();
-  const user = token ? await fetchQuery(api.users.viewer, {}, { token }).catch(() => null) : null;
-  const developmentAccess = process.env.NODE_ENV === "development";
-  if ((!user || user.isAnonymous) && !developmentAccess) redirect("/dashboard?returnTo=/bench");
   const runs = listBenchRuns();
 
   return <main className={styles.shell}>

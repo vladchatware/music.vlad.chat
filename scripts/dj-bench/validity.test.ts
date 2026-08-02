@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hasValidCandidatePreparation } from "./validity";
+import { benchInvalidReason, hasValidCandidatePreparation } from "./validity";
 
 describe("DJ bench preparation validity", () => {
   it("accepts a validated prepared opening without redundant cold-start discovery", () => {
@@ -22,5 +22,23 @@ describe("DJ bench preparation validity", () => {
       likesCalls: 0,
       tracksCalls: 1,
     })).toBe(false);
+    expect(hasValidCandidatePreparation({
+      preparedOpening: false,
+      likesCalls: 1,
+      tracksCalls: 0,
+    })).toBe(false);
+  });
+
+  it("separates bootstrap infrastructure failures from model performance", () => {
+    expect(benchInvalidReason({
+      terminalError: "Could not connect to MCP",
+      runtimeStarted: false,
+      outgoingTrackLoaded: false,
+    })).toContain("Could not connect to MCP");
+    expect(benchInvalidReason({
+      terminalError: "Turn ended without accepted transition",
+      runtimeStarted: true,
+      outgoingTrackLoaded: true,
+    })).toBeNull();
   });
 });

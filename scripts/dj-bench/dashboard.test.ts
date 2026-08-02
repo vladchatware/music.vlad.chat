@@ -113,4 +113,22 @@ describe("benchmark dashboard", () => {
 
     expect(html).toContain('href="/bench?run=run-1"');
   });
+
+  it("escapes analyzed harmonic keys before rendering HTML", () => {
+    const html = renderBenchmarkDashboard("/tmp/dj-bench", [run({
+      coherenceEvidence: [{
+        fromTrackId: 1,
+        toTrackId: 2,
+        harmonic: {
+          outgoingKey: '<img src=x onerror="alert(1)">',
+          incomingKey: "4A",
+          sameKey: false,
+        },
+        analysisComplete: true,
+      }],
+    })]);
+
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+  });
 });

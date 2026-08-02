@@ -61,6 +61,20 @@ describe("analysis worker job", () => {
     expect(decoder.decodeUrlToMonoPcm).not.toHaveBeenCalled();
   });
 
+  it("marks preview-only tracks as permanently non-streamable", async () => {
+    soundcloud.resolveTrackStreamUrl.mockRejectedValue(
+      Object.assign(new Error("No full stream URL in response: {}"), {
+        status: 200,
+        nonStreamable: true,
+      }),
+    );
+
+    await expect(processAnalysisJob(job)).rejects.toThrow(
+      "[NON_STREAMABLE] No full stream URL",
+    );
+    expect(decoder.decodeUrlToMonoPcm).not.toHaveBeenCalled();
+  });
+
   it("reuses a parent-provided SoundCloud token", async () => {
     await processAnalysisJob(job, { soundCloudAccessToken: "shared-token" });
     expect(soundcloud.track).toHaveBeenCalledWith("12", "shared-token");

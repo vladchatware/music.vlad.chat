@@ -109,7 +109,7 @@ function coherenceChart(evidence: CoherenceEvidence[]): string {
       <div class="transition-id">T${index + 1}<small>${item.fromTrackId} → ${item.toTrackId}</small></div>
       <div><span class="metric-label">Tempo Δ ${tempo?.toFixed(1) ?? "—"}%</span><div class="bar"><i style="width:${tempoWidth}%"></i></div></div>
       <div><span class="metric-label">Energy Δ ${energy === undefined ? "—" : `${energy >= 0 ? "+" : ""}${energy.toFixed(2)}`}</span><div class="energy-axis"><i style="left:${energyPosition}%"></i></div></div>
-      <div class="key ${keyMatch ? "match" : "change"}">${item.harmonic ? `${item.harmonic.outgoingKey} → ${item.harmonic.incomingKey}` : "key —"}</div>
+      <div class="key ${keyMatch ? "match" : "change"}">${item.harmonic ? `${escapeHtml(item.harmonic.outgoingKey)} → ${escapeHtml(item.harmonic.incomingKey)}` : "key —"}</div>
     </div>`;
   }).join("");
   return `<div class="coherence-legend">Tempo bar: 0–16% normalized change · Energy axis: −0.5 to +0.5 · Key badge: exact Camelot match only</div>${rows}`;

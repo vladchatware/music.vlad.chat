@@ -52,7 +52,7 @@ import {
   FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
   FRUTIGER_AERO_PREPARED_CONTEXT,
 } from "../../lib/dj/performance/frutigerAeroPreparedSet";
-import { hasValidCandidatePreparation } from "./validity";
+import { benchInvalidReason, hasValidCandidatePreparation } from "./validity";
 
 const REMOTE_TOOL_NAMES = [
   "likes",
@@ -317,7 +317,11 @@ async function bootstrapOutgoingTrack(opts: {
   }
 
   if (preparedOpening && config.outgoingTrackId === undefined) {
-    const track = tracksToInspect[0]!;
+    const preparedTrackId = Number(FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS.trackId);
+    const track = tracksToInspect.find(({ id }) => id === preparedTrackId);
+    if (!track) {
+      throw new Error(`Prepared opener ${preparedTrackId} was not available in the fetched likes sample`);
+    }
     trace.record("bootstrap.prepared_outgoing", 0, {
       track,
       analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
@@ -491,6 +495,7 @@ function createWrappedRemoteTools(opts: {
                 reason: "schedule_budget_exhausted",
                 output,
               });
+              syncClock();
               return output;
             }
           }
@@ -583,7 +588,7 @@ function createLocalTools(opts: {
       description:
         "Submit one complete transition. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
       inputSchema: createPerformTransitionInputSchema(
-        runtime.snapshot().candidateTrackIds,
+        () => runtime.snapshot().candidateTrackIds,
       ),
       execute: async (input): Promise<PerformTransitionResult> => {
         syncClock();
@@ -854,12 +859,13 @@ export async function runBench(config: BenchConfig) {
 
       try {
         const stateAtTurnStart = runtime.snapshot();
-        const physicalRunwayMs = Math.max(
-          1,
-          Math.floor(
-            (stateAtTurnStart.durationSec - stateAtTurnStart.currentTimeSec - 10) /
-              config.clockSpeed * 1_000,
-          ),
+        const remainingRunwaySec =
+          stateAtTurnStart.durationSec - stateAtTurnStart.currentTimeSec - 10;
+        if (remainingRunwaySec <= 0) {
+          throw new Error("DJ turn started with no planning runway on the active track");
+        }
+        const physicalRunwayMs = Math.floor(
+          remainingRunwaySec / config.clockSpeed * 1_000,
         );
         const turnTimeoutMs = config.timeoutMs === undefined
           ? physicalRunwayMs
@@ -979,6 +985,11 @@ export async function runBench(config: BenchConfig) {
     (seconds) => seconds + 0.01 < MIN_TRACK_DWELL_SEC,
   ).length;
   const pacingPass = underMinimumDwellCount === 0 && shortBodyTrackIds.length === 0;
+  const invalidReason = benchInvalidReason({
+    terminalError,
+    runtimeStarted: runtime !== null,
+    outgoingTrackLoaded: outgoingTrack !== null,
+  });
   const summary: BenchSummary = {
     ok:
       terminalError === null &&
@@ -998,8 +1009,8 @@ export async function runBench(config: BenchConfig) {
       counters.backstageNarrationCount === 0 &&
       pacingPass &&
       browserPlaythroughs.every((proof) => proof.passed),
-    validity: "valid",
-    invalidReason: null,
+    validity: invalidReason ? "invalid" : "valid",
+    invalidReason,
     runId: config.runId,
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -1021,6 +1032,7 @@ export async function runBench(config: BenchConfig) {
     stateReads,
     rejectedTransitions: runtime?.stats.rejectedTransitions ?? 0,
     impossibleScheduleAttempts,
+    recoverableRunwayRejections: runtime?.stats.recoverableRunwayRejections ?? 0,
     toolCalls: counters.toolCalls,
     toolFailures: counters.toolFailures,
     scheduledTrackIds: [...new Set(counters.scheduledTrackIds)],
