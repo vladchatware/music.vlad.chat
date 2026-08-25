@@ -12,6 +12,16 @@ const nextConfig: NextConfig = {
       destination: '/index.html'
     }]
   },
+  // Allow sibling apps (media.vlad.chat studio/renderer) to read track APIs
+  // and pages directly from the browser.
+  async headers() {
+    return [{
+      source: '/:path*',
+      headers: [
+        { key: 'Access-Control-Allow-Origin', value: '*' },
+      ],
+    }]
+  },
   experimental: {
     turbopackScopeHoisting: false
   }
