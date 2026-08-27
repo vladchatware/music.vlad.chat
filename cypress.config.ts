@@ -39,13 +39,13 @@ export default defineConfig({
     env: {
       // Convex deployment used to mint browser auth sessions for the specs.
       convexUrl: fileEnv.NEXT_PUBLIC_CONVEX_URL,
+      // Secret for the deployment-gated `soundcloud-service` credentials
+      // provider — signs e2e sessions in as the real service SoundCloud user.
+      serviceSecret: fileEnv.E2E_SERVICE_LOGIN_SECRET,
       // Track with a completed analysis (enables track-backroom.cy.ts).
       trackId: fileEnv.E2E_TRACK_ID,
       // Track without an analysis (enables track-pending.cy.ts).
       pendingTrackId: fileEnv.E2E_PENDING_TRACK_ID,
-      // Set E2E_DEV_SERVICE_USER=true when the target runs in development
-      // with SOUNDCLOUD_USER_ID configured — enables /me + service-user specs.
-      devServiceUser: fileEnv.E2E_DEV_SERVICE_USER === "true",
     },
   },
 });
