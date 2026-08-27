@@ -10,50 +10,37 @@ import { refreshUserToken, track } from "@/soundcloud";
 
 // In development with a service user, fetch a user token from the Convex
 // HTTP endpoint to avoid rate-limiting the shared client-credentials auth.
-let _cachedToken: { token: string; refreshToken: string; expiresAt: number } | undefined;
-const SERVICE_TOKEN_CACHE_MS = 5 * 60_000;
+// In development with a service user, fetch a short-lived access token from
+// the central token endpoint (which owns refresh + rotation persistence) to
+// avoid rate-limiting the shared client-credentials auth.
+let _cachedToken: { token: string; expiresAt: number } | undefined;
+const SERVICE_TOKEN_CACHE_MS = 10 * 60_000;
 
 async function serviceUserToken(): Promise<string | undefined> {
   if (_cachedToken && Date.now() < _cachedToken.expiresAt) return _cachedToken.token;
-  if (_cachedToken?.refreshToken) {
-    try {
-      const refreshed = await refreshUserToken(_cachedToken.refreshToken);
-      _cachedToken = {
-        token: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS,
-      };
-      return _cachedToken.token;
-    } catch {
-      _cachedToken = undefined;
-    }
-  }
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
   const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/+$/, "").replace(/\/api$/, "");
   if (!secret || !siteUrl) return undefined;
   try {
-    const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
+    const res = await fetch(`${siteUrl}/soundcloud/service-access-token`, {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
       body: JSON.stringify(
-        process.env.SOUNDCLOUD_USER_ID
-          ? { soundcloudUserId: process.env.SOUNDCLOUD_USER_ID }
-          : {},
+        process.env.SOUNDCLOUD_USER_ID ? { soundcloudUserId: process.env.SOUNDCLOUD_USER_ID } : {},
       ),
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return undefined;
-    const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
-    _cachedToken = {
-      token: accessToken,
-      refreshToken: refreshToken ?? "",
-      expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS,
-    };
+    const { accessToken } = await res.json() as { accessToken?: string };
+    if (!accessToken) return undefined;
+    _cachedToken = { token: accessToken, expiresAt: Date.now() + SERVICE_TOKEN_CACHE_MS };
     return accessToken;
   } catch {
     return undefined;
   }
 }
+
 import ThemeToggle from "../../../ThemeToggle";
 import styles from "../../../backroom.module.css";
 import PlaybackEnergyChart from "./PlaybackEnergyChart";

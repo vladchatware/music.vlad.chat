@@ -165,6 +165,61 @@ http.route({
   })
 })
 
+analysisRoute("/soundcloud/service-access-token", async (ctx, req) => {
+  if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
+  const body = await req.json().catch(() => null) as {
+    soundcloudUserId?: string;
+    rotate?: boolean;
+  } | null;
+  const soundcloudUserId =
+    (typeof body?.soundcloudUserId === "string" && body.soundcloudUserId) ||
+    process.env.SOUNDCLOUD_USER_ID ||
+    "";
+  if (!soundcloudUserId) return json({ error: "soundcloudUserId is required" }, 400);
+
+  // Dev setups may pin tokens via env; rotations can't be persisted to env,
+  // so the env path only ever hands out the pinned access token.
+  const envAccess = process.env.SOUNDCLOUD_SERVICE_USER_ACCESS_TOKEN;
+  if (envAccess && !body?.rotate) return json({ accessToken: envAccess });
+
+  const credentials = await ctx.runQuery(internal.users.serviceSoundcloudCredentials, {
+    soundcloudUserId,
+  });
+  if (!credentials) return json({ error: "Service user SoundCloud credentials not found" }, 404);
+
+  // Hand out the stored access token. Callers hit ?rotate=true (or this
+  // endpoint again) after a SoundCloud 401.
+  if (!body?.rotate) return json({ accessToken: credentials.accessToken });
+
+  // Rotate: SoundCloud refresh tokens are single-use, so refresh + persist
+  // the replacement pair. A failed refresh usually means another consumer
+  // rotated moments ago — the freshly persisted access token is then correct.
+  const clientId = process.env.SOUNDCLOUD_CLIENT_ID ?? process.env.CLIENT_ID;
+  const clientSecret = process.env.SOUNDCLOUD_CLIENT_SECRET ?? process.env.CLIENT_SECRET;
+  if (!credentials.refreshToken || !clientId || !clientSecret) {
+    return json({ accessToken: credentials.accessToken });
+  }
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const refreshRes = await fetch("https://secure.soundcloud.com/oauth/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: `grant_type=refresh_token&client_id=${clientId}&client_secret=${clientSecret}&refresh_token=${credentials.refreshToken}`,
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!refreshRes.ok) return json({ accessToken: credentials.accessToken });
+  const data = await refreshRes.json() as { access_token?: string; refresh_token?: string };
+  if (!data.access_token || !data.refresh_token) return json({ accessToken: credentials.accessToken });
+  await ctx.runMutation(internal.users.updateServiceSoundcloudTokens, {
+    soundcloudUserId,
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+  });
+  return json({ accessToken: data.access_token });
+});
+
 analysisRoute("/analysis/enqueue", async (ctx, req) => {
   if (!isAnalysisServiceAuthorized(req)) return json({ error: "Unauthorized" }, 401);
   try {

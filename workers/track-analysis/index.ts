@@ -1,7 +1,6 @@
 import { AnalysisQueueClient, type AnalysisJob } from "./api";
 import { getConvexSiteUrl } from "./config";
 import { analyzeInFreshProcess } from "./analysisProcessClient";
-import { readAccessToken } from "../../soundcloud";
 import { AuthBackoffError, SoundCloudAuthGate } from "./authBackoff";
 import { processWithQueueTrace } from "./queueTracing";
 import * as Sentry from "@sentry/node";
@@ -31,7 +30,32 @@ const concurrency = Math.max(
 const queue = new AnalysisQueueClient(getConvexSiteUrl(), secret);
 let stopping = false;
 let activeJobs = 0;
-const authGate = new SoundCloudAuthGate(readAccessToken);
+
+// Tokens come from the central service-access-token endpoint, which owns the
+// refresh token and persists rotations. The worker never holds a refresh
+// token and never falls back to client credentials (preview-only access).
+const tokenEndpoint = `${getConvexSiteUrl().replace(/\/+$/, "").replace(/\/api$/, "")}/soundcloud/service-access-token`;
+
+async function fetchServiceAccessToken(rotate: boolean): Promise<string> {
+  const res = await fetch(tokenEndpoint, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      soundcloudUserId: process.env.SOUNDCLOUD_USER_ID || undefined,
+      rotate,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Service access token unavailable (${res.status})`);
+  const { accessToken } = await res.json() as { accessToken?: string };
+  if (!accessToken) throw new Error("Service access token missing");
+  return accessToken;
+}
+
+const authGate = new SoundCloudAuthGate(() => fetchServiceAccessToken(false));
 const workerMetricAttributes = { component: "track-analysis-worker" };
 const exceptionCaptureIntervalMs = 60_000;
 const lastExceptionCapture = new Map<string, number>();
@@ -114,7 +138,23 @@ async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
       message: errorMsg,
     });
     const isNonStreamable = errorMsg.includes("[NON_STREAMABLE]");
-    if (!isNonStreamable) {
+    const isPreviewDecode = errorMsg.includes("[PREVIEW_DECODE]");
+    const isTokenError =
+      errorMsg.includes("401") ||
+      errorMsg.includes("token error") ||
+      errorMsg.includes("CDN auth error") ||
+      isPreviewDecode;
+    if (isTokenError) {
+      // Rotate before the retry so it runs with a fresh token.
+      try {
+        await fetchServiceAccessToken(true);
+      } catch (rotateError) {
+        console.error("analysis.worker.token_rotate_failed", {
+          message: rotateError instanceof Error ? rotateError.message : String(rotateError),
+        });
+      }
+    }
+    if (!isNonStreamable && !isPreviewDecode) {
       captureWorkerException("analyze", error, {
         trackId: safeJob.sourceTrackId,
         attempt: safeJob.attempt,

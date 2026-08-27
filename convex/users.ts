@@ -74,6 +74,31 @@ export const updateSoundcloudTokens = mutation({
   },
 });
 
+// Persist rotated service-user tokens. SoundCloud refresh tokens are
+// single-use: whoever refreshes MUST store the replacement, or the stored
+// token becomes invalid (invalid_grant) and every consumer degrades to
+// client-credentials (preview-only) access.
+export const updateServiceSoundcloudTokens = internalMutation({
+  args: {
+    soundcloudUserId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.string(),
+  },
+  handler: async (ctx, { soundcloudUserId, accessToken, refreshToken }) => {
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "soundcloud").eq("providerAccountId", soundcloudUserId),
+      )
+      .unique();
+    if (!account) throw new Error("Service SoundCloud account not found");
+    await ctx.db.patch(account.userId, {
+      soundcloudAccessToken: accessToken,
+      soundcloudRefreshToken: refreshToken,
+    });
+  },
+});
+
 export const serviceUserId = internalQuery({
   args: { soundcloudUserId: v.string() },
   handler: async (ctx, { soundcloudUserId }) => {

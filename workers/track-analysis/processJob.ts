@@ -66,6 +66,13 @@ export async function processAnalysisJob(
   if (decodedDurationSec > MAX_TRACK_DURATION_SEC + 1) {
     throw new Error("Decoded audio exceeds 10 minute analysis limit");
   }
+  // A preview decode is ~30s regardless of track length — treat a decode that
+  // misses most of the track as a stream-resolution failure, not an analysis.
+  if (decodedDurationSec < durationSec * 0.9) {
+    throw new Error(
+      `[PREVIEW_DECODE] Decoded ${decodedDurationSec.toFixed(1)}s of a ${durationSec.toFixed(0)}s track — stream URL was a preview`,
+    );
+  }
   const analysis = analyzePcm(signal, job.sourceTrackId, job.analysisVersion, startedAt);
   if (job.analysisVersion !== TRACK_ANALYSIS_VERSION) return analysis;
 

@@ -32,49 +32,56 @@ async function resolveStreamWithUserRefresh(id: string, convexToken: string) {
 }
 
 async function resolveStreamWithServiceUser(id: string): Promise<string> {
-  // Anonymous playback intentionally uses the service-user token when configured.
-  // The credential stays server-side; callers receive only the resolved stream URL.
+  // Anonymous playback uses the service user's token, obtained from the
+  // central token endpoint (which owns the refresh token and persists
+  // rotations). On a SoundCloud auth failure we ask it to rotate and retry
+  // once — the stored refresh token is single-use.
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
   const siteUrl = process.env.CONVEX_SITE_URL
     ?.replace(/\/+$/, "")
     .replace(/\/api$/, "");
-  if (secret && siteUrl) {
+  if (!secret || !siteUrl) return resolveTrackStreamUrl(id);
+
+  const fetchAccessToken = async (rotate: boolean) => {
+    const res = await fetch(`${siteUrl}/soundcloud/service-access-token`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        soundcloudUserId: process.env.SOUNDCLOUD_USER_ID || undefined,
+        rotate,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`Service access token unavailable (${res.status})`);
+    const { accessToken } = await res.json() as { accessToken?: string };
+    if (!accessToken) throw new Error("Service access token missing");
+    return accessToken;
+  };
+
+  try {
+    const accessToken = await fetchAccessToken(false);
     try {
-      const res = await fetch(`${siteUrl}/soundcloud/service-credentials`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${secret}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(
-          process.env.SOUNDCLOUD_USER_ID
-            ? { soundcloudUserId: process.env.SOUNDCLOUD_USER_ID }
-            : {},
-        ),
-        cache: "no-store",
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (res.ok) {
-        const { accessToken, refreshToken } = await res.json() as { accessToken: string; refreshToken?: string | null };
-        try {
-          return await resolveTrackStreamUrl(id, accessToken);
-        } catch (error) {
-          const errMsg = error instanceof Error ? error.message : "";
-          const isTokenError = getErrorStatus(error) === 401
-            || errMsg.includes("token error")
-            || errMsg.includes("CDN auth error");
-          if (isTokenError && refreshToken) {
-            const refreshed = await refreshUserToken(refreshToken);
-            return resolveTrackStreamUrl(id, refreshed.accessToken);
-          }
-          throw error;
-        }
-      }
-    } catch {
-      // Fall through to client-credentials auth
+      return await resolveTrackStreamUrl(id, accessToken);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "";
+      const isTokenError = getErrorStatus(error) === 401
+        || errMsg.includes("token error")
+        || errMsg.includes("CDN auth error");
+      if (!isTokenError) throw error;
+      console.log("Service token rejected, rotating…");
+      const rotated = await fetchAccessToken(true);
+      return await resolveTrackStreamUrl(id, rotated);
     }
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "";
+    const isTokenError = getErrorStatus(error) === 401
+      || errMsg.includes("token error")
+      || errMsg.includes("CDN auth error");
+    if (!isTokenError) throw error;
+    // Fall through to client-credentials (preview) only as a last resort.
+    return resolveTrackStreamUrl(id);
   }
-  return resolveTrackStreamUrl(id);
 }
 
 export async function resolveStreamWithTimeout(
