@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import styles from "../../../backroom.module.css";
 import timelineStyles from "./EnergyTimeline.module.css";
@@ -14,6 +14,7 @@ export type TimelineSegment = {
   entryQuality: number;
   exitQuality: number;
   energy: number;
+  mirexMood?: Record<string, number>;
 };
 export type TimelineWindow = { startSec: number; endSec: number; segmentId?: string };
 
@@ -34,6 +35,23 @@ const formatTime = (seconds: number) => {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 };
 
+type HoverCard = {
+  kind: "section" | "segment";
+  key: string;
+  title: string;
+  subtitle: string;
+  metrics: Array<[string, string]>;
+  centerPct: number;
+};
+
+const dominantLabel = (values: Record<string, number> | undefined) => values
+  ? Object.entries(values).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  : null;
+
+// Keep the popover anchored over its step but away from the viewport edges.
+const anchorPct = (durationSec: number, startSec: number, endSec: number) =>
+  durationSec > 0 ? Math.max(16, Math.min(84, ((startSec + endSec) / 2) / durationSec * 100)) : 50;
+
 export default function EnergyTimeline({
   durationSec,
   samples,
@@ -46,6 +64,7 @@ export default function EnergyTimeline({
   deck,
 }: Props) {
   const gradientId = useId().replaceAll(":", "");
+  const [hoverCard, setHoverCard] = useState<HoverCard | null>(null);
   const points = samples.map((value, index) =>
     `${samples.length <= 1 ? 0 : index / (samples.length - 1) * 100},${100 - value * 100}`
   ).join(" ");
@@ -56,6 +75,53 @@ export default function EnergyTimeline({
   const windowWidth = highlightedWindow && durationSec > 0
     ? (highlightedWindow.endSec - highlightedWindow.startSec) / durationSec * 100
     : 0;
+
+  const setCardIfChanged = (card: HoverCard) =>
+    setHoverCard((current) => current?.key === card.key ? null : card);
+
+  const sectionCards = sections.map((section, index) => ({
+    key: `section-${section.startTime}-${index}`,
+    kind: "section" as const,
+    title: section.type.toUpperCase(),
+    subtitle: `${formatTime(section.startTime)} – ${formatTime(section.endTime)}`,
+    metrics: [["Length", formatTime(section.endTime - section.startTime)] as [string, string]],
+    centerPct: anchorPct(durationSec, section.startTime, section.endTime),
+    section,
+  }));
+
+  const segmentCards = segments.map((segment) => {
+    const mood = dominantLabel(segment.mirexMood);
+    return {
+      key: `segment-${segment.id}`,
+      kind: "segment" as const,
+      title: `${segment.id} · ${segment.section}`,
+      subtitle: `${formatTime(segment.startSec)} – ${formatTime(segment.endSec)}`,
+      metrics: [
+        ["Energy", `${Math.round(segment.energy * 100)}%`],
+        ["Entry", `${Math.round(segment.entryQuality * 100)}%`],
+        ["Exit", `${Math.round(segment.exitQuality * 100)}%`],
+        ...(mood ? [["Mood", mood]] : []),
+      ] as Array<[string, string]>,
+      centerPct: anchorPct(durationSec, segment.startSec, segment.endSec),
+      segment,
+    };
+  });
+
+  const renderPopover = (card: HoverCard) => (
+    <div
+      className={styles.hoverCard}
+      style={{ "--x": `${card.centerPct}%` } as React.CSSProperties}
+      role="presentation"
+    >
+      <b>{card.title}</b>
+      <span>{card.subtitle}</span>
+      <dl>
+        {card.metrics.map(([label, value]) => (
+          <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+        ))}
+      </dl>
+    </div>
+  );
 
   return <div
     className={styles.interactivePlot}
@@ -74,21 +140,35 @@ export default function EnergyTimeline({
         aria-hidden="true"
       ><span>{formatTime(highlightedWindow.startSec)}–{formatTime(highlightedWindow.endSec)}</span></div>}
     </div>
-    <div className={styles.timeline} aria-label="Track structure">{sections.map((section, index) => <div key={`${section.startTime}-${index}`} className={styles.sectionBlock} style={{ left: `${section.startTime / durationSec * 100}%`, width: `${(section.endTime - section.startTime) / durationSec * 100}%` }}><b>{section.type}</b><small>{formatTime(section.startTime)}</small></div>)}</div>
+    <div className={styles.timeline} aria-label="Track structure">
+      {sectionCards.map(({ section, ...card }) => <div
+        key={card.key}
+        className={styles.sectionBlock}
+        style={{ left: `${section.startTime / durationSec * 100}%`, width: `${(section.endTime - section.startTime) / durationSec * 100}%` }}
+        aria-label={`${card.title}, ${card.subtitle}`}
+        onMouseEnter={() => setHoverCard(card)}
+        onMouseLeave={() => setHoverCard((current) => current?.key === card.key ? null : current)}
+        onClick={() => setCardIfChanged(card)}
+      ><b>{section.type}</b><small>{formatTime(section.startTime)}</small></div>)}
+      {hoverCard?.kind === "section" && renderPopover(hoverCard)}
+    </div>
     {segments.length > 0 && <div className={timelineStyles.segmentTimeline} aria-label="DJ mix segments">
       <span className={timelineStyles.segmentRailLabel}>DJ SEGMENTS</span>
-      {segments.map((segment, index) => <div
+      {segmentCards.map(({ segment, ...card }, index) => <div
         key={segment.id}
         className={timelineStyles.segmentBlock}
         data-active={segment.id === highlightedWindow?.segmentId || undefined}
         role="img"
-        aria-label={`Segment ${index + 1}, ${segment.section}, ${formatTime(segment.startSec)} to ${formatTime(segment.endSec)}`}
+        aria-label={`Segment ${index + 1}, ${card.title}, ${card.subtitle}, energy ${card.metrics[0][1]}, entry ${card.metrics[1][1]}, exit ${card.metrics[2][1]}${card.metrics[3] ? `, mood ${card.metrics[3][1]}` : ""}`}
+        onMouseEnter={() => setHoverCard(card)}
+        onMouseLeave={() => setHoverCard((current) => current?.key === card.key ? null : current)}
+        onClick={() => setCardIfChanged(card)}
         style={{
           left: `${segment.startSec / durationSec * 100}%`,
           width: `${(segment.endSec - segment.startSec) / durationSec * 100}%`,
         }}
-        title={`${segment.id} · ${segment.section} · ${formatTime(segment.startSec)}–${formatTime(segment.endSec)} · entry ${Math.round(segment.entryQuality * 100)} · exit ${Math.round(segment.exitQuality * 100)}`}
       ><b>{String(index + 1).padStart(2, "0")}</b><small>{segment.section}</small></div>)}
+      {hoverCard?.kind === "segment" && renderPopover(hoverCard)}
     </div>}
     <div className={styles.playhead} style={{ bottom: segments.length ? 0 : undefined }} aria-hidden="true"><i /></div>
     <input

@@ -68,9 +68,6 @@ const ENERGY_ARCS = ["preserve", "build", "release", "reset"] as const;
 const number = (value: number | null | undefined, digits = 2) => value == null ? "—" : value.toFixed(digits);
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const percent = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
-const dominantLabel = (values: Record<string, number> | null | undefined) => values
-  ? Object.entries(values).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—"
-  : "—";
 
 function average(segments: AnalysisSegment[], key: "energy" | "danceability" | "approachability" | "engagement" | "valence" | "arousal" | "vocalProbability") {
   const values = segments.map((segment) => segment[key]).filter((value): value is number => typeof value === "number");
@@ -223,17 +220,6 @@ export default async function TrackBackroom({
           <div><small>MIX OUT</small><strong>{time(analysis.cuePoints.mixOutSec)}</strong></div>
           <p>{analysis.cuePoints.reason}<b>{percent(analysis.cuePoints.confidence)} confidence</b></p>
         </div>
-        <div className={styles.segmentTable} role="table">
-          <div className={styles.segmentHeader} role="row"><span>segment</span><span>time</span><span>energy</span><span>entry</span><span>exit</span><span>emotion</span></div>
-          {segments.map((segment) => <div className={styles.segmentRow} role="row" key={segment.id}>
-            <span><b>{segment.id}</b><small>{segment.section}</small></span>
-            <span>{time(segment.startSec)}—{time(segment.endSec)}</span>
-            <span>{percent(segment.energy)} <i className={segment.energySlope >= 0 ? styles.up : styles.down}>{segment.energySlope >= 0 ? "↗" : "↘"}</i></span>
-            <span>{percent(segment.entryQuality)}</span>
-            <span>{percent(segment.exitQuality)}</span>
-            <span>{dominantLabel(segment.mirexMood)}</span>
-          </div>)}
-        </div>
       </section>
 
       <section className={styles.semanticSection}>
@@ -278,7 +264,7 @@ export default async function TrackBackroom({
           : !incomingTrack && !incomingAnalysis
           ? <div className={styles.mixUnavailable}><b>TRACK NOT FOUND</b><p>Could not load incoming SoundCloud track {incomingId}.</p></div>
           : !incomingAnalysis
-            ? <div className={styles.mixUnavailable}><b>INCOMING ANALYSIS PENDING</b><p><a href={`/tracks/${incomingId}/backroom`} style={{color: 'inherit'}}>Visit the incoming track's backroom</a> to analyze it.</p></div>
+            ? <div className={styles.mixUnavailable}><b>INCOMING ANALYSIS PENDING</b><p><a href={`/tracks/${incomingId}/backroom`}>Visit the incoming track's backroom</a> to analyze it.</p></div>
             : <MixSuggestions
                 outgoing={{
                   id,

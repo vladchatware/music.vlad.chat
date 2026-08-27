@@ -14,7 +14,7 @@ export function AnalysisRedoButton({ trackId }: { trackId: string }) {
 
   return (
     <button
-      className={styles.authButton}
+      className={styles.redoButton}
       type="button"
       disabled={enqueuing}
       onClick={async () => {
@@ -26,9 +26,6 @@ export function AnalysisRedoButton({ trackId }: { trackId: string }) {
           setEnqueuing(false);
         }
       }}
-      style={{ marginTop: 0, padding: "5px 10px", fontSize: 9, fontFamily: "Courier New,monospace", textTransform: "uppercase", letterSpacing: ".08em", background: "transparent", border: "1px solid var(--line)", color: "var(--muted)" }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--acid)"; e.currentTarget.style.color = "var(--ink)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line)"; e.currentTarget.style.color = "var(--muted)"; }}
     >
       {enqueuing ? "queuing…" : "Redo analysis"}
     </button>
