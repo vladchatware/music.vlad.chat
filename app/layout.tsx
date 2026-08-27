@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     title: 'music.vlad.chat',
     description: 'An AI-powered virtual DJ for discovering and mixing music from SoundCloud.',
     images: [{
-      url: '/tracks/2260180544/opengraph-image?v=8',
+      url: '/tracks/2260180544/opengraph-image',
       width: 1200,
       height: 630,
       alt: 'Revibe track analysis',
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'music.vlad.chat',
     description: 'An AI-powered virtual DJ for discovering and mixing music from SoundCloud.',
-    images: ['/tracks/2260180544/opengraph-image?v=8'],
+    images: ['/tracks/2260180544/opengraph-image'],
   },
   appleWebApp: {
     capable: true,

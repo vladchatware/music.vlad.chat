@@ -9,7 +9,9 @@ export const alt = 'Revibe track analysis'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 export const runtime = 'nodejs'
-export const revalidate = 3600
+// Next caches each dynamic track path separately. Analysis may arrive later,
+// so refresh the track-specific image without regenerating it on every request.
+export const revalidate = 300
 
 const formatTime = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
