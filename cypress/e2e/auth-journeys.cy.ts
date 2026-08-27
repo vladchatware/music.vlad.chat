@@ -1,5 +1,5 @@
 /// <reference types="cypress" />
-import { suiteWithTrackId, suiteWithPendingTrackId, suiteWithDevServiceUser } from "../support/e2e";
+import { suiteWithTrackId, suiteWithPendingTrackId, suiteWithServiceUser } from "../support/e2e";
 
 const trackId = Cypress.env("trackId") as string | undefined;
 
@@ -50,17 +50,35 @@ pendingSuite(`enqueue journey (track ${pendingTrackId ?? "<E2E_PENDING_TRACK_ID>
   });
 });
 
-// ─── My records (dev service user) ───────────────────────────────────────────
+// ─── Service SoundCloud user journeys ───────────────────────────────────────
+// cy.signIn() attaches the session to the real service SoundCloud user
+// (soundcloudUserId + stored tokens), so these run the token-backed paths.
 
-const devSuite = suiteWithDevServiceUser();
+const serviceSuite = suiteWithServiceUser();
 
-devSuite("/me — my records (service user)", () => {
-  it("renders the library without redirecting", () => {
+serviceSuite("/me — my records (service SoundCloud user)", () => {
+  beforeEach(() => {
     cy.signIn();
     cy.visit("/me");
     cy.url().should("match", /\/me$/);
-    // Anonymous session + dev service user still serves the server-side library.
-    cy.get("main").should("be.visible");
+  });
+
+  it("renders the library for the signed-in SoundCloud identity", () => {
     cy.contains(/likes|playlists|library/i).should("exist");
+  });
+
+  it("lists liked tracks with analyze deep-links", () => {
+    cy.get("a[href*='/backroom']").should("have.length.greaterThan", 0);
+  });
+
+  it("fetches track metadata through the signed-in user's SoundCloud tokens", function () {
+    // Real request, no intercept: exercises the user-credential path in
+    // GET /api/tracks/[id] (api.users.soundcloudTokens → SoundCloud API).
+    const trackId = Cypress.env("trackId") as string | undefined;
+    if (!trackId) {
+      this.skip();
+      return;
+    }
+    cy.request("GET", `/api/tracks/${trackId}`).its("status").should("eq", 200);
   });
 });

@@ -3,26 +3,31 @@
 /**
  * Mint a Convex auth session and inject it into the browser as cookies.
  *
- * The app uses @convex-dev/auth with an Anonymous provider. `auth:signIn` is a
- * public action on the deployment, so we can call it directly (no OAuth UI
- * required) and set the same cookies ConvexAuthNextjsProvider expects on
- * localhost (`__convexAuthJWT`, `__convexAuthRefreshToken`; httpOnly, no
- * __Host- prefix). The next `cy.visit` hydrates SSR + client auth from them.
+ * When E2E_SERVICE_LOGIN_SECRET is configured, this signs in as the *service
+ * SoundCloud user* via the deployment-gated `soundcloud-service` credentials
+ * provider: the secret authorizes the caller, and the session attaches to the
+ * existing service-user account — same soundcloudUserId, same stored tokens.
+ * Otherwise falls back to an anonymous session (UI-level tests only).
  *
- * Note: this creates a fresh anonymous user per call. It authenticates the
- * *browser session*, while server-side pages keep using the service user.
+ * Either way we call the public `auth:signIn` action and set the same cookies
+ * ConvexAuthNextjsProvider expects on localhost (`__convexAuthJWT`,
+ * `__convexAuthRefreshToken`; httpOnly, no __Host- prefix).
  */
 Cypress.Commands.add("signIn", () => {
   const convexUrl = Cypress.env("convexUrl") as string | undefined;
   if (!convexUrl) {
     throw new Error("NEXT_PUBLIC_CONVEX_URL not found — add it to .env.local for auth specs");
   }
+  const serviceSecret = Cypress.env("serviceSecret") as string | undefined;
+  const provider = serviceSecret
+    ? { id: "soundcloud-service", params: { secret: serviceSecret } }
+    : { id: "anonymous", params: {} as Record<string, never> };
   cy.request({
     method: "POST",
     url: `${convexUrl}/api/action`,
     body: {
       path: "auth:signIn",
-      args: [{ provider: "anonymous", params: {} }],
+      args: [{ provider: provider.id, params: provider.params }],
       format: "json",
     },
   }).then((response) => {
