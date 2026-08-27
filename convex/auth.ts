@@ -1,6 +1,7 @@
 import { convexAuth } from "@convex-dev/auth/server";
 import type { AuthProviderConfig } from "@convex-dev/auth/server";
 import { Anonymous } from "@convex-dev/auth/providers/Anonymous"
+import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials"
 import { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 
@@ -39,11 +40,30 @@ const Soundcloud: AuthProviderConfig = (options) => {
   };
 };
 
+const providers: AuthProviderConfig[] = [Anonymous, Soundcloud];
+
+// E2E helper: sign in as the service SoundCloud user without automating the
+// OAuth UI. Enabled per deployment by setting E2E_SERVICE_LOGIN_SECRET — keep
+// it unset on production. The caller proves itself with the secret; the
+// session then attaches to the *existing* service-user account (same
+// soundcloudUserId, same stored SoundCloud tokens). See cypress/README.md.
+if (process.env.E2E_SERVICE_LOGIN_SECRET) {
+  providers.push(
+    ConvexCredentials({
+      id: "soundcloud-service",
+      authorize: async (credentials, ctx) => {
+        if (credentials?.secret !== process.env.E2E_SERVICE_LOGIN_SECRET) return null;
+        const soundcloudUserId = process.env.SOUNDCLOUD_USER_ID;
+        if (!soundcloudUserId) return null;
+        const userId = await ctx.runQuery(internal.users.serviceUserId, { soundcloudUserId });
+        return userId ? { userId } : null;
+      },
+    }) as AuthProviderConfig,
+  );
+}
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [
-    Anonymous,
-    Soundcloud,
-  ],
+  providers,
   callbacks: {
     async afterUserCreatedOrUpdated(ctx: MutationCtx, { userId, existingUserId, provider, type }) {
       const user = await ctx.db.get("users", userId)

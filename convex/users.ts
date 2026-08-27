@@ -74,6 +74,19 @@ export const updateSoundcloudTokens = mutation({
   },
 });
 
+export const serviceUserId = internalQuery({
+  args: { soundcloudUserId: v.string() },
+  handler: async (ctx, { soundcloudUserId }) => {
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "soundcloud").eq("providerAccountId", soundcloudUserId),
+      )
+      .unique();
+    return account?.userId ?? null;
+  },
+});
+
 export const serviceSoundcloudCredentials = internalQuery({
   args: { soundcloudUserId: v.string() },
   handler: async (ctx, { soundcloudUserId }) => {
