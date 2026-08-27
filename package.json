@@ -27,7 +27,9 @@
     "live:infra:down": "docker compose --env-file workers/live-egress/.env -f workers/live-egress/compose.yaml down",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "e2e": "cypress open",
+    "e2e:run": "cypress run"
   },
   "keywords": [],
   "author": "",
@@ -87,6 +89,7 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.0.16",
     "convex-test": "^0.0.54",
+    "cypress": "^15.21.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.0.16"
