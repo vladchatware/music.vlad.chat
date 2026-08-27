@@ -16,3 +16,7 @@ logs/*.ndjson
 logs/dj-bench/
 workers/track-analysis/models/
 /.swc
+cypress/screenshots/
+cypress/videos/
+cypress/downloads/
+cypress.env.json

@@ -32,4 +32,25 @@ describe("prepared player selection", () => {
     expect(resolvePreparedPlayerSelection(selection, [719940358])).not.toBeNull();
     expect(resolvePreparedPlayerSelection(selection, [151178937])).toBeNull();
   });
+
+  it("uses a first-downbeat entry for an intentional reset", () => {
+    expect(resolvePreparedPlayerSelection({
+      id: 719940358,
+      energyArc: "reset",
+      reason: "Make the contrast explicit.",
+    }, [719940358])).toMatchObject({
+      performance: { entry: { anchor: "first_downbeat" } },
+    });
+  });
+
+  it("rejects malformed prepared selections", () => {
+    const pool = [719940358];
+    const base = { id: 719940358, energyArc: "preserve", reason: "Keep the lift." };
+    expect(resolvePreparedPlayerSelection({ ...base, id: -1 }, pool)).toBeNull();
+    expect(resolvePreparedPlayerSelection({ ...base, id: 1.5 }, pool)).toBeNull();
+    expect(resolvePreparedPlayerSelection({ ...base, energyArc: "lift" }, pool)).toBeNull();
+    expect(resolvePreparedPlayerSelection({ ...base, reason: "" }, pool)).toBeNull();
+    expect(resolvePreparedPlayerSelection({ ...base, reason: "x".repeat(241) }, pool)).toBeNull();
+    expect(resolvePreparedPlayerSelection({ ...base, extra: true }, pool)).toBeNull();
+  });
 });

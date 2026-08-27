@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface TraceEvent {
@@ -36,7 +36,6 @@ export function formatTraceEvent(event: TraceEvent): string {
 
 export class TraceRecorder {
   private sequence = 0;
-  private recordedEvents: TraceEvent[] = [];
   private readonly startedAt = performance.now();
 
   constructor(
@@ -60,14 +59,15 @@ export class TraceRecorder {
       type,
       ...details,
     };
-    this.recordedEvents.push(event);
     appendFileSync(this.path, `${JSON.stringify(event)}\n`);
     if (!this.quiet) this.print(event);
     return event;
   }
 
   get events(): readonly TraceEvent[] {
-    return this.recordedEvents;
+    const contents = readFileSync(this.path, "utf8").trim();
+    if (!contents) return [];
+    return contents.split("\n").map((line) => JSON.parse(line) as TraceEvent);
   }
 
   private print(event: TraceEvent) {

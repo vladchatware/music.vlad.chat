@@ -11,6 +11,8 @@ import { fetchTrack } from "@/lib/soundcloud";
 import { playbackDebug } from "@/lib/playbackDebug";
 import { CoordinateMapper_Data } from "@/lib/mappers/coordinateMappers/data";
 import {
+  advanceAudibleDwell,
+  type AudibleDwellState,
   isLastingBodyTrack,
   minimumDwellExitSec,
 } from "@/lib/dj/lastingSet";
@@ -102,7 +104,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     [],
   );
   const playedTrackIdsRef = useRef<number[]>([]);
-  const activeTrackHeardRef = useRef<{ trackId: number; startedAtMs: number } | null>(null);
+  const activeTrackHeardRef = useRef<AudibleDwellState | null>(null);
   const performanceMemoryRef = useRef(createPerformanceMemory(
     REVIBE_PROMPT,
     FRUTIGER_AERO_OPENING_TRACK_IDS,
@@ -151,6 +153,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     isPlaying,
     isTransitioning,
     activeDeck,
+    activePlaybackRate,
     analyzerRef,
     bpmDetectorRef,
     broadcastAudioStreamRef,
@@ -231,7 +234,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           agentSessionId: agentSession.id,
         });
         const newTrack = (await fetchTrack(id)) as SoundCloudTrack;
-        if (agentSession.source !== "user" && !isLastingBodyTrack(newTrack.duration)) {
+        if (agentSession.source !== "user" && !isLastingBodyTrack(newTrack.duration, "ms")) {
           throw new Error(`Track ${id} is too short for autonomous continuity`);
         }
         const deadlineCheck = agentSessionController.enforceDeadline();
@@ -247,11 +250,12 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         if (shouldCue) {
           const heard = activeTrackHeardRef.current;
           const audibleSec = heard?.trackId === activeTrack?.id
-            ? Math.max(0, (performance.now() - heard.startedAtMs) / 1_000)
+            ? heard.audibleSec
             : 0;
           const notBeforeSec = minimumDwellExitSec({
             currentSourceSec: playback.currentTimeSec,
             audibleSec,
+            playbackRate: activePlaybackRate,
           });
           const boundedPerformancePlan: PlayerToolInput["performance"] = {
             ...performancePlan,
@@ -312,6 +316,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     },
     [
       activeTrack?.id,
+      activePlaybackRate,
       agentSessionController,
       cueNextTrack,
       djState.type,
@@ -328,8 +333,21 @@ export default function MusicPlayer(props: MusicPlayerProps) {
 
   useEffect(() => {
     const id = activeTrack?.id;
+    if (!Number.isFinite(id)) {
+      activeTrackHeardRef.current = null;
+      return;
+    }
+    activeTrackHeardRef.current = advanceAudibleDwell(activeTrackHeardRef.current, {
+      trackId: id as number,
+      sourceSec: playback.currentTimeSec,
+      playbackRate: activePlaybackRate,
+      playing: isPlaying,
+    });
+  }, [activePlaybackRate, activeTrack?.id, isPlaying, playback.currentTimeSec]);
+
+  useEffect(() => {
+    const id = activeTrack?.id;
     if (!Number.isFinite(id)) return;
-    activeTrackHeardRef.current = { trackId: id as number, startedAtMs: performance.now() };
     const history = playedTrackIdsRef.current.filter((trackId) => trackId !== id);
     history.push(id as number);
     playedTrackIdsRef.current = history.slice(-32);

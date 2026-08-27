@@ -24,7 +24,20 @@ export const performTransitionInputSchema = playerToolInputSchema
   })
   .strict();
 
-export function createPerformTransitionInputSchema(candidateIds: number[]) {
+export function createPerformTransitionInputSchema(
+  candidateIds: number[] | (() => readonly number[]),
+) {
+  if (typeof candidateIds === "function") {
+    return performTransitionInputSchema.superRefine((input, context) => {
+      if (!candidateIds().includes(input.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["id"],
+          message: "Track ID is not in the current candidate pool",
+        });
+      }
+    });
+  }
   const ids = [...new Set(candidateIds.filter((id) => Number.isInteger(id) && id > 0))];
   if (ids.length === 0) return performTransitionInputSchema;
   const idSchema = ids.length === 1
@@ -94,6 +107,7 @@ export interface RuntimeStats {
   rejectedTransitions: number;
   duplicateAttempts: number;
   impossibleScheduleAttempts: number;
+  recoverableRunwayRejections: number;
 }
 
 const INITIAL_TRACK: CandidateTrack = {
@@ -404,6 +418,7 @@ export class MockDJRuntime {
     rejectedTransitions: 0,
     duplicateAttempts: 0,
     impossibleScheduleAttempts: 0,
+    recoverableRunwayRejections: 0,
   };
 
   constructor(
@@ -528,7 +543,7 @@ export class MockDJRuntime {
 
   registerCandidates(value: unknown): CandidateTrack[] {
     const discovered = extractCandidateTracks(value).filter((candidate) =>
-      isLastingBodyTrack(candidate.durationSec)
+      isLastingBodyTrack(candidate.durationSec, "sec")
     );
     for (const candidate of discovered) {
       const analysis = this.analyses.get(candidate.id);
@@ -546,12 +561,7 @@ export class MockDJRuntime {
       this.analyses.set(trackId, analysis);
       const candidate = this.candidates.get(trackId);
       if (candidate) {
-        const enriched = enrichTrack(candidate, analysis);
-        if (isLastingBodyTrack(enriched.durationSec)) {
-          this.candidates.set(trackId, enriched);
-        } else {
-          this.candidates.delete(trackId);
-        }
+        this.candidates.set(trackId, enrichTrack(candidate, analysis));
       }
       const active = this.decks[this.activeDeckId];
       if (active.track?.id === trackId) {
@@ -694,7 +704,7 @@ export class MockDJRuntime {
       : 1;
     const incomingRunwaySec = (candidate.durationSec - incomingStartSec) / incomingPlaybackRate;
     if (incomingRunwaySec < MIN_FUTURE_TRACK_RUNWAY_SEC) {
-      this.stats.impossibleScheduleAttempts += 1;
+      this.stats.recoverableRunwayRejections += 1;
       return this.reject(
         "insufficient_track_runway",
         "Choose a longer track or an earlier entry that leaves at least 95 audible seconds.",
@@ -704,7 +714,7 @@ export class MockDJRuntime {
       ? active.positionSec + minimumRunwaySec
       : Math.max(
           active.positionSec + 8,
-          requestedExitSec ?? activeTrack.durationSec - Math.max(24, blendSec),
+          requestedExitSec,
           minimumDwellExitSec({
             currentSourceSec: active.positionSec,
             audibleSec: Math.max(0, this.simulatedTimeSec - active.setStartSec),

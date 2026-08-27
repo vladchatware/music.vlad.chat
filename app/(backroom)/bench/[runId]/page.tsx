@@ -1,9 +1,6 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
-import { api } from "@/convex/_generated/api";
 import { readBenchRun } from "@/lib/server/djBenchRuns";
 
 import styles from "../bench.module.css";
@@ -17,11 +14,6 @@ export default async function BenchRunPage({
   params: Promise<{ runId: string }>;
 }) {
   const { runId } = await params;
-  const token = await convexAuthNextjsToken();
-  const user = token ? await fetchQuery(api.users.viewer, {}, { token }).catch(() => null) : null;
-  if ((!user || user.isAnonymous) && process.env.NODE_ENV !== "development") {
-    redirect(`/dashboard?returnTo=${encodeURIComponent(`/bench/${runId}`)}`);
-  }
   const run = readBenchRun(runId);
   if (!run) notFound();
 

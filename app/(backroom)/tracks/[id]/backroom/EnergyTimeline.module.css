@@ -10,7 +10,8 @@
   position: relative;
   height: 44px;
   margin-top: -16px;
-  overflow: hidden;
+  overflow: visible;
+  z-index: 5;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--section) 72%, transparent);
 }
@@ -36,6 +37,11 @@
   border-left: 1px solid var(--line);
   border-right: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
   font-family: "Courier New", monospace;
+  cursor: help;
+}
+
+.segmentBlock:hover {
+  background: color-mix(in srgb, var(--acid) 12%, transparent);
 }
 
 .segmentBlock b,

@@ -78,6 +78,7 @@ export interface BenchSummary {
   stateReads: number;
   rejectedTransitions: number;
   impossibleScheduleAttempts: number;
+  recoverableRunwayRejections?: number;
   toolCalls: Record<string, number>;
   toolFailures: Record<string, number>;
   scheduledTrackIds: number[];
@@ -222,7 +223,7 @@ export function continuityGraph(summary: BenchSummary): string {
   }
   if (summary.rejectedTransitions > 0) {
     lines.push(`  R["${summary.rejectedTransitions} rejected attempt(s)"]:::fail`);
-    lines.push(`  R -.-> ${summary.ok ? "P" : "F"}`);
+    lines.push(`  R -.-> ${summary.continuity.status === "pass" ? "P" : "F"}`);
   }
   return [...lines, "```"].join("\n");
 }
@@ -298,6 +299,9 @@ export function writeRunArtifacts(
   writeFileSync(config.summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
   if (manifest) writeFileSync(config.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
+  const playthroughs = summary.browserPlaythroughs ?? (
+    summary.browserPlaythrough ? [summary.browserPlaythrough] : []
+  );
   const report = `# DJ Bench Report
 
 ## Verdict
@@ -325,6 +329,7 @@ ${continuityGraph(summary)}
 - Maximum uncovered gap: ${summary.maxUncoveredGapSec.toFixed(2)}s
 - Rejected transitions: ${summary.rejectedTransitions}
 - Impossible schedules: ${summary.impossibleScheduleAttempts}
+- Recoverable runway rejections: ${summary.recoverableRunwayRejections ?? 0}
 - False success claims: ${summary.falseSuccessClaims}
 - Backstage narration leaks: ${summary.backstageNarrationCount}
 - Analysis calls rejected by turn budget: ${summary.analysisBudgetRejections}
@@ -335,8 +340,8 @@ ${continuityGraph(summary)}
 
 ## Regular-player regression
 
-${(summary.browserPlaythroughs ?? (summary.browserPlaythrough ? [summary.browserPlaythrough] : [])).length > 0
-  ? (summary.browserPlaythroughs ?? [summary.browserPlaythrough!]).map((proof) => [
+${playthroughs.length > 0
+  ? playthroughs.map((proof) => [
       `- Failure ID: \`${proof.failureId}\``,
       `- Regression witness: ${proof.failureWitness.status} (${proof.failureWitness.responseCount} browser responses)`,
       `- Current policy: ${proof.current.status} (${proof.current.responseCount} browser responses)`,

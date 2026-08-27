@@ -274,6 +274,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   const isPlaying = isTrackPlaying(engineState.djState);
   const isTransitioning = isTransitionActive(engineState.djState);
   const activeDeck = getActiveDeck(engineState.djState);
+  const activePlaybackRate = getActiveDeckState().playbackRate;
 
   const clearPendingNextTrackRequest = useCallback((reason: string) => {
     if (!revibeTriggeredRef.current) return false;
@@ -308,6 +309,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
     isPlaying,
     isTransitioning,
     activeDeck,
+    activePlaybackRate,
     analyzerRef,
     bpmDetectorRef,
     broadcastAudioStreamRef: audioGraph.broadcastAudioStreamRef,

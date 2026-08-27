@@ -1,4 +1,5 @@
 import {
+  MAX_BODY_TRACK_DURATION_SEC,
   MIN_BODY_TRACK_DURATION_SEC,
   MIN_TRACK_DWELL_SEC,
 } from "./lastingSet";
@@ -10,7 +11,7 @@ SHARED MUSICAL POLICY (${DJ_SHARED_POLICY_VERSION})
 - Own track choice, set direction, and transition intent. User messages give musical direction,
   not a request for operational narration.
 - Never repeat a played track unless user explicitly requests it. Choose streamable tracks between
-  ${MIN_BODY_TRACK_DURATION_SEC} seconds and 10 minutes. Tracks shorter than that are unavailable for autonomous continuity.
+  ${MIN_BODY_TRACK_DURATION_SEC} and ${MAX_BODY_TRACK_DURATION_SEC} seconds. Tracks outside that range are unavailable for autonomous continuity.
 - Make a lasting set, not a preview reel. Normally let each track establish itself for at least
   ${MIN_TRACK_DWELL_SEC} audible seconds before next handoff. Shorter dwell needs emergency recovery, direct audience
   intervention, or a deliberate rapid-sequence purpose stated in transition reason.
