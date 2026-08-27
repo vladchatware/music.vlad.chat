@@ -1,0 +1,59 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+  E2E_TRACK_ID: ${{ secrets.E2E_TRACK_ID }}
+  E2E_PENDING_TRACK_ID: ${{ secrets.E2E_PENDING_TRACK_ID }}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies (incl. Cypress binary)
+        run: bun install
+
+      - name: Build app (production)
+        run: bun run build
+
+      - name: Run Cypress
+        uses: cypress-io/github-action@v6
+        with:
+          install: false
+          build: bunx cypress verify
+          start: bun run start
+          wait-on: "http://localhost:3000"
+          wait-on-timeout: 120
+          browser: chrome
+          # Always keep videos — uploaded as artifacts below.
+
+      - name: Upload videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-videos-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cypress/videos/*.mp4
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cypress/screenshots/**/*
+          if-no-files-found: ignore
+          retention-days: 14
