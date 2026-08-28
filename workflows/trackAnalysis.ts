@@ -26,7 +26,11 @@ async function registerCallback(cacheKey: string, callbackUrl: string): Promise<
     signal: AbortSignal.timeout(15_000),
   });
 
-  for (let attempt = 0; attempt < 10; attempt++) {
+  const BASE_MS = 5_000;
+  const MAX_MS = 5 * 60_000;
+  let failures = 0;
+
+  for (;;) {
     try {
       const res = await fetch(`${workerUrl}/analysis/process`, {
         method: "POST",
@@ -37,15 +41,18 @@ async function registerCallback(cacheKey: string, callbackUrl: string): Promise<
         body: JSON.stringify({ cacheKey }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (res.ok) return;
-      if (res.status === 409 || res.status === 404) return;
+      if (res.ok || res.status === 409 || res.status === 404) return;
       const body = await res.json() as { retryAfterMs?: number };
-      const waitMs = body.retryAfterMs ?? Math.min(5_000 * 2 ** attempt, 120_000);
+      const exponentialMs = Math.min(MAX_MS, BASE_MS * (2 ** Math.min(20, failures)));
+      const jitteredMs = Math.round(exponentialMs * (0.5 + Math.random() * 0.5));
+      const waitMs = Math.max(jitteredMs, body.retryAfterMs ?? 0);
       await new Promise((r) => setTimeout(r, waitMs));
     } catch {
-      const waitMs = Math.min(5_000 * 2 ** attempt, 120_000);
-      await new Promise((r) => setTimeout(r, waitMs));
+      const exponentialMs = Math.min(MAX_MS, BASE_MS * (2 ** Math.min(20, failures)));
+      const jitteredMs = Math.round(exponentialMs * (0.5 + Math.random() * 0.5));
+      await new Promise((r) => setTimeout(r, jitteredMs));
     }
+    failures += 1;
   }
 }
 
