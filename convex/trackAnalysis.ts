@@ -164,7 +164,7 @@ async function enqueueJobs(
           enqueued += 1;
           continue;
         }
-        if (args.force && job.status !== "queued" && job.status !== "processing") {
+        if (args.force && job.status === "completed") {
           await ctx.db.patch(job._id, {
             status: "queued",
             priority: Math.max(job.priority, args.priority),
