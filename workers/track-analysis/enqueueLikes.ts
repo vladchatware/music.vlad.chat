@@ -31,6 +31,7 @@ for (let offset = 0; offset < eligible.length; offset += 20) {
     body: JSON.stringify({
       trackIds: eligible.slice(offset, offset + 20).map((track) => track.id),
       priority: 0,
+      force: true,
       soundcloudUserId,
     }),
   });
