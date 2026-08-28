@@ -204,6 +204,20 @@ async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
   }
 }
 
+function postToCallback(callbackUrl: string | undefined, outcome: ProcessOutcome) {
+  if (!callbackUrl) return;
+  void fetch(callbackUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(outcome),
+    signal: AbortSignal.timeout(15_000),
+  }).catch((error) => {
+    console.error("analysis.worker.callback_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
+
 async function handleProcessRequest(req: Request): Promise<Response> {
   if (req.headers.get("authorization") !== `Bearer ${secret}`) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -212,13 +226,15 @@ async function handleProcessRequest(req: Request): Promise<Response> {
     return Response.json({ status: "busy", retryAfterMs: 5_000 }, { status: 503 });
   }
   if (activeJobs >= concurrency) {
-    return Response.json({ status: "busy", retryAfterMs: 5_000 } satisfies ProcessOutcome);
+    return Response.json({ status: "busy", retryAfterMs: 5_000 + Math.random() * 10_000 } satisfies ProcessOutcome);
   }
 
   let cacheKey: string;
+  let callbackUrl: string | undefined;
   try {
-    const body = await req.json() as { cacheKey?: string };
+    const body = await req.json() as { cacheKey?: string; callbackUrl?: string };
     cacheKey = body.cacheKey ?? "";
+    callbackUrl = body.callbackUrl;
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -239,7 +255,17 @@ async function handleProcessRequest(req: Request): Promise<Response> {
       }
       return Response.json({ status: claim.status } satisfies ProcessOutcome);
     }
-    return Response.json(await processJob(claim.job));
+
+    void processJob(claim.job)
+      .then((outcome) => postToCallback(callbackUrl, outcome))
+      .catch((error) => {
+        console.error("analysis.worker.background_job_failed", {
+          cacheKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        postToCallback(callbackUrl, { status: "dead" });
+      });
+    return Response.json({ status: "completed" } satisfies ProcessOutcome);
   } catch (error) {
     console.error("analysis.worker.request_failed", {
       cacheKey,
