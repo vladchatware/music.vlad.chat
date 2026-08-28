@@ -19,6 +19,7 @@ async function dispatchTrackAnalysis(cacheKey: string): Promise<WorkerOutcome> {
       "content-type": "application/json",
     },
     body: JSON.stringify({ cacheKey }),
+    signal: AbortSignal.timeout(300_000),
   });
   if (!response.ok) {
     throw new RetryableError(`Analysis worker failed with status ${response.status}`, {
