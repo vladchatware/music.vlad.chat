@@ -4,28 +4,40 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ANALYSIS_SAMPLE_RATE } from "./config";
 
-export async function decodeUrlToMonoPcm(audioUrl: string): Promise<Float32Array> {
+export async function decodeUrlToMonoPcm(
+  audioUrl: string,
+  authToken?: string,
+): Promise<Float32Array> {
   const dir = await mkdtemp(join(tmpdir(), "music-vlad-analysis-"));
   const outputPath = join(dir, "audio.f32le");
   try {
+    const args = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+    ];
+    if (authToken) {
+      // SoundCloud serves full-length audio over HLS today; the master
+      // playlist lives behind api.soundcloud.com and requires the bearer
+      // token. ffmpeg forwards these headers on every request.
+      args.push("-headers", `Authorization: Bearer ${authToken}\r\n`);
+    }
+    args.push(
+      "-i",
+      audioUrl,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      String(ANALYSIS_SAMPLE_RATE),
+      "-f",
+      "f32le",
+      outputPath,
+    );
     const child = spawn(
       process.env.FFMPEG_PATH || "ffmpeg",
-      [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        audioUrl,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        String(ANALYSIS_SAMPLE_RATE),
-        "-f",
-        "f32le",
-        outputPath,
-      ],
+      args,
       { stdio: ["ignore", "ignore", "pipe"] },
     );
     let stderr = "";

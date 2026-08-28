@@ -61,7 +61,7 @@ export async function processAnalysisJob(
     }
     throw error;
   }
-  const signal = await decodeUrlToMonoPcm(streamUrl);
+  const signal = await decodeUrlToMonoPcm(streamUrl, dependencies.soundCloudAccessToken);
   const decodedDurationSec = signal.length / 22_050;
   if (decodedDurationSec > MAX_TRACK_DURATION_SEC + 1) {
     throw new Error("Decoded audio exceeds 10 minute analysis limit");

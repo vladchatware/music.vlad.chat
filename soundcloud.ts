@@ -428,8 +428,13 @@ export const resolveTrackStreamUrl = async (
     throw e
   }
   const body = await res.json() as Record<string, unknown>
+  // SoundCloud now serves full-length audio via HLS; http_mp3_128_url is no
+  // longer returned by /streams for most tracks. Prefer direct MP3, then HLS,
+  // and only fall back to the ~30s preview clip when callers allow it.
   const streamUrl = (
-    body.http_mp3_128_url ?? (allowPreview ? body.preview_mp3_128_url : undefined)
+    body.http_mp3_128_url
+    ?? body.hls_mp3_128_url
+    ?? (allowPreview ? body.preview_mp3_128_url : undefined)
   ) as string | undefined
   if (!streamUrl) {
     const bodySnippet = JSON.stringify(body).slice(0, 500)

@@ -37,7 +37,7 @@ describe("analysis worker job", () => {
     const result = await processAnalysisJob(job);
     expect(soundcloud.track).toHaveBeenCalledWith("12", undefined);
     expect(soundcloud.resolveTrackStreamUrl).toHaveBeenCalledWith("12", undefined, 15_000, false);
-    expect(decoder.decodeUrlToMonoPcm).toHaveBeenCalledWith("https://cdn.example/audio.mp3");
+    expect(decoder.decodeUrlToMonoPcm).toHaveBeenCalledWith("https://cdn.example/audio.mp3", undefined);
     expect(result.sourceTrackId).toBe("12");
     expect(result.analysisVersion).toBe("essentia-dj-v1");
     expect(result.durationSec).toBeCloseTo(10, 3);
