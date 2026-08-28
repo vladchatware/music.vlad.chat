@@ -1,53 +1,48 @@
-import { createWebhook, sleep, RetryableError } from "workflow";
+import { createWebhook, sleep } from "workflow";
 
 export type WorkerOutcome =
   | { status: "completed" | "done" | "dead" }
   | { status: "busy" | "waiting"; retryAfterMs: number };
 
-async function dispatchTrackAnalysis(
-  cacheKey: string,
-  callbackUrl: string,
-): Promise<WorkerOutcome> {
+async function registerCallback(cacheKey: string, callbackUrl: string): Promise<void> {
   "use step";
 
+  const convexUrl = process.env.CONVEX_URL;
   const workerUrl = (process.env.ANALYSIS_WORKER_URL ?? "http://localhost:3001")
     .replace(/\/+$/, "");
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
-  if (!secret) throw new Error("ANALYSIS_SERVICE_SECRET is required");
+  if (!convexUrl || !secret) throw new Error("CONVEX_URL and ANALYSIS_SERVICE_SECRET required");
 
-  const response = await fetch(`${workerUrl}/analysis/process`, {
+  await fetch(`${convexUrl}/api/mutation`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${secret}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ cacheKey, callbackUrl }),
-    signal: AbortSignal.timeout(30_000),
+    body: JSON.stringify({
+      path: "trackAnalysis:setCallbackUrl",
+      args: { cacheKey, callbackUrl },
+    }),
+    signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) {
-    throw new RetryableError(`Analysis worker failed with status ${response.status}`, {
-      retryAfter: 5_000,
-    });
-  }
-  const outcome = await response.json() as WorkerOutcome;
-  if (outcome.status === "busy" || outcome.status === "waiting") {
-    throw new RetryableError(`Worker ${outcome.status}`, {
-      retryAfter: outcome.retryAfterMs,
-    });
-  }
-  return outcome;
+
+  fetch(`${workerUrl}/analysis/process`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ cacheKey }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => {});
 }
-dispatchTrackAnalysis.maxRetries = 20;
 
 export async function trackAnalysisWorkflow(cacheKey: string): Promise<WorkerOutcome> {
   "use workflow";
 
   using webhook = createWebhook({ respondWith: "manual" });
 
-  const outcome = await dispatchTrackAnalysis(cacheKey, webhook.url);
-  if (outcome.status !== "completed" && outcome.status !== "done" && outcome.status !== "dead") {
-    return outcome;
-  }
+  await registerCallback(cacheKey, webhook.url);
 
   const result = await Promise.race([
     (async () => {
@@ -58,7 +53,7 @@ export async function trackAnalysisWorkflow(cacheKey: string): Promise<WorkerOut
       }
       throw new Error("Webhook closed without callback");
     })(),
-    sleep("5m").then(() => ({ status: "dead" as const } satisfies WorkerOutcome)),
+    sleep("30m").then(() => ({ status: "dead" as const } satisfies WorkerOutcome)),
   ]);
 
   return result;

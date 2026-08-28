@@ -230,11 +230,9 @@ async function handleProcessRequest(req: Request): Promise<Response> {
   }
 
   let cacheKey: string;
-  let callbackUrl: string | undefined;
   try {
-    const body = await req.json() as { cacheKey?: string; callbackUrl?: string };
+    const body = await req.json() as { cacheKey?: string };
     cacheKey = body.cacheKey ?? "";
-    callbackUrl = body.callbackUrl;
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -256,6 +254,7 @@ async function handleProcessRequest(req: Request): Promise<Response> {
       return Response.json({ status: claim.status } satisfies ProcessOutcome);
     }
 
+    const { callbackUrl } = claim.job;
     void processJob(claim.job)
       .then((outcome) => postToCallback(callbackUrl, outcome))
       .catch((error) => {

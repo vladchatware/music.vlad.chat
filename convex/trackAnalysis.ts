@@ -576,6 +576,46 @@ export const defer = internalMutation({
   },
 });
 
+export const setCallbackUrl = internalMutation({
+  args: {
+    cacheKey: v.string(),
+    callbackUrl: v.string(),
+  },
+  handler: async (ctx, { cacheKey, callbackUrl }) => {
+    const job = await ctx.db
+      .query("trackAnalysisJobs")
+      .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
+      .unique();
+    if (!job) return;
+    await ctx.db.patch(job._id, { callbackUrl, updatedAt: Date.now() });
+  },
+});
+
+export const setCallbackUrlAndPush = internalAction({
+  args: {
+    cacheKey: v.string(),
+    callbackUrl: v.string(),
+  },
+  handler: async (ctx, { cacheKey, callbackUrl }) => {
+    await ctx.runMutation(internal.trackAnalysis.setCallbackUrl, { cacheKey, callbackUrl });
+    const workerUrl = process.env.ANALYSIS_WORKER_URL;
+    const secret = process.env.ANALYSIS_SERVICE_SECRET;
+    if (workerUrl && secret) {
+      try {
+        await fetch(`${workerUrl.replace(/\/+$/, "")}/analysis/process`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${secret}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ cacheKey }),
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch {}
+    }
+  },
+});
+
 // Push-based sweep: recovers expired leases and returns cacheKeys that are
 // ready to run. The paired action forwards them to the worker (which does the
 // real claim via /analysis/process). Replaces the worker's 30s drain loop —
