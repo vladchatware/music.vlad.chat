@@ -272,7 +272,7 @@ analysisRoute("/analysis/enqueue", async (ctx, req) => {
       ...(body.soundcloudUserId ? { soundcloudUserId: body.soundcloudUserId as string } : {}),
       ...(body.traceContexts ? { traceContexts: body.traceContexts as any } : {}),
     });
-    if (result.enqueued > 0) {
+    if (result.enqueued > 0 && !body.force) {
       await pushToAnalysisWorker(trackIds.map((id) => `soundcloud:${id}:${analysisVersion}`));
     }
     return json(result);
