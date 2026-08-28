@@ -226,14 +226,19 @@ analysisRoute("/soundcloud/service-access-token", async (ctx, req) => {
   if (!credentials.refreshToken || !clientId || !clientSecret) {
     return json({ accessToken: credentials.accessToken });
   }
-  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const auth = btoa(`${clientId}:${clientSecret}`);
   const refreshRes = await fetch("https://secure.soundcloud.com/oauth/token", {
     method: "POST",
     headers: {
       Authorization: `Basic ${auth}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: `grant_type=refresh_token&client_id=${clientId}&client_secret=${clientSecret}&refresh_token=${credentials.refreshToken}`,
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: credentials.refreshToken,
+    }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!refreshRes.ok) return json({ accessToken: credentials.accessToken });
