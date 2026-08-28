@@ -94,6 +94,34 @@ function retryAfterMs(retryAt: number) {
   return Math.max(1_000, Math.min(30 * 60_000, retryAt - Date.now()));
 }
 
+function notifyCallback(
+  job: AnalysisJob,
+  status: "completed" | "dead",
+  extra?: { analysisVersion?: string; error?: string },
+) {
+  if (!job.callbackUrl) return;
+  void (async () => {
+    try {
+      await fetch(job.callbackUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          trackId: job.sourceTrackId,
+          status,
+          analysisVersion: extra?.analysisVersion,
+          error: extra?.error?.slice(0, 300),
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (error) {
+      console.error("analysis.job.callback_failed", {
+        trackId: job.sourceTrackId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })();
+}
+
 async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
   const { soundCloudAccessToken, ...safeJob } = job;
   console.info("analysis.job.started", {
@@ -125,6 +153,9 @@ async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
 
       const result = await analyzeInFreshProcess(safeJob, accessToken);
       await queue.complete(safeJob, result);
+      notifyCallback(safeJob, "completed", {
+        analysisVersion: result.analysisVersion,
+      });
       console.info("analysis.job.completed", {
         trackId: safeJob.sourceTrackId,
         processingTimeMs: result.processingTimeMs,
@@ -164,6 +195,9 @@ async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
       attributes: workerMetricAttributes,
     });
     const failure = await queue.fail(safeJob, error, isNonStreamable);
+    if (failure.dead) {
+      notifyCallback(safeJob, "dead", { error: errorMsg });
+    }
     return failure.dead
       ? { status: "dead" }
       : { status: "waiting", retryAfterMs: retryAfterMs(failure.nextAttemptAt) };

@@ -63,6 +63,7 @@ const enqueueArgs = {
   analysisVersion: v.string(),
   priority: v.number(),
   force: v.optional(v.boolean()),
+  callbackUrl: v.optional(v.string()),
   traceContexts: v.optional(v.array(v.object({
     trackId: v.string(),
     sentryTrace: v.optional(v.string()),
@@ -78,6 +79,7 @@ type EnqueueArgs = {
   analysisVersion: string;
   priority: number;
   force?: boolean;
+  callbackUrl?: string;
   traceContexts?: Array<{
     trackId: string;
     sentryTrace?: string;
@@ -95,6 +97,9 @@ async function enqueueJobs(
 ) {
     const now = Date.now();
     let enqueued = 0;
+    const callbackUrl = args.callbackUrl && /^https:\/\//.test(args.callbackUrl) && args.callbackUrl.length <= 512
+      ? args.callbackUrl
+      : undefined;
     let cached = 0;
     let existing = 0;
 
@@ -150,6 +155,7 @@ async function enqueueJobs(
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
+            ...(callbackUrl ? { callbackUrl } : {}),
             ...queueMetadata,
             ...(requestedBy ? { requestedBy } : {}),
             createdAt: now,
@@ -181,6 +187,7 @@ async function enqueueJobs(
         priority: args.priority,
         attempts: 0,
         nextAttemptAt: now,
+        ...(callbackUrl ? { callbackUrl } : {}),
         ...queueMetadata,
         createdAt: now,
         updatedAt: now,

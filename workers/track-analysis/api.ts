@@ -8,6 +8,7 @@ export type AnalysisJob = {
   attempt: number;
   leaseToken: string;
   soundCloudAccessToken?: string;
+  callbackUrl?: string;
   createdAt?: number;
   sentryTrace?: string;
   sentryBaggage?: string;

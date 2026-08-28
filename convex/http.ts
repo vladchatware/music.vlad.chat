@@ -235,6 +235,7 @@ analysisRoute("/analysis/enqueue", async (ctx, req) => {
       priority: Number.isFinite(body.priority) ? Number(body.priority) : 0,
       force: body.force === true,
       analysisVersion: (body.analysisVersion as string) ?? TRACK_ANALYSIS_VERSION,
+      ...(typeof body.callbackUrl === "string" ? { callbackUrl: body.callbackUrl } : {}),
       ...(body.soundcloudUserId ? { soundcloudUserId: body.soundcloudUserId as string } : {}),
       ...(body.traceContexts ? { traceContexts: body.traceContexts as any } : {}),
     });
