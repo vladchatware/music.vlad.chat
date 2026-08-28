@@ -26,15 +26,27 @@ async function registerCallback(cacheKey: string, callbackUrl: string): Promise<
     signal: AbortSignal.timeout(15_000),
   });
 
-  fetch(`${workerUrl}/analysis/process`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${secret}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ cacheKey }),
-    signal: AbortSignal.timeout(10_000),
-  }).catch(() => {});
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      const res = await fetch(`${workerUrl}/analysis/process`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ cacheKey }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) return;
+      if (res.status === 409 || res.status === 404) return;
+      const body = await res.json() as { retryAfterMs?: number };
+      const waitMs = body.retryAfterMs ?? Math.min(5_000 * 2 ** attempt, 120_000);
+      await new Promise((r) => setTimeout(r, waitMs));
+    } catch {
+      const waitMs = Math.min(5_000 * 2 ** attempt, 120_000);
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
 }
 
 export async function trackAnalysisWorkflow(cacheKey: string): Promise<WorkerOutcome> {

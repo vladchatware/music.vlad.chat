@@ -265,6 +265,8 @@ export const readAccessToken = async () => {
   return accessTokenRequest
 }
 
+const MAX_AUTH_RETRIES = 5;
+
 export const getAccessToken = async () => {
   if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new Error('Soundcloud client credentials not found in environment variables')
@@ -272,31 +274,38 @@ export const getAccessToken = async () => {
 
   if (credentials.access_token) return credentials.access_token
 
-  const auth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-  const response = await fetch('https://secure.soundcloud.com/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials'
-  })
+  let lastError: SoundCloudAuthError | undefined;
+  for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt++) {
+    const auth = btoa(`${CLIENT_ID}:${CLIENT_SECRET}`);
+    const response = await fetch('https://secure.soundcloud.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials'
+    })
 
-  if (!response.ok) {
+    if (response.ok) {
+      const data = await response.json();
+      credentials.access_token = data.access_token
+      credentials.refresh_token = data.refresh_token
+      credentials.expires_at = Date.now() + (data.expires_in * 1000)
+      return credentials.access_token
+    }
+
     await response.body?.cancel()
-    throw new SoundCloudAuthError(
+    const retryMs = authRetryAfterMs(response) ?? Math.min(60_000 * 2 ** attempt, 300_000);
+    lastError = new SoundCloudAuthError(
       `Authentication failed with status: ${response.status}`,
       response.status,
-      authRetryAfterMs(response),
+      retryMs,
     );
+    if (response.status !== 429 || attempt >= MAX_AUTH_RETRIES) break;
+    console.warn(`SoundCloud auth 429, retry ${attempt + 1}/${MAX_AUTH_RETRIES} in ${retryMs}ms`);
+    await new Promise((r) => setTimeout(r, retryMs));
   }
-
-  const data = await response.json();
-  credentials.access_token = data.access_token
-  credentials.refresh_token = data.refresh_token
-  credentials.expires_at = Date.now() + (data.expires_in * 1000)
-
-  return credentials.access_token
+  throw lastError!;
 }
 
 export const refreshToken = async (refresh_token) => {
@@ -628,12 +637,24 @@ export async function allLikes(userId: string, userToken?: string): Promise<Trac
     if (url.origin !== "https://api.soundcloud.com") {
       throw new Error("SoundCloud likes pagination returned an unsafe URL");
     }
-    const response = await rateLimitedFetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) throw new Error(`SoundCloud likes failed (${response.status})`);
-    const page = await response.json() as Track[] | { collection?: Track[]; next_href?: string | null };
+    let page: Track[] | { collection?: Track[]; next_href?: string | null };
+    for (let attempt = 0; ; attempt++) {
+      const response = await rateLimitedFetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (response.ok) {
+        page = await response.json();
+        break;
+      }
+      if (response.status === 429 && attempt < 5) {
+        const waitMs = retryAfterMs(response) ?? Math.min(60_000 * 2 ** attempt, 300_000);
+        console.warn(`SoundCloud likes 429, retry ${attempt + 1}/5 in ${waitMs}ms`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw new Error(`SoundCloud likes failed (${response.status})`);
+    }
     if (Array.isArray(page)) {
       tracks.push(...page);
       break;
