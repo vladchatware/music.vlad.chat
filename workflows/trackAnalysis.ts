@@ -12,29 +12,28 @@ async function dispatchTrackAnalysis(cacheKey: string): Promise<WorkerOutcome> {
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
   if (!secret) throw new Error("ANALYSIS_SERVICE_SECRET is required");
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const response = await fetchWorkflow(`${workerUrl}/analysis/process`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${secret}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ cacheKey }),
+  const response = await fetchWorkflow(`${workerUrl}/analysis/process`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ cacheKey }),
+  });
+  if (!response.ok) {
+    throw new RetryableError(`Analysis worker failed with status ${response.status}`, {
+      retryAfter: 5_000,
     });
-    if (!response.ok) {
-      throw new RetryableError(`Analysis worker failed with status ${response.status}`, {
-        retryAfter: 5_000,
-      });
-    }
-    const outcome = await response.json() as WorkerOutcome;
-    if (outcome.status === "busy" || outcome.status === "waiting") {
-      await new Promise((resolve) => setTimeout(resolve, outcome.retryAfterMs));
-      continue;
-    }
-    return outcome;
   }
+  const outcome = await response.json() as WorkerOutcome;
+  if (outcome.status === "busy" || outcome.status === "waiting") {
+    throw new RetryableError(`Worker ${outcome.status}`, {
+      retryAfter: outcome.retryAfterMs,
+    });
+  }
+  return outcome;
 }
+dispatchTrackAnalysis.maxRetries = 20;
 
 export async function trackAnalysisWorkflow(cacheKey: string): Promise<WorkerOutcome> {
   "use workflow";
