@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
+import { internalAction, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { trackAnalysisResultValidator } from "./trackAnalysisValidators";
 import { getAnalysisRetryPolicy, sanitizeAnalysisError } from "../lib/analysisQueuePolicy";
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -556,5 +556,82 @@ export const defer = internalMutation({
       trackId: job.sourceTrackId,
       attempt: Math.max(0, job.attempts - 1),
     });
+  },
+});
+
+// Push-based sweep: recovers expired leases and returns cacheKeys that are
+// ready to run. The paired action forwards them to the worker (which does the
+// real claim via /analysis/process). Replaces the worker's 30s drain loop —
+// runs from cron instead of burning invocations while idle.
+export const sweep = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    let recovered = 0;
+    const processing = await ctx.db
+      .query("trackAnalysisJobs")
+      .withIndex("by_status_priority_createdAt", (q) => q.eq("status", "processing"))
+      .take(50);
+    for (const job of processing) {
+      if ((job.leaseExpiresAt ?? Number.POSITIVE_INFINITY) <= now) {
+        const retry = getAnalysisRetryPolicy(job.attempts, now);
+        await ctx.db.patch(job._id, {
+          status: retry.dead ? "dead" : "failed",
+          leaseToken: undefined,
+          leaseExpiresAt: undefined,
+          nextAttemptAt: retry.nextAttemptAt,
+          lastError: "Worker lease expired",
+          updatedAt: now,
+        });
+        recovered += 1;
+      }
+    }
+
+    const ready: string[] = [];
+    for (const status of ["queued", "failed"] as const) {
+      const candidates = await ctx.db
+        .query("trackAnalysisJobs")
+        .withIndex("by_status_priority_createdAt", (q) => q.eq("status", status))
+        .order("desc")
+        .take(50);
+      for (const job of candidates) {
+        if (job.nextAttemptAt <= now) ready.push(job.cacheKey);
+      }
+    }
+    return { ready: ready.slice(0, 20), recovered };
+  },
+});
+
+export const sweepPush = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const { ready } = await ctx.runMutation(internal.trackAnalysis.sweep, {});
+    const workerUrl = process.env.ANALYSIS_WORKER_URL;
+    const secret = process.env.ANALYSIS_SERVICE_SECRET;
+    if (!workerUrl || !secret || ready.length === 0) {
+      return { pushed: 0, ready: ready.length };
+    }
+    const base = workerUrl.replace(/\/+$/, "");
+    let pushed = 0;
+    await Promise.all(ready.map(async (cacheKey) => {
+      try {
+        const res = await fetch(`${base}/analysis/process`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${secret}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ cacheKey }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (res.ok || res.status === 503) pushed += 1;
+      } catch (error) {
+        console.error("analysis.sweep.push_failed", {
+          cacheKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }));
+    return { pushed, ready: ready.length };
   },
 });

@@ -24,6 +24,33 @@ function isAnalysisServiceAuthorized(req: Request): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
+// Fire the worker for specific cacheKeys so enqueued jobs start immediately.
+// Best-effort: failures are fine, the 15-min cron sweep retries them.
+async function pushToAnalysisWorker(cacheKeys: string[]): Promise<void> {
+  const workerUrl = process.env.ANALYSIS_WORKER_URL;
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  if (!workerUrl || !secret || cacheKeys.length === 0) return;
+  const base = workerUrl.replace(/\/+$/, "");
+  await Promise.allSettled(cacheKeys.map(async (cacheKey) => {
+    try {
+      await fetch(`${base}/analysis/process`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ cacheKey }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch (error) {
+      console.error("analysis.enqueue.push_failed", {
+        cacheKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }));
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -230,15 +257,19 @@ analysisRoute("/analysis/enqueue", async (ctx, req) => {
     if (trackIds.length === 0 || trackIds.length > 20) {
       return json({ error: "trackIds must contain 1-20 positive numeric IDs" }, 400);
     }
+    const analysisVersion = (body.analysisVersion as string) ?? TRACK_ANALYSIS_VERSION;
     const result = await ctx.runMutation(internal.trackAnalysis.enqueue, {
       trackIds,
       priority: Number.isFinite(body.priority) ? Number(body.priority) : 0,
       force: body.force === true,
-      analysisVersion: (body.analysisVersion as string) ?? TRACK_ANALYSIS_VERSION,
+      analysisVersion,
       ...(typeof body.callbackUrl === "string" ? { callbackUrl: body.callbackUrl } : {}),
       ...(body.soundcloudUserId ? { soundcloudUserId: body.soundcloudUserId as string } : {}),
       ...(body.traceContexts ? { traceContexts: body.traceContexts as any } : {}),
     });
+    if (result.enqueued > 0) {
+      await pushToAnalysisWorker(trackIds.map((id) => `soundcloud:${id}:${analysisVersion}`));
+    }
     return json(result);
   } catch (error) {
     console.error("Analysis enqueue failed", error);
