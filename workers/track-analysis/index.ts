@@ -1,13 +1,10 @@
 import { AnalysisQueueClient, type AnalysisJob } from "./api";
-import { getConvexSiteUrl } from "./config";
-import { analyzeInFreshProcess } from "./analysisProcessClient";
-import { AuthBackoffError, SoundCloudAuthGate } from "./authBackoff";
-import { processWithQueueTrace } from "./queueTracing";
+import { getConvexSiteUrl, getQueueConsumerGroup, getQueuePollIntervalMs, getQueueRegion, getQueueTopic, isQueueAuthConfigured, QUEUE_SLOT_WAIT_MS, QUEUE_VISIBILITY_TIMEOUT_SECONDS } from "./config";
+import { SoundCloudAuthGate } from "./authBackoff";
+import { captureWorkerException, clampRetryAfterMs, createJobProcessor, type ProcessOutcome } from "./jobProcessor";
+import { createQueueMessageHandler, runQueueSlot } from "./queueConsumer";
+import { VercelQueueTokenProvider } from "./vercelQueueAuth";
 import * as Sentry from "@sentry/node";
-
-type ProcessOutcome =
-  | { status: "completed" | "done" | "dead" }
-  | { status: "busy" | "waiting"; retryAfterMs: number };
 
 type DispatchOutcome = ProcessOutcome | { status: "accepted" };
 
@@ -58,24 +55,8 @@ async function fetchServiceAccessToken(rotate: boolean): Promise<string> {
 }
 
 const authGate = new SoundCloudAuthGate(() => fetchServiceAccessToken(false));
+const processJob = createJobProcessor({ queue, authGate, fetchServiceAccessToken });
 const workerMetricAttributes = { component: "track-analysis-worker" };
-const exceptionCaptureIntervalMs = 60_000;
-const lastExceptionCapture = new Map<string, number>();
-
-function captureWorkerException(
-  operation: string,
-  error: unknown,
-  extra: Record<string, string | number>,
-) {
-  const now = Date.now();
-  const lastCapturedAt = lastExceptionCapture.get(operation) ?? 0;
-  if (now - lastCapturedAt < exceptionCaptureIntervalMs) return;
-  lastExceptionCapture.set(operation, now);
-  Sentry.captureException(error, {
-    tags: { component: "track-analysis-worker", operation },
-    extra,
-  });
-}
 
 function recordWorkerState() {
   Sentry.metrics.gauge("analysis.worker.active_jobs", activeJobs, {
@@ -91,86 +72,6 @@ const heartbeat = setInterval(() => {
   recordWorkerState();
 }, 60_000);
 heartbeat.unref?.();
-
-function retryAfterMs(retryAt: number) {
-  return Math.max(1_000, Math.min(30 * 60_000, retryAt - Date.now()));
-}
-
-async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
-  const { soundCloudAccessToken, ...safeJob } = job;
-  console.info("analysis.job.started", {
-    trackId: safeJob.sourceTrackId,
-    attempt: safeJob.attempt,
-  });
-
-  try {
-    return await processWithQueueTrace(safeJob, async () => {
-      let accessToken = soundCloudAccessToken;
-      if (!accessToken) {
-        try {
-          accessToken = await authGate.acquire();
-        } catch (error) {
-          const retryMs = error instanceof AuthBackoffError ? error.retryMs : 30_000;
-          console.error("analysis.worker.auth_failed", {
-            retryMs,
-            retryAt: new Date(Date.now() + retryMs).toISOString(),
-            message: error instanceof Error ? error.message : String(error),
-          });
-          captureWorkerException("soundcloud_auth", error, { retryMs });
-          Sentry.metrics.count("analysis.worker.auth_error", 1, {
-            attributes: workerMetricAttributes,
-          });
-          await queue.defer(safeJob, retryMs, error);
-          return { status: "waiting", retryAfterMs: retryMs };
-        }
-      }
-
-      const result = await analyzeInFreshProcess(safeJob, accessToken);
-      await queue.complete(safeJob, result);
-      console.info("analysis.job.completed", {
-        trackId: safeJob.sourceTrackId,
-        processingTimeMs: result.processingTimeMs,
-      });
-      return { status: "completed" };
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("analysis.job.failed", {
-      trackId: safeJob.sourceTrackId,
-      message: errorMsg,
-    });
-    const isNonStreamable = errorMsg.includes("[NON_STREAMABLE]");
-    const isPreviewDecode = errorMsg.includes("[PREVIEW_DECODE]");
-    const isTokenError =
-      errorMsg.includes("401") ||
-      errorMsg.includes("token error") ||
-      errorMsg.includes("CDN auth error") ||
-      isPreviewDecode;
-    if (isTokenError) {
-      // Rotate before the retry so it runs with a fresh token.
-      try {
-        await fetchServiceAccessToken(true);
-      } catch (rotateError) {
-        console.error("analysis.worker.token_rotate_failed", {
-          message: rotateError instanceof Error ? rotateError.message : String(rotateError),
-        });
-      }
-    }
-    if (!isNonStreamable && !isPreviewDecode) {
-      captureWorkerException("analyze", error, {
-        trackId: safeJob.sourceTrackId,
-        attempt: safeJob.attempt,
-      });
-    }
-    Sentry.metrics.count("analysis.worker.job_error", 1, {
-      attributes: workerMetricAttributes,
-    });
-    const failure = await queue.fail(safeJob, error, isNonStreamable);
-    return failure.dead
-      ? { status: "dead" }
-      : { status: "waiting", retryAfterMs: retryAfterMs(failure.nextAttemptAt) };
-  }
-}
 
 async function postToCallback(callbackUrl: string | undefined, outcome: ProcessOutcome) {
   if (!callbackUrl) return;
@@ -221,7 +122,7 @@ async function handleProcessRequest(req: Request): Promise<Response> {
       if (claim.status === "waiting") {
         return Response.json({
           status: "waiting",
-          retryAfterMs: retryAfterMs(claim.retryAt),
+          retryAfterMs: clampRetryAfterMs(claim.retryAt),
         } satisfies ProcessOutcome);
       }
       return Response.json({ status: claim.status } satisfies ProcessOutcome);
@@ -281,6 +182,7 @@ const server = Bun.serve({
         activeJobs,
         capacity: concurrency,
         soundCloudAuth: authGate.snapshot(),
+        queueConsumer: queueConsumerStarted,
       }, { status: stopping ? 503 : 200 });
     }
     if (path === "/analysis/process" && req.method === "POST") {
@@ -292,6 +194,55 @@ const server = Bun.serve({
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let queueConsumerStarted = false;
+
+function startQueueConsumer() {
+  if (!isQueueAuthConfigured()) {
+    console.info("analysis.worker.queue_consumer_disabled", {
+      reason: "VERCEL_API_TOKEN or VERCEL_QUEUE_TOKEN not configured",
+    });
+    return;
+  }
+  const handleMessage = createQueueMessageHandler({ convexQueue: queue, processJob });
+  const tokenProvider = new VercelQueueTokenProvider();
+  const slotOptions = {
+    tokenProvider,
+    region: getQueueRegion(),
+    topic: getQueueTopic(),
+    consumerGroup: getQueueConsumerGroup(),
+    visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+    pollIntervalMs: getQueuePollIntervalMs(),
+    slotWaitMs: QUEUE_SLOT_WAIT_MS,
+    handleMessage,
+    acquireSlot: () => {
+      if (stopping || activeJobs >= concurrency) return false;
+      activeJobs += 1;
+      recordWorkerState();
+      return true;
+    },
+    releaseSlot: () => {
+      activeJobs -= 1;
+      recordWorkerState();
+    },
+    isStopping: () => stopping,
+  };
+  for (let slot = 0; slot < concurrency; slot += 1) {
+    void runQueueSlot(slotOptions);
+  }
+  queueConsumerStarted = true;
+  console.info("analysis.worker.queue_consumer_started", {
+    region: slotOptions.region,
+    topic: slotOptions.topic,
+    consumerGroup: slotOptions.consumerGroup,
+    slots: concurrency,
+  });
+  Sentry.logger.info("Track analysis queue consumer started", {
+    region: slotOptions.region,
+    topic: slotOptions.topic,
+    consumerGroup: slotOptions.consumerGroup,
+  });
 }
 
 async function shutdown(signal: string) {
@@ -310,11 +261,19 @@ async function shutdown(signal: string) {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-console.info("analysis.worker.started", { concurrency, port: server.port, mode: "on-demand" });
+startQueueConsumer();
+
+console.info("analysis.worker.started", {
+  concurrency,
+  port: server.port,
+  mode: "on-demand",
+  queueConsumer: queueConsumerStarted,
+});
 Sentry.logger.info("Track analysis worker started", {
   concurrency,
   port: server.port,
   mode: "on-demand",
+  queueConsumer: queueConsumerStarted,
 });
 Sentry.metrics.count("analysis.worker.started", 1, { attributes: workerMetricAttributes });
 recordWorkerState();

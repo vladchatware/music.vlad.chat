@@ -1,20 +1,57 @@
 import { TRACK_ANALYSIS_VERSION } from "../trackAnalysis";
+import {
+  ANALYSIS_QUEUE_RETENTION_SECONDS,
+  trackAnalysisCacheKey,
+  type AnalysisTraceContext,
+  type TrackAnalysisQueueMessage,
+} from "../analysisQueueMessage";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "../../convex/_generated/api";
 import * as Sentry from "@sentry/nextjs";
-import { start } from "workflow/api";
-import { trackAnalysisWorkflow } from "../../workflows/trackAnalysis";
+import { QueueClient } from "@vercel/queue";
 
 const ANALYSIS_QUEUE_NAME = "track-analysis";
 
-type AnalysisTraceContext = {
-  trackId: string;
-  sentryTrace?: string;
-  sentryBaggage?: string;
-  messageId: string;
-  messageBodySize: number;
-  sentAt: number;
+type AnalysisEnqueueBody = {
+  trackIds: string[];
+  analysisVersion: string;
+  priority: number;
+  force?: boolean;
+  soundcloudUserId?: string;
+  requestedBy?: string;
+  traceContexts?: AnalysisTraceContext[];
 };
+
+let queueClient: QueueClient | undefined;
+
+function queueTopic(): string {
+  return process.env.VERCEL_QUEUE_TOPIC || ANALYSIS_QUEUE_NAME;
+}
+
+function queueRegion(): string {
+  return process.env.VERCEL_QUEUE_REGION || "iad1";
+}
+
+function getQueueClient(): QueueClient {
+  queueClient ??= new QueueClient({
+    region: queueRegion(),
+    // The consumer is an external worker: messages must not be pinned to a
+    // single deployment, and polling is deploymentless on the worker side.
+    deploymentId: null,
+    ...(process.env.VERCEL_QUEUE_TOKEN ? { token: process.env.VERCEL_QUEUE_TOKEN } : {}),
+  });
+  return queueClient;
+}
+
+function convexSiteUrl(): string {
+  const configured = process.env.CONVEX_SITE_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
+  if (configured) return configured.replace(/\/+$/, "").replace(/\/api$/, "");
+  const cloudUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (cloudUrl?.includes(".convex.cloud")) {
+    return cloudUrl.replace(".convex.cloud", ".convex.site").replace(/\/+$/, "");
+  }
+  throw new Error("Convex site URL required");
+}
 
 export async function enqueueTrackAnalysis(
   trackId: string | number,
@@ -47,7 +84,7 @@ export async function enqueueTrackAnalyses(
   return await Sentry.startSpan({ name: "track-analysis enqueue" }, async (parentSpan) => {
     const sentAt = Date.now();
     const publications = normalized.map((trackId) => {
-      const messageId = `soundcloud:${trackId}:${TRACK_ANALYSIS_VERSION}`;
+      const messageId = trackAnalysisCacheKey(trackId, TRACK_ANALYSIS_VERSION);
       const messageBodySize = new TextEncoder().encode(JSON.stringify({
         source: "soundcloud",
         sourceTrackId: trackId,
@@ -79,20 +116,27 @@ export async function enqueueTrackAnalyses(
       const requestedBy = convexToken
         ? await fetchMutation(api.trackAnalysis.prepareForViewer, {}, { token: convexToken })
         : undefined;
-      await Promise.all(normalized.map((trackId, index) =>
-        start(trackAnalysisWorkflow, [{
-          trackId,
-          analysisVersion: TRACK_ANALYSIS_VERSION,
-          priority,
-          force,
-          soundcloudUserId,
-          requestedBy,
-          traceContext: traceContexts[index],
-        }])
-      ));
+      const counts = await enqueueJobsInConvex({
+        trackIds: normalized,
+        analysisVersion: TRACK_ANALYSIS_VERSION,
+        priority,
+        ...(force ? { force: true } : {}),
+        ...(soundcloudUserId ? { soundcloudUserId } : {}),
+        ...(requestedBy ? { requestedBy } : {}),
+        traceContexts,
+      });
+      await publishMessages(normalized.map((trackId, index) => ({
+        trackId,
+        analysisVersion: TRACK_ANALYSIS_VERSION,
+        priority,
+        ...(force ? { force: true } : {}),
+        ...(soundcloudUserId ? { soundcloudUserId } : {}),
+        ...(requestedBy ? { requestedBy } : {}),
+        traceContext: traceContexts[index],
+      })));
       for (const { span } of publications) span.setStatus({ code: 1, message: "ok" });
       parentSpan.setStatus({ code: 1, message: "ok" });
-      return { enqueued: normalized.length, cached: 0, existing: 0 };
+      return counts;
     } catch (error) {
       for (const { span } of publications) {
         span.setStatus({ code: 2, message: "internal_error" });
@@ -103,4 +147,40 @@ export async function enqueueTrackAnalyses(
       for (const { span } of publications) span.end();
     }
   });
+}
+
+async function enqueueJobsInConvex(body: AnalysisEnqueueBody): Promise<AnalysisEnqueueResult> {
+  const response = await fetch(`${convexSiteUrl()}/analysis/enqueue`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.ANALYSIS_SERVICE_SECRET}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Analysis enqueue failed (${response.status}): ${(await response.text()).slice(0, 200)}`);
+  }
+  return await response.json() as AnalysisEnqueueResult;
+}
+
+async function publishMessages(payloads: TrackAnalysisQueueMessage[]): Promise<void> {
+  const client = getQueueClient();
+  const results = await client.experimental_sendBatch(
+    queueTopic(),
+    payloads.map((payload) => ({
+      queueName: queueTopic(),
+      payload,
+      idempotencyKey: trackAnalysisCacheKey(payload.trackId, payload.analysisVersion),
+      retentionSeconds: ANALYSIS_QUEUE_RETENTION_SECONDS,
+    })),
+  );
+  const failed = results.filter((result) => result.status === "failed");
+  if (failed.length > 0) {
+    throw new Error(
+      `Queue publish failed for ${failed.length}/${results.length} message(s): `
+      + failed.map((result) => `${result.statusCode} ${result.error}`).join("; "),
+    );
+  }
 }
