@@ -39,6 +39,13 @@ function convexSiteUrl(): string {
   throw new Error("Convex site URL required");
 }
 
+function publicWebhookUrl(webhookUrl: string): string {
+  const publicSiteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!publicSiteUrl) return webhookUrl;
+  const webhook = new URL(webhookUrl);
+  return new URL(`${webhook.pathname}${webhook.search}`, publicSiteUrl).toString();
+}
+
 async function enqueue(
   args: TrackAnalysisWorkflowArgs,
   workflowRunId: string,
@@ -104,11 +111,12 @@ export async function trackAnalysisWorkflow(
   if (queued.cached > 0 || queued.existing > 0) return { status: "done" };
 
   const cacheKey = `soundcloud:${args.trackId}:${args.analysisVersion}`;
+  const callbackUrl = publicWebhookUrl(webhook.url);
   const requests = webhook[Symbol.asyncIterator]();
   let callbackRequest = requests.next();
 
   for (;;) {
-    const dispatched = await dispatch(cacheKey, webhook.url);
+    const dispatched = await dispatch(cacheKey, callbackUrl);
     if (dispatched.status === "busy" || dispatched.status === "waiting") {
       await sleep(`${Math.ceil(dispatched.retryAfterMs)}ms`);
       continue;
