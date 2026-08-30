@@ -38,7 +38,7 @@ describe("POST /api/analysis/enqueue", () => {
     expect(response.status).toBe(400);
   });
 
-  it("enqueues through durable workflow publisher", async () => {
+  it("enqueues through the queue publisher", async () => {
     process.env.ANALYSIS_SERVICE_SECRET = "test-secret";
     analysisQueue.enqueueTrackAnalyses.mockResolvedValue({
       enqueued: 2,

@@ -63,7 +63,6 @@ const enqueueArgs = {
   analysisVersion: v.string(),
   priority: v.number(),
   force: v.optional(v.boolean()),
-  workflowRunId: v.optional(v.string()),
   traceContexts: v.optional(v.array(v.object({
     trackId: v.string(),
     sentryTrace: v.optional(v.string()),
@@ -79,7 +78,6 @@ type EnqueueArgs = {
   analysisVersion: string;
   priority: number;
   force?: boolean;
-  workflowRunId?: string;
   traceContexts?: Array<{
     trackId: string;
     sentryTrace?: string;
@@ -96,7 +94,6 @@ async function enqueueJobs(
   requestedBy?: Id<"users">,
 ) {
     const now = Date.now();
-    const workflowRunId = args.workflowRunId?.slice(0, 256);
     let enqueued = 0;
     let cached = 0;
     let existing = 0;
@@ -140,10 +137,6 @@ async function enqueueJobs(
         .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
         .unique();
       if (job) {
-        if (workflowRunId && job.workflowRunId === workflowRunId) {
-          enqueued += 1;
-          continue;
-        }
         if (job.status === "dead") {
           if (job.lastError?.includes("[NON_STREAMABLE]")) {
             existing += 1;
@@ -157,7 +150,6 @@ async function enqueueJobs(
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
-            ...(workflowRunId ? { workflowRunId } : {}),
             ...queueMetadata,
             ...(requestedBy ? { requestedBy } : {}),
             createdAt: now,
@@ -179,16 +171,10 @@ async function enqueueJobs(
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
-            ...(workflowRunId ? { workflowRunId } : {}),
             ...queueMetadata,
             ...(requestedBy ? { requestedBy } : {}),
             updatedAt: now,
           });
-          enqueued += 1;
-          continue;
-        }
-        if (workflowRunId && !job.workflowRunId && job.status !== "processing") {
-          await ctx.db.patch(job._id, { workflowRunId, updatedAt: now });
           enqueued += 1;
           continue;
         }
@@ -215,7 +201,6 @@ async function enqueueJobs(
         priority: args.priority,
         attempts: 0,
         nextAttemptAt: now,
-        ...(workflowRunId ? { workflowRunId } : {}),
         ...queueMetadata,
         createdAt: now,
         updatedAt: now,
@@ -341,7 +326,6 @@ export const claimSpecific = internalMutation({
         messageId: job.messageId ?? job.cacheKey,
         messageBodySize: job.messageBodySize,
         sentAt: job.sentAt ?? job.createdAt,
-        callbackUrl: job.callbackUrl,
       },
     };
   },
@@ -504,21 +488,5 @@ export const prepareForViewer = mutation({
       throw new Error("SoundCloud authentication required");
     }
     return String(userId);
-  },
-});
-
-// Kept during rollout so workflows started by the previous deployment can drain.
-export const setCallbackUrl = internalMutation({
-  args: {
-    cacheKey: v.string(),
-    callbackUrl: v.string(),
-  },
-  handler: async (ctx, { cacheKey, callbackUrl }) => {
-    const job = await ctx.db
-      .query("trackAnalysisJobs")
-      .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
-      .unique();
-    if (!job || !/^https:\/\//.test(callbackUrl) || callbackUrl.length > 512) return;
-    await ctx.db.patch(job._id, { callbackUrl, updatedAt: Date.now() });
   },
 });

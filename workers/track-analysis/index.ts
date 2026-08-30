@@ -1,12 +1,10 @@
-import { AnalysisQueueClient, type AnalysisJob } from "./api";
+import { AnalysisQueueClient } from "./api";
 import { getConvexSiteUrl, getQueueConsumerGroup, getQueuePollIntervalMs, getQueueRegion, getQueueTopic, isQueueAuthConfigured, QUEUE_SLOT_WAIT_MS, QUEUE_VISIBILITY_TIMEOUT_SECONDS } from "./config";
 import { SoundCloudAuthGate } from "./authBackoff";
-import { captureWorkerException, clampRetryAfterMs, createJobProcessor, type ProcessOutcome } from "./jobProcessor";
+import { createJobProcessor } from "./jobProcessor";
 import { createQueueMessageHandler, runQueueSlot } from "./queueConsumer";
 import { VercelQueueTokenProvider } from "../../lib/server/vercelQueueAuth";
 import * as Sentry from "@sentry/node";
-
-type DispatchOutcome = ProcessOutcome | { status: "accepted" };
 
 const configuredTracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "1");
 Sentry.init({
@@ -73,104 +71,7 @@ const heartbeat = setInterval(() => {
 }, 60_000);
 heartbeat.unref?.();
 
-async function postToCallback(callbackUrl: string | undefined, outcome: ProcessOutcome) {
-  if (!callbackUrl) return;
-  try {
-    const response = await fetch(callbackUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(outcome),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`Callback failed (${response.status})`);
-  } catch (error) {
-    console.error("analysis.worker.callback_failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-async function handleProcessRequest(req: Request): Promise<Response> {
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (stopping) {
-    return Response.json({ status: "busy", retryAfterMs: 5_000 }, { status: 503 });
-  }
-  if (activeJobs >= concurrency) {
-    return Response.json({ status: "busy", retryAfterMs: 5_000 + Math.random() * 10_000 } satisfies ProcessOutcome);
-  }
-
-  let cacheKey: string;
-  let callbackUrl: string | undefined;
-  try {
-    const body = await req.json() as { cacheKey?: string; callbackUrl?: string };
-    cacheKey = body.cacheKey ?? "";
-    callbackUrl = body.callbackUrl;
-  } catch {
-    return Response.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-  if (!/^soundcloud:\d+:[^:]+$/.test(cacheKey)) {
-    return Response.json({ error: "Invalid cacheKey" }, { status: 400 });
-  }
-  activeJobs += 1;
-  recordWorkerState();
-  let slotTransferred = false;
-  try {
-    const claim = await queue.claimSpecific(cacheKey);
-    if (claim.status !== "claimed") {
-      if (claim.status === "waiting") {
-        return Response.json({
-          status: "waiting",
-          retryAfterMs: clampRetryAfterMs(claim.retryAt),
-        } satisfies ProcessOutcome);
-      }
-      return Response.json({ status: claim.status } satisfies ProcessOutcome);
-    }
-
-    callbackUrl ??= claim.job.callbackUrl;
-    if (callbackUrl) {
-      try {
-        const callback = new URL(callbackUrl);
-        const localHttp = callback.protocol === "http:" && callback.hostname === "localhost";
-        if (callback.protocol !== "https:" && !localHttp) throw new Error("Invalid protocol");
-      } catch {
-        callbackUrl = undefined;
-      }
-    }
-
-    slotTransferred = true;
-    void processJob(claim.job)
-      .then((outcome) => postToCallback(callbackUrl, outcome))
-      .catch((error) => {
-        console.error("analysis.worker.background_job_failed", {
-          cacheKey,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return postToCallback(callbackUrl, { status: "waiting", retryAfterMs: 0 });
-      })
-      .finally(() => {
-        activeJobs -= 1;
-        recordWorkerState();
-      });
-    return Response.json({ status: "accepted" } satisfies DispatchOutcome);
-  } catch (error) {
-    console.error("analysis.worker.request_failed", {
-      cacheKey,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    captureWorkerException("process_request", error, { cacheKey });
-    Sentry.metrics.count("analysis.worker.request_error", 1, {
-      attributes: workerMetricAttributes,
-    });
-    return Response.json({ error: "Analysis processing failed" }, { status: 500 });
-  } finally {
-    if (!slotTransferred) {
-      activeJobs -= 1;
-      recordWorkerState();
-    }
-  }
-}
+let queueConsumerStarted = false;
 
 const server = Bun.serve({
   port: Number.parseInt(process.env.PORT || "3001", 10),
@@ -185,9 +86,6 @@ const server = Bun.serve({
         queueConsumer: queueConsumerStarted,
       }, { status: stopping ? 503 : 200 });
     }
-    if (path === "/analysis/process" && req.method === "POST") {
-      return handleProcessRequest(req);
-    }
     return new Response("Not found", { status: 404 });
   },
 });
@@ -195,8 +93,6 @@ const server = Bun.serve({
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-let queueConsumerStarted = false;
 
 function startQueueConsumer() {
   if (!isQueueAuthConfigured()) {

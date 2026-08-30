@@ -100,7 +100,9 @@ export default defineSchema({
     sentryTrace: v.optional(v.string()),
     sentryBaggage: v.optional(v.string()),
     messageId: v.optional(v.string()),
-    // Retained until existing production rows no longer contain the legacy field.
+    // Legacy Vercel Workflows fields: no longer written anywhere, kept only so
+    // reads of existing production rows (dead jobs) still validate. Remove via
+    // a field-clearing migration once no rows contain them.
     callbackUrl: v.optional(v.string()),
     workflowRunId: v.optional(v.string()),
     messageBodySize: v.optional(v.number()),
