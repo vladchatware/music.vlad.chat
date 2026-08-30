@@ -4,10 +4,10 @@ const convex = vi.hoisted(() => ({ fetchMutation: vi.fn() }));
 const queueSdk = vi.hoisted(() => {
   const state = {
     constructorArgs: [] as unknown[][],
-    sendBatch: vi.fn(),
+    send: vi.fn(),
   };
   class QueueClient {
-    experimental_sendBatch = state.sendBatch;
+    send = state.send;
     constructor(...args: unknown[]) {
       state.constructorArgs.push(args);
     }
@@ -57,8 +57,8 @@ function convexResponse(body: unknown, status = 200) {
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
-  queueSdk.state.sendBatch.mockReset();
-  queueSdk.state.sendBatch.mockResolvedValue([]);
+  queueSdk.state.send.mockReset();
+  queueSdk.state.send.mockResolvedValue({ messageId: "m1" });
   process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
   process.env.ANALYSIS_SERVICE_SECRET = "secret";
   process.env.CONVEX_SITE_URL = "https://example.convex.site";
@@ -98,14 +98,13 @@ describe("enqueueTrackAnalysis", () => {
       region: "iad1",
       deploymentId: null,
     });
-    expect(queueSdk.state.sendBatch).toHaveBeenCalledOnce();
-    const [topic, messages] = queueSdk.state.sendBatch.mock.calls[0];
+    expect(queueSdk.state.send).toHaveBeenCalledOnce();
+    const [topic, payload, options] = queueSdk.state.send.mock.calls[0];
     expect(topic).toBe("track-analysis");
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({
+    expect(payload).toMatchObject({ trackId: "42", analysisVersion: TRACK_ANALYSIS_VERSION, priority: 100 });
+    expect(options).toMatchObject({
       idempotencyKey: `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
       retentionSeconds: 86_400,
-      payload: { trackId: "42", analysisVersion: TRACK_ANALYSIS_VERSION, priority: 100 },
     });
 
     expect(sentry.spans[0].setStatus).toHaveBeenCalledWith({ code: 1, message: "ok" });
@@ -120,8 +119,8 @@ describe("enqueueTrackAnalysis", () => {
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).trackIds).toEqual(["42", "43"]);
-    const [, messages] = queueSdk.state.sendBatch.mock.calls[0];
-    expect(messages.map((message: { payload: { trackId: string } }) => message.payload.trackId))
+    const payloads = queueSdk.state.send.mock.calls.map(([, payload]) => payload);
+    expect(payloads.map((payload: { trackId: string }) => payload.trackId))
       .toEqual(["42", "43"]);
   });
 
@@ -137,34 +136,34 @@ describe("enqueueTrackAnalysis", () => {
       { token: "convex-token" },
     );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).requestedBy).toBe("viewer-id");
-    const [, messages] = queueSdk.state.sendBatch.mock.calls[0];
-    expect(messages[0].payload.requestedBy).toBe("viewer-id");
+    const [, payload] = queueSdk.state.send.mock.calls[0];
+    expect((payload as { requestedBy?: string }).requestedBy).toBe("viewer-id");
   });
 
   it("does nothing when analysis is disabled", async () => {
     process.env.DJ_ANALYSIS_QUEUE_ENABLED = "false";
     await expect(enqueueTrackAnalyses([42, 43])).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(queueSdk.state.sendBatch).not.toHaveBeenCalled();
+    expect(queueSdk.state.send).not.toHaveBeenCalled();
   });
 
   it("does not publish queue messages when the Convex enqueue fails", async () => {
     fetchMock.mockResolvedValue(convexResponse({ error: "boom" }, 500));
 
     await expect(enqueueTrackAnalyses([42])).rejects.toThrow("Analysis enqueue failed (500)");
-    expect(queueSdk.state.sendBatch).not.toHaveBeenCalled();
+    expect(queueSdk.state.send).not.toHaveBeenCalled();
     expect(sentry.spans[0].setStatus).toHaveBeenCalledWith({ code: 2, message: "internal_error" });
     expect(sentry.spans[0].end).toHaveBeenCalledOnce();
   });
 
-  it("fails when any queue message in the batch is rejected", async () => {
+  it("fails the enqueue when a queue publish is rejected", async () => {
     fetchMock.mockResolvedValue(convexResponse({ enqueued: 2, cached: 0, existing: 0 }));
-    queueSdk.state.sendBatch.mockResolvedValue([
-      { status: "sent", messageId: "m1" },
-      { status: "failed", statusCode: 400, error: "invalid topic", retryable: false },
-    ]);
+    queueSdk.state.send
+      .mockResolvedValueOnce({ messageId: "m1" })
+      .mockRejectedValueOnce(new Error("Queue publish failed (400): invalid topic"));
 
-    await expect(enqueueTrackAnalyses([42, 43])).rejects.toThrow("Queue publish failed for 1/2");
+    await expect(enqueueTrackAnalyses([42, 43])).rejects.toThrow("Queue publish failed (400)");
+    expect(queueSdk.state.send).toHaveBeenCalledTimes(2);
     expect(sentry.spans[0].setStatus).toHaveBeenCalledWith({ code: 2, message: "internal_error" });
   });
 });

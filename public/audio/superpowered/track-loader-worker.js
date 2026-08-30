@@ -1,12 +1,11 @@
 import { SuperpoweredGlue } from "./Superpowered.js";
+import { loadAudioBytes } from "./hls-loader.js";
 
 self.onmessage = async (event) => {
   try {
     const Superpowered = await SuperpoweredGlue.Instantiate("", event.data.wasmUrl);
 
-    const response = await fetch(event.data.load);
-    if (!response.ok) throw new Error(`Audio fetch failed with HTTP ${response.status}`);
-    const audiofileArrayBuffer = await response.arrayBuffer();
+    const audiofileArrayBuffer = await loadAudioBytes(event.data.load);
     const audiofileInWASMHeap = Superpowered.arrayBufferToWASM(audiofileArrayBuffer);
     const audioInMemoryFormat = Superpowered.Decoder.decodeToAudioInMemory(
       audiofileInWASMHeap,
