@@ -9,6 +9,8 @@ type ProcessOutcome =
   | { status: "completed" | "done" | "dead" }
   | { status: "busy" | "waiting"; retryAfterMs: number };
 
+type DispatchOutcome = ProcessOutcome | { status: "accepted" };
+
 const configuredTracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "1");
 Sentry.init({
   dsn: process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -25,7 +27,7 @@ if (!secret) throw new Error("ANALYSIS_SERVICE_SECRET is required");
 
 const concurrency = Math.max(
   1,
-  Number.parseInt(process.env.ANALYSIS_WORKER_CONCURRENCY || "1", 10),
+  Number.parseInt(process.env.ANALYSIS_WORKER_CONCURRENCY || "2", 10),
 );
 const queue = new AnalysisQueueClient(getConvexSiteUrl(), secret);
 let stopping = false;
@@ -94,34 +96,6 @@ function retryAfterMs(retryAt: number) {
   return Math.max(1_000, Math.min(30 * 60_000, retryAt - Date.now()));
 }
 
-function notifyCallback(
-  job: AnalysisJob,
-  status: "completed" | "dead",
-  extra?: { analysisVersion?: string; error?: string },
-) {
-  if (!job.callbackUrl) return;
-  void (async () => {
-    try {
-      await fetch(job.callbackUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          trackId: job.sourceTrackId,
-          status,
-          analysisVersion: extra?.analysisVersion,
-          error: extra?.error?.slice(0, 300),
-        }),
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch (error) {
-      console.error("analysis.job.callback_failed", {
-        trackId: job.sourceTrackId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  })();
-}
-
 async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
   const { soundCloudAccessToken, ...safeJob } = job;
   console.info("analysis.job.started", {
@@ -153,9 +127,6 @@ async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
 
       const result = await analyzeInFreshProcess(safeJob, accessToken);
       await queue.complete(safeJob, result);
-      notifyCallback(safeJob, "completed", {
-        analysisVersion: result.analysisVersion,
-      });
       console.info("analysis.job.completed", {
         trackId: safeJob.sourceTrackId,
         processingTimeMs: result.processingTimeMs,
@@ -195,27 +166,27 @@ async function processJob(job: AnalysisJob): Promise<ProcessOutcome> {
       attributes: workerMetricAttributes,
     });
     const failure = await queue.fail(safeJob, error, isNonStreamable);
-    if (failure.dead) {
-      notifyCallback(safeJob, "dead", { error: errorMsg });
-    }
     return failure.dead
       ? { status: "dead" }
       : { status: "waiting", retryAfterMs: retryAfterMs(failure.nextAttemptAt) };
   }
 }
 
-function postToCallback(callbackUrl: string | undefined, outcome: ProcessOutcome) {
+async function postToCallback(callbackUrl: string | undefined, outcome: ProcessOutcome) {
   if (!callbackUrl) return;
-  void fetch(callbackUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(outcome),
-    signal: AbortSignal.timeout(15_000),
-  }).catch((error) => {
+  try {
+    const response = await fetch(callbackUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(outcome),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`Callback failed (${response.status})`);
+  } catch (error) {
     console.error("analysis.worker.callback_failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-  });
+  }
 }
 
 async function handleProcessRequest(req: Request): Promise<Response> {
@@ -230,18 +201,20 @@ async function handleProcessRequest(req: Request): Promise<Response> {
   }
 
   let cacheKey: string;
+  let callbackUrl: string | undefined;
   try {
-    const body = await req.json() as { cacheKey?: string };
+    const body = await req.json() as { cacheKey?: string; callbackUrl?: string };
     cacheKey = body.cacheKey ?? "";
+    callbackUrl = body.callbackUrl;
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
   if (!/^soundcloud:\d+:[^:]+$/.test(cacheKey)) {
     return Response.json({ error: "Invalid cacheKey" }, { status: 400 });
   }
-
   activeJobs += 1;
   recordWorkerState();
+  let slotTransferred = false;
   try {
     const claim = await queue.claimSpecific(cacheKey);
     if (claim.status !== "claimed") {
@@ -254,7 +227,18 @@ async function handleProcessRequest(req: Request): Promise<Response> {
       return Response.json({ status: claim.status } satisfies ProcessOutcome);
     }
 
-    const { callbackUrl } = claim.job;
+    callbackUrl ??= claim.job.callbackUrl;
+    if (callbackUrl) {
+      try {
+        const callback = new URL(callbackUrl);
+        const localHttp = callback.protocol === "http:" && callback.hostname === "localhost";
+        if (callback.protocol !== "https:" && !localHttp) throw new Error("Invalid protocol");
+      } catch {
+        callbackUrl = undefined;
+      }
+    }
+
+    slotTransferred = true;
     void processJob(claim.job)
       .then((outcome) => postToCallback(callbackUrl, outcome))
       .catch((error) => {
@@ -262,9 +246,13 @@ async function handleProcessRequest(req: Request): Promise<Response> {
           cacheKey,
           message: error instanceof Error ? error.message : String(error),
         });
-        postToCallback(callbackUrl, { status: "dead" });
+        return postToCallback(callbackUrl, { status: "waiting", retryAfterMs: 0 });
+      })
+      .finally(() => {
+        activeJobs -= 1;
+        recordWorkerState();
       });
-    return Response.json({ status: "completed" } satisfies ProcessOutcome);
+    return Response.json({ status: "accepted" } satisfies DispatchOutcome);
   } catch (error) {
     console.error("analysis.worker.request_failed", {
       cacheKey,
@@ -276,8 +264,10 @@ async function handleProcessRequest(req: Request): Promise<Response> {
     });
     return Response.json({ error: "Analysis processing failed" }, { status: 500 });
   } finally {
-    activeJobs -= 1;
-    recordWorkerState();
+    if (!slotTransferred) {
+      activeJobs -= 1;
+      recordWorkerState();
+    }
   }
 }
 

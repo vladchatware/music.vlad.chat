@@ -106,22 +106,24 @@ describe("track analysis queue", () => {
     expect(await accepted.json()).toMatchObject({ enqueued: 2 });
   });
 
-  it("deduplicates enqueue and atomically leases one job", async () => {
+  it("deduplicates enqueue and atomically leases one requested job", async () => {
     const t = convexTest(schema, modules);
     const args = { trackIds: ["42", "42"], analysisVersion: "essentia-dj-v1", priority: 10 };
     expect(await t.mutation(internal.trackAnalysis.enqueue, args)).toMatchObject({ enqueued: 1 });
     expect(await t.mutation(internal.trackAnalysis.enqueue, args)).toMatchObject({ existing: 1 });
 
-    const first = await t.mutation(internal.trackAnalysis.claim, {
+    const first = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:42:essentia-dj-v1",
       leaseToken: "lease-1",
       leaseDurationMs: 60_000,
     });
-    const second = await t.mutation(internal.trackAnalysis.claim, {
+    const second = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:42:essentia-dj-v1",
       leaseToken: "lease-2",
       leaseDurationMs: 60_000,
     });
-    expect(first?.sourceTrackId).toBe("42");
-    expect(second).toBeNull();
+    expect(first).toMatchObject({ status: "claimed", job: { sourceTrackId: "42" } });
+    expect(second).toMatchObject({ status: "waiting" });
   });
 
   it("leases only requested cache key for durable workflow delivery", async () => {
@@ -149,11 +151,67 @@ describe("track analysis queue", () => {
     });
     expect(duplicate).toMatchObject({ status: "waiting" });
 
-    const remaining = await t.mutation(internal.trackAnalysis.claim, {
+    const remaining = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:41:essentia-dj-v1",
       leaseToken: "remaining-lease",
       leaseDurationMs: 60_000,
     });
-    expect(remaining?.sourceTrackId).toBe("41");
+    expect(remaining).toMatchObject({ status: "claimed", job: { sourceTrackId: "41" } });
+  });
+
+  it("deduplicates workflow owners and does not force-reset a live lease", async () => {
+    const t = convexTest(schema, modules);
+    const args = {
+      trackIds: ["55"],
+      analysisVersion: "essentia-dj-v1",
+      priority: 10,
+      workflowRunId: "run-owner",
+    };
+    expect(await t.mutation(internal.trackAnalysis.enqueue, args)).toMatchObject({ enqueued: 1 });
+    expect(await t.mutation(internal.trackAnalysis.enqueue, args)).toMatchObject({ enqueued: 1 });
+    expect(await t.mutation(internal.trackAnalysis.enqueue, {
+      ...args,
+      workflowRunId: "run-duplicate",
+    })).toMatchObject({ existing: 1 });
+
+    const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:55:essentia-dj-v1",
+      leaseToken: "live-lease",
+      leaseDurationMs: 60_000,
+    });
+    expect(claim).toMatchObject({ status: "claimed" });
+
+    expect(await t.mutation(internal.trackAnalysis.enqueue, {
+      ...args,
+      force: true,
+      workflowRunId: "run-forced-duplicate",
+    })).toMatchObject({ existing: 1 });
+    const duplicate = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:55:essentia-dj-v1",
+      leaseToken: "duplicate-lease",
+      leaseDurationMs: 60_000,
+    });
+    expect(duplicate).toMatchObject({ status: "waiting" });
+  });
+
+  it("supports callback delivery for workflows started before the rollout", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.trackAnalysis.enqueue, {
+      trackIds: ["56"], analysisVersion: "essentia-dj-v1", priority: 1,
+    });
+    await t.mutation(internal.trackAnalysis.setCallbackUrl, {
+      cacheKey: "soundcloud:56:essentia-dj-v1",
+      callbackUrl: "https://music.test/.well-known/workflow/webhook",
+    });
+    const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:56:essentia-dj-v1",
+      leaseToken: "legacy-lease",
+      leaseDurationMs: 60_000,
+    });
+    expect(claim).toMatchObject({
+      status: "claimed",
+      job: { callbackUrl: "https://music.test/.well-known/workflow/webhook" },
+    });
   });
 
   it("persists producer trace context and returns queue metadata when claimed", async () => {
@@ -174,12 +232,14 @@ describe("track analysis queue", () => {
       }],
     });
 
-    const job = await t.mutation(internal.trackAnalysis.claim, {
+    const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:420:essentia-dj-v1",
       leaseToken: "lease-traced",
       leaseDurationMs: 60_000,
     });
+    if (claim.status !== "claimed") throw new Error("Expected job");
 
-    expect(job).toMatchObject({
+    expect(claim.job).toMatchObject({
       cacheKey: "soundcloud:420:essentia-dj-v1",
       messageId: "soundcloud:420:essentia-dj-v1",
       messageBodySize: 128,
@@ -190,7 +250,7 @@ describe("track analysis queue", () => {
     });
   });
 
-  it("leases requesting user's SoundCloud access token to worker", async () => {
+  it("does not expose requesting user's SoundCloud access token to worker", async () => {
     const t = convexTest(schema, modules);
     const requestedBy = await t.run((ctx) => ctx.db.insert("users", {
       name: "Signed listener",
@@ -210,15 +270,15 @@ describe("track analysis queue", () => {
       updatedAt: Date.now(),
     }));
 
-    const job = await t.mutation(internal.trackAnalysis.claim, {
+    const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:43:essentia-dj-v1",
       leaseToken: "lease-user",
       leaseDurationMs: 60_000,
     });
+    if (claim.status !== "claimed") throw new Error("Expected job");
 
-    expect(job).toMatchObject({
-      sourceTrackId: "43",
-      soundCloudAccessToken: "user-access-token",
-    });
+    expect(claim.job.sourceTrackId).toBe("43");
+    expect(claim.job).not.toHaveProperty("soundCloudAccessToken");
   });
 
   it("stores immutable result and removes completed job", async () => {
@@ -226,10 +286,12 @@ describe("track analysis queue", () => {
     await t.mutation(internal.trackAnalysis.enqueue, {
       trackIds: ["7"], analysisVersion: "essentia-dj-v1", priority: 1,
     });
-    const job = await t.mutation(internal.trackAnalysis.claim, {
+    const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:7:essentia-dj-v1",
       leaseToken: "lease", leaseDurationMs: 60_000,
     });
-    if (!job) throw new Error("Expected job");
+    if (claim.status !== "claimed") throw new Error("Expected job");
+    const job = claim.job;
     expect(await t.mutation(internal.trackAnalysis.complete, {
       cacheKey: job.cacheKey,
       leaseToken: job.leaseToken,
@@ -253,10 +315,12 @@ describe("track analysis queue", () => {
     });
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const job = await t.mutation(internal.trackAnalysis.claim, {
+      const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+        cacheKey: "soundcloud:9:essentia-dj-v1",
         leaseToken: `lease-${attempt}`, leaseDurationMs: 60_000,
       });
-      if (!job) throw new Error(`Expected attempt ${attempt}`);
+      if (claim.status !== "claimed") throw new Error(`Expected attempt ${attempt}`);
+      const job = claim.job;
       const failed = await t.mutation(internal.trackAnalysis.fail, {
         cacheKey: job.cacheKey,
         leaseToken: job.leaseToken,
@@ -278,10 +342,12 @@ describe("track analysis queue", () => {
     await t.mutation(internal.trackAnalysis.enqueue, {
       trackIds: ["11"], analysisVersion: "essentia-dj-v1", priority: 1,
     });
-    const job = await t.mutation(internal.trackAnalysis.claim, {
+    const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+      cacheKey: "soundcloud:11:essentia-dj-v1",
       leaseToken: "lease-auth", leaseDurationMs: 60_000,
     });
-    if (!job) throw new Error("Expected job");
+    if (claim.status !== "claimed") throw new Error("Expected job");
+    const job = claim.job;
 
     await t.mutation(internal.trackAnalysis.defer, {
       cacheKey: job.cacheKey,
@@ -309,10 +375,12 @@ describe("track analysis queue", () => {
     await t.mutation(internal.trackAnalysis.enqueue, args);
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const job = await t.mutation(internal.trackAnalysis.claim, {
+      const claim = await t.mutation(internal.trackAnalysis.claimSpecific, {
+        cacheKey: "soundcloud:10:essentia-dj-v1",
         leaseToken: `lease-${attempt}`, leaseDurationMs: 60_000,
       });
-      if (!job) throw new Error(`Expected attempt ${attempt}`);
+      if (claim.status !== "claimed") throw new Error(`Expected attempt ${attempt}`);
+      const job = claim.job;
       await t.mutation(internal.trackAnalysis.fail, {
         cacheKey: job.cacheKey,
         leaseToken: job.leaseToken,

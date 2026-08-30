@@ -16,17 +16,6 @@ type AnalysisTraceContext = {
   sentAt: number;
 };
 
-function getConvexSiteUrl(): string | null {
-  if (process.env.CONVEX_SITE_URL) {
-    return process.env.CONVEX_SITE_URL.replace(/\/+$/, "").replace(/\/api$/, "");
-  }
-  const cloud = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (cloud?.includes(".convex.cloud")) {
-    return cloud.replace(".convex.cloud", ".convex.site").replace(/\/$/, "");
-  }
-  return null;
-}
-
 export async function enqueueTrackAnalysis(
   trackId: string | number,
   priority = 0,
@@ -53,9 +42,7 @@ export async function enqueueTrackAnalyses(
   if (process.env.DJ_ANALYSIS_QUEUE_ENABLED !== "true") return null;
   const normalized = [...new Set(trackIds.map(String).filter((id) => /^\d+$/.test(id)))].slice(0, 20);
   if (normalized.length === 0) return null;
-  const siteUrl = convexToken ? null : getConvexSiteUrl();
-  const secret = convexToken ? null : process.env.ANALYSIS_SERVICE_SECRET;
-  if (!convexToken && (!siteUrl || !secret)) return null;
+  if (!process.env.ANALYSIS_SERVICE_SECRET) return null;
 
   return await Sentry.startSpan({ name: "track-analysis enqueue" }, async (parentSpan) => {
     const sentAt = Date.now();
@@ -89,46 +76,23 @@ export async function enqueueTrackAnalyses(
     const traceContexts = publications.map(({ traceContext }) => traceContext);
 
     try {
-      let result: AnalysisEnqueueResult;
-      if (convexToken) {
-        result = await fetchMutation(api.trackAnalysis.enqueueForViewer, {
-          trackIds: normalized,
+      const requestedBy = convexToken
+        ? await fetchMutation(api.trackAnalysis.prepareForViewer, {}, { token: convexToken })
+        : undefined;
+      await Promise.all(normalized.map((trackId, index) =>
+        start(trackAnalysisWorkflow, [{
+          trackId,
+          analysisVersion: TRACK_ANALYSIS_VERSION,
           priority,
           force,
-          analysisVersion: TRACK_ANALYSIS_VERSION,
-          traceContexts,
-        }, { token: convexToken });
-      } else {
-        const response = await fetch(`${siteUrl}/analysis/enqueue`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            trackIds: normalized,
-            priority,
-            force,
-            soundcloudUserId,
-            analysisVersion: TRACK_ANALYSIS_VERSION,
-            traceContexts,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`Analysis enqueue failed with status ${response.status}`);
-        }
-        result = await response.json() as AnalysisEnqueueResult;
-      }
-      if (result.enqueued > 0) {
-        await Promise.all(normalized.map((trackId) =>
-          start(trackAnalysisWorkflow, [
-            `soundcloud:${trackId}:${TRACK_ANALYSIS_VERSION}`,
-          ])
-        ));
-      }
+          soundcloudUserId,
+          requestedBy,
+          traceContext: traceContexts[index],
+        }])
+      ));
       for (const { span } of publications) span.setStatus({ code: 1, message: "ok" });
       parentSpan.setStatus({ code: 1, message: "ok" });
-      return result;
+      return { enqueued: normalized.length, cached: 0, existing: 0 };
     } catch (error) {
       for (const { span } of publications) {
         span.setStatus({ code: 2, message: "internal_error" });

@@ -44,7 +44,7 @@ music.vlad.chat is a web application that combines AI music curation with real-t
 
 ## DJ Analysis Worker
 
-Track analysis uses Vercel Workflow as durable queue/orchestrator. Each enqueue starts idempotent workflow, which calls separate Bun analyzer only when work exists. Convex stores cache, job state, and leases; worker does no empty polling. Worker requires FFmpeg and service-accessible SoundCloud tracks.
+Track analysis uses Vercel Workflow as the durable queue and sole scheduler. Each workflow creates its Convex job, dispatches to the Bun analyzer, sleeps durably while the worker is busy or a retry is pending, and resumes through a webhook. Convex only stores cache, job state, and leases; neither Convex nor the worker polls for work. Worker requires FFmpeg and service-accessible SoundCloud tracks.
 
 ```env
 DJ_ANALYSIS_QUEUE_ENABLED=true
@@ -54,7 +54,7 @@ CONVEX_SITE_URL=https://<deployment>.convex.site
 ANALYSIS_WORKER_URL=https://<analysis-worker>
 # Used by analysis:queue-likes; defaults to http://localhost:3000
 ANALYSIS_APP_URL=https://<app>
-ANALYSIS_WORKER_CONCURRENCY=1
+ANALYSIS_WORKER_CONCURRENCY=2
 PORT=3001
 ```
 
@@ -76,7 +76,7 @@ Run on worker machine behind a remotely managed Cloudflare Tunnel:
 bun run analysis:infra:up
 ```
 
-Follow with `bun run analysis:infra:logs`; stop with `bun run analysis:infra:down`. Cloudflare's proxied request timeout still limits one analysis request, so keep track processing below that limit.
+Follow with `bun run analysis:infra:logs`; stop with `bun run analysis:infra:down`. The worker acknowledges accepted work immediately and reports completion through the workflow webhook, so analysis duration is not tied to Cloudflare's request timeout.
 
 Semantic analysis uses overlapping 10-second MusiCNN windows with a 5-second hop, then overlap-weights mood and voice probabilities into four-bar musical segments. Model files are cached outside Git under `workers/track-analysis/models`. Set `ESSENTIA_MODEL_DIR` to use another location. Missing models degrade to structural analysis and add a diagnostic warning.
 

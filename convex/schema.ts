@@ -100,7 +100,9 @@ export default defineSchema({
     sentryTrace: v.optional(v.string()),
     sentryBaggage: v.optional(v.string()),
     messageId: v.optional(v.string()),
+    // Retained until existing production rows no longer contain the legacy field.
     callbackUrl: v.optional(v.string()),
+    workflowRunId: v.optional(v.string()),
     messageBodySize: v.optional(v.number()),
     sentAt: v.optional(v.number()),
     createdAt: v.number(),

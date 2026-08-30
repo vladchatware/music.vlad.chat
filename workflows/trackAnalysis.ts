@@ -1,79 +1,133 @@
-import { createWebhook, sleep } from "workflow";
+import { createWebhook, getWorkflowMetadata, sleep } from "workflow";
+
+export type TrackAnalysisWorkflowArgs = {
+  trackId: string;
+  analysisVersion: string;
+  priority: number;
+  force?: boolean;
+  soundcloudUserId?: string;
+  requestedBy?: string;
+  traceContext?: {
+    trackId: string;
+    sentryTrace?: string;
+    sentryBaggage?: string;
+    messageId: string;
+    messageBodySize: number;
+    sentAt: number;
+  };
+};
 
 export type WorkerOutcome =
   | { status: "completed" | "done" | "dead" }
   | { status: "busy" | "waiting"; retryAfterMs: number };
 
-async function registerCallback(cacheKey: string, callbackUrl: string): Promise<void> {
+type DispatchOutcome = WorkerOutcome | { status: "accepted" };
+type EnqueueOutcome = { enqueued: number; cached: number; existing: number };
+
+async function readOutcome(request: Request): Promise<WorkerOutcome> {
+  "use step";
+  return request.json() as Promise<WorkerOutcome>;
+}
+
+function convexSiteUrl(): string {
+  const configured = process.env.CONVEX_SITE_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
+  if (configured) return configured.replace(/\/+$/, "").replace(/\/api$/, "");
+  const cloudUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (cloudUrl?.includes(".convex.cloud")) {
+    return cloudUrl.replace(".convex.cloud", ".convex.site").replace(/\/+$/, "");
+  }
+  throw new Error("Convex site URL required");
+}
+
+async function enqueue(
+  args: TrackAnalysisWorkflowArgs,
+  workflowRunId: string,
+): Promise<EnqueueOutcome> {
   "use step";
 
-  const convexUrl = process.env.CONVEX_URL;
-  const workerUrl = (process.env.ANALYSIS_WORKER_URL ?? "http://localhost:3001")
-    .replace(/\/+$/, "");
   const secret = process.env.ANALYSIS_SERVICE_SECRET;
-  if (!convexUrl || !secret) throw new Error("CONVEX_URL and ANALYSIS_SERVICE_SECRET required");
-
-  await fetch(`${convexUrl}/api/mutation`, {
+  if (!secret) throw new Error("ANALYSIS_SERVICE_SECRET required");
+  const response = await fetch(`${convexSiteUrl()}/analysis/enqueue`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${secret}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      path: "trackAnalysis:setCallbackUrl",
-      args: { cacheKey, callbackUrl },
+      trackIds: [args.trackId],
+      analysisVersion: args.analysisVersion,
+      priority: args.priority,
+      force: args.force,
+      soundcloudUserId: args.soundcloudUserId,
+      requestedBy: args.requestedBy,
+      workflowRunId,
+      traceContexts: args.traceContext ? [args.traceContext] : undefined,
     }),
     signal: AbortSignal.timeout(15_000),
   });
-
-  const BASE_MS = 5_000;
-  const MAX_MS = 5 * 60_000;
-  let failures = 0;
-
-  for (;;) {
-    try {
-      const res = await fetch(`${workerUrl}/analysis/process`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${secret}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ cacheKey }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (res.ok || res.status === 409 || res.status === 404) return;
-      const body = await res.json() as { retryAfterMs?: number };
-      const exponentialMs = Math.min(MAX_MS, BASE_MS * (2 ** Math.min(20, failures)));
-      const jitteredMs = Math.round(exponentialMs * (0.5 + Math.random() * 0.5));
-      const waitMs = Math.max(jitteredMs, body.retryAfterMs ?? 0);
-      await new Promise((r) => setTimeout(r, waitMs));
-    } catch {
-      const exponentialMs = Math.min(MAX_MS, BASE_MS * (2 ** Math.min(20, failures)));
-      const jitteredMs = Math.round(exponentialMs * (0.5 + Math.random() * 0.5));
-      await new Promise((r) => setTimeout(r, jitteredMs));
-    }
-    failures += 1;
-  }
+  if (!response.ok) throw new Error(`Analysis enqueue failed (${response.status})`);
+  return response.json() as Promise<EnqueueOutcome>;
 }
 
-export async function trackAnalysisWorkflow(cacheKey: string): Promise<WorkerOutcome> {
+async function dispatch(cacheKey: string, callbackUrl: string): Promise<DispatchOutcome> {
+  "use step";
+
+  const workerUrl = (process.env.ANALYSIS_WORKER_URL ?? "http://localhost:3001")
+    .replace(/\/+$/, "");
+  const secret = process.env.ANALYSIS_SERVICE_SECRET;
+  if (!secret) throw new Error("ANALYSIS_SERVICE_SECRET required");
+
+  const response = await fetch(`${workerUrl}/analysis/process`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ cacheKey, callbackUrl }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const result = await response.json() as DispatchOutcome;
+  if (!response.ok && result.status !== "busy" && result.status !== "waiting") {
+    throw new Error(`Worker dispatch failed (${response.status})`);
+  }
+  return result;
+}
+
+export async function trackAnalysisWorkflow(
+  args: TrackAnalysisWorkflowArgs,
+): Promise<WorkerOutcome> {
   "use workflow";
 
-  using webhook = createWebhook({ respondWith: "manual" });
+  using webhook = createWebhook();
+  const { workflowRunId } = getWorkflowMetadata();
+  const queued = await enqueue(args, workflowRunId);
+  if (queued.cached > 0 || queued.existing > 0) return { status: "done" };
 
-  await registerCallback(cacheKey, webhook.url);
+  const cacheKey = `soundcloud:${args.trackId}:${args.analysisVersion}`;
+  const requests = webhook[Symbol.asyncIterator]();
+  let callbackRequest = requests.next();
 
-  const result = await Promise.race([
-    (async () => {
-      for await (const request of webhook) {
-        const body = await request.json() as WorkerOutcome;
-        await request.respondWith(Response.json({ ok: true }));
-        return body;
-      }
-      throw new Error("Webhook closed without callback");
-    })(),
-    sleep("30m").then(() => ({ status: "dead" as const } satisfies WorkerOutcome)),
-  ]);
+  for (;;) {
+    const dispatched = await dispatch(cacheKey, webhook.url);
+    if (dispatched.status === "busy" || dispatched.status === "waiting") {
+      await sleep(`${Math.ceil(dispatched.retryAfterMs)}ms`);
+      continue;
+    }
+    if (dispatched.status !== "accepted") return dispatched;
 
-  return result;
+    const result = await Promise.race([
+      callbackRequest.then(async ({ value: request, done }) => {
+        if (done) throw new Error("Webhook closed without callback");
+        return readOutcome(request);
+      }),
+      sleep("30m").then(() => ({ status: "timeout" as const })),
+    ]);
+    if (result.status === "timeout") continue;
+    callbackRequest = requests.next();
+    if (result.status === "busy" || result.status === "waiting") {
+      if (result.retryAfterMs > 0) await sleep(`${Math.ceil(result.retryAfterMs)}ms`);
+      continue;
+    }
+    return result;
+  }
 }

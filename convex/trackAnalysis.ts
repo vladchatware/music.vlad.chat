@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { trackAnalysisResultValidator } from "./trackAnalysisValidators";
 import { getAnalysisRetryPolicy, sanitizeAnalysisError } from "../lib/analysisQueuePolicy";
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -63,7 +63,7 @@ const enqueueArgs = {
   analysisVersion: v.string(),
   priority: v.number(),
   force: v.optional(v.boolean()),
-  callbackUrl: v.optional(v.string()),
+  workflowRunId: v.optional(v.string()),
   traceContexts: v.optional(v.array(v.object({
     trackId: v.string(),
     sentryTrace: v.optional(v.string()),
@@ -79,7 +79,7 @@ type EnqueueArgs = {
   analysisVersion: string;
   priority: number;
   force?: boolean;
-  callbackUrl?: string;
+  workflowRunId?: string;
   traceContexts?: Array<{
     trackId: string;
     sentryTrace?: string;
@@ -96,10 +96,8 @@ async function enqueueJobs(
   requestedBy?: Id<"users">,
 ) {
     const now = Date.now();
+    const workflowRunId = args.workflowRunId?.slice(0, 256);
     let enqueued = 0;
-    const callbackUrl = args.callbackUrl && /^https:\/\//.test(args.callbackUrl) && args.callbackUrl.length <= 512
-      ? args.callbackUrl
-      : undefined;
     let cached = 0;
     let existing = 0;
 
@@ -142,6 +140,10 @@ async function enqueueJobs(
         .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
         .unique();
       if (job) {
+        if (workflowRunId && job.workflowRunId === workflowRunId) {
+          enqueued += 1;
+          continue;
+        }
         if (job.status === "dead") {
           if (job.lastError?.includes("[NON_STREAMABLE]")) {
             existing += 1;
@@ -155,7 +157,7 @@ async function enqueueJobs(
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
-            ...(callbackUrl ? { callbackUrl } : {}),
+            ...(workflowRunId ? { workflowRunId } : {}),
             ...queueMetadata,
             ...(requestedBy ? { requestedBy } : {}),
             createdAt: now,
@@ -165,6 +167,10 @@ async function enqueueJobs(
           continue;
         }
         if (args.force) {
+          if (job.status === "processing") {
+            existing += 1;
+            continue;
+          }
           await ctx.db.patch(job._id, {
             status: "queued",
             priority: Math.max(job.priority, args.priority),
@@ -173,11 +179,16 @@ async function enqueueJobs(
             leaseToken: undefined,
             leaseExpiresAt: undefined,
             lastError: undefined,
-            ...(callbackUrl ? { callbackUrl } : {}),
+            ...(workflowRunId ? { workflowRunId } : {}),
             ...queueMetadata,
             ...(requestedBy ? { requestedBy } : {}),
             updatedAt: now,
           });
+          enqueued += 1;
+          continue;
+        }
+        if (workflowRunId && !job.workflowRunId && job.status !== "processing") {
+          await ctx.db.patch(job._id, { workflowRunId, updatedAt: now });
           enqueued += 1;
           continue;
         }
@@ -204,7 +215,7 @@ async function enqueueJobs(
         priority: args.priority,
         attempts: 0,
         nextAttemptAt: now,
-        ...(callbackUrl ? { callbackUrl } : {}),
+        ...(workflowRunId ? { workflowRunId } : {}),
         ...queueMetadata,
         createdAt: now,
         updatedAt: now,
@@ -227,11 +238,19 @@ export const enqueue = internalMutation({
   args: {
     ...enqueueArgs,
     soundcloudUserId: v.optional(v.string()),
+    requestedBy: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { soundcloudUserId, ...rest } = args;
+    const { soundcloudUserId, requestedBy: requestedByArg, ...rest } = args;
     let requestedBy: Id<"users"> | undefined;
-    if (soundcloudUserId) {
+    if (requestedByArg) {
+      requestedBy = ctx.db.normalizeId("users", requestedByArg) ?? undefined;
+      const user = requestedBy ? await ctx.db.get(requestedBy) : null;
+      if (!user || user.isAnonymous || !user.soundcloudAccessToken) {
+        throw new Error("SoundCloud authentication required");
+      }
+    }
+    if (!requestedBy && soundcloudUserId) {
       const account = await ctx.db
         .query("authAccounts")
         .withIndex("providerAndAccountId", (q) =>
@@ -243,107 +262,6 @@ export const enqueue = internalMutation({
       }
     }
     return enqueueJobs(ctx, rest, requestedBy);
-  },
-});
-
-export const enqueueForViewer = mutation({
-  args: enqueueArgs,
-  handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) throw new Error("Not authenticated");
-    const user = await ctx.db.get(userId);
-    if (!user || user.isAnonymous || !user.soundcloudAccessToken) {
-      throw new Error("SoundCloud authentication required");
-    }
-    return enqueueJobs(ctx, args, userId);
-  },
-});
-
-export const claim = internalMutation({
-  args: {
-    leaseToken: v.string(),
-    leaseDurationMs: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    let expiredRetryable = 0;
-    let expiredDead = 0;
-    const expired = await ctx.db
-      .query("trackAnalysisJobs")
-      .withIndex("by_status_priority_createdAt", (q) => q.eq("status", "processing"))
-      .take(50);
-    for (const job of expired) {
-      if ((job.leaseExpiresAt ?? Number.POSITIVE_INFINITY) <= now) {
-        const retry = getAnalysisRetryPolicy(job.attempts, now);
-        await ctx.db.patch(job._id, {
-          status: retry.dead ? "dead" : "failed",
-          leaseToken: undefined,
-          leaseExpiresAt: undefined,
-          nextAttemptAt: retry.nextAttemptAt,
-          lastError: "Worker lease expired",
-          updatedAt: now,
-        });
-        if (retry.dead) expiredDead += 1;
-        else expiredRetryable += 1;
-      }
-    }
-    if (expiredRetryable > 0) {
-      await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
-        event: "lease_expired",
-        count: expiredRetryable,
-        dead: false,
-      });
-    }
-    if (expiredDead > 0) {
-      await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
-        event: "lease_expired",
-        count: expiredDead,
-        dead: true,
-      });
-    }
-
-    const findReady = async (status: "queued" | "failed") => {
-      const candidates = await ctx.db
-        .query("trackAnalysisJobs")
-        .withIndex("by_status_priority_createdAt", (q) => q.eq("status", status))
-        .order("desc")
-        .take(50);
-      return candidates.find((job) => job.nextAttemptAt <= now) ?? null;
-    };
-
-    const job = (await findReady("queued")) ?? (await findReady("failed"));
-    if (!job) return null;
-
-    await ctx.db.patch(job._id, {
-      status: "processing",
-      attempts: job.attempts + 1,
-      leaseToken: args.leaseToken,
-      leaseExpiresAt: now + Math.max(60_000, args.leaseDurationMs),
-      updatedAt: now,
-    });
-
-    const user = job.requestedBy ? await ctx.db.get(job.requestedBy) : null;
-    await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
-      event: "claimed",
-      source: job.requestedBy ? "user" : "service",
-      ...(job.requestedBy ? { userId: String(job.requestedBy) } : {}),
-      trackId: job.sourceTrackId,
-      attempt: job.attempts + 1,
-      queueWaitMs: Math.max(0, now - job.createdAt),
-    });
-    return {
-      cacheKey: job.cacheKey,
-      sourceTrackId: job.sourceTrackId,
-      analysisVersion: job.analysisVersion,
-      attempt: job.attempts + 1,
-      leaseToken: args.leaseToken,
-      createdAt: job.createdAt,
-      sentryTrace: job.sentryTrace,
-      sentryBaggage: job.sentryBaggage,
-      messageId: job.messageId ?? job.cacheKey,
-      messageBodySize: job.messageBodySize,
-      sentAt: job.sentAt ?? job.createdAt,
-    };
   },
 });
 
@@ -401,7 +319,6 @@ export const claimSpecific = internalMutation({
       updatedAt: now,
     });
 
-    const user = job.requestedBy ? await ctx.db.get(job.requestedBy) : null;
     await ctx.scheduler.runAfter(0, internal.telemetry.recordAnalysisEvent, {
       event: "claimed",
       source: job.requestedBy ? "user" : "service",
@@ -424,6 +341,7 @@ export const claimSpecific = internalMutation({
         messageId: job.messageId ?? job.cacheKey,
         messageBodySize: job.messageBodySize,
         sentAt: job.sentAt ?? job.createdAt,
+        callbackUrl: job.callbackUrl,
       },
     };
   },
@@ -576,6 +494,20 @@ export const defer = internalMutation({
   },
 });
 
+export const prepareForViewer = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Not authenticated");
+    const user = await ctx.db.get(userId);
+    if (!user || user.isAnonymous || !user.soundcloudAccessToken) {
+      throw new Error("SoundCloud authentication required");
+    }
+    return String(userId);
+  },
+});
+
+// Kept during rollout so workflows started by the previous deployment can drain.
 export const setCallbackUrl = internalMutation({
   args: {
     cacheKey: v.string(),
@@ -586,109 +518,7 @@ export const setCallbackUrl = internalMutation({
       .query("trackAnalysisJobs")
       .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
       .unique();
-    if (!job) return;
+    if (!job || !/^https:\/\//.test(callbackUrl) || callbackUrl.length > 512) return;
     await ctx.db.patch(job._id, { callbackUrl, updatedAt: Date.now() });
-  },
-});
-
-export const setCallbackUrlAndPush = internalAction({
-  args: {
-    cacheKey: v.string(),
-    callbackUrl: v.string(),
-  },
-  handler: async (ctx, { cacheKey, callbackUrl }) => {
-    await ctx.runMutation(internal.trackAnalysis.setCallbackUrl, { cacheKey, callbackUrl });
-    const workerUrl = process.env.ANALYSIS_WORKER_URL;
-    const secret = process.env.ANALYSIS_SERVICE_SECRET;
-    if (workerUrl && secret) {
-      try {
-        await fetch(`${workerUrl.replace(/\/+$/, "")}/analysis/process`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ cacheKey }),
-          signal: AbortSignal.timeout(10_000),
-        });
-      } catch {}
-    }
-  },
-});
-
-// Push-based sweep: recovers expired leases and returns cacheKeys that are
-// ready to run. The paired action forwards them to the worker (which does the
-// real claim via /analysis/process). Replaces the worker's 30s drain loop —
-// runs from cron instead of burning invocations while idle.
-export const sweep = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    let recovered = 0;
-    const processing = await ctx.db
-      .query("trackAnalysisJobs")
-      .withIndex("by_status_priority_createdAt", (q) => q.eq("status", "processing"))
-      .take(50);
-    for (const job of processing) {
-      if ((job.leaseExpiresAt ?? Number.POSITIVE_INFINITY) <= now) {
-        const retry = getAnalysisRetryPolicy(job.attempts, now);
-        await ctx.db.patch(job._id, {
-          status: retry.dead ? "dead" : "failed",
-          leaseToken: undefined,
-          leaseExpiresAt: undefined,
-          nextAttemptAt: retry.nextAttemptAt,
-          lastError: "Worker lease expired",
-          updatedAt: now,
-        });
-        recovered += 1;
-      }
-    }
-
-    const ready: string[] = [];
-    for (const status of ["queued", "failed"] as const) {
-      const candidates = await ctx.db
-        .query("trackAnalysisJobs")
-        .withIndex("by_status_priority_createdAt", (q) => q.eq("status", status))
-        .order("desc")
-        .take(50);
-      for (const job of candidates) {
-        if (job.nextAttemptAt <= now) ready.push(job.cacheKey);
-      }
-    }
-    return { ready: ready.slice(0, 20), recovered };
-  },
-});
-
-export const sweepPush = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    const { ready } = await ctx.runMutation(internal.trackAnalysis.sweep, {});
-    const workerUrl = process.env.ANALYSIS_WORKER_URL;
-    const secret = process.env.ANALYSIS_SERVICE_SECRET;
-    if (!workerUrl || !secret || ready.length === 0) {
-      return { pushed: 0, ready: ready.length };
-    }
-    const base = workerUrl.replace(/\/+$/, "");
-    let pushed = 0;
-    await Promise.all(ready.map(async (cacheKey) => {
-      try {
-        const res = await fetch(`${base}/analysis/process`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ cacheKey }),
-          signal: AbortSignal.timeout(30_000),
-        });
-        if (res.ok || res.status === 503) pushed += 1;
-      } catch (error) {
-        console.error("analysis.sweep.push_failed", {
-          cacheKey,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }));
-    return { pushed, ready: ready.length };
   },
 });

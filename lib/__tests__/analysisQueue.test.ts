@@ -27,7 +27,7 @@ vi.mock("convex/nextjs", () => convex);
 vi.mock("@sentry/nextjs", () => sentry);
 vi.mock("workflow/api", () => workflow);
 vi.mock("../../convex/_generated/api", () => ({
-  api: { trackAnalysis: { enqueueForViewer: "enqueueForViewer" } },
+  api: { trackAnalysis: { prepareForViewer: "prepareForViewer" } },
 }));
 
 import { enqueueTrackAnalysis, enqueueTrackAnalyses } from "../server/analysisQueue";
@@ -41,112 +41,61 @@ afterEach(() => {
   workflow.start.mockReset();
   workflow.start.mockResolvedValue({ runId: "run-id" });
   sentry.spans.length = 0;
-  sentry.startSpan.mockClear();
-  sentry.startInactiveSpan.mockClear();
-  sentry.getTraceData.mockClear();
   process.env = { ...originalEnv };
 });
 
 describe("enqueueTrackAnalysis", () => {
-  it("targets Convex site root even when configured URL contains an api suffix", async () => {
+  it("starts a workflow that owns the enqueue operation", async () => {
     process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
-    process.env.CONVEX_SITE_URL = "https://fixture.convex.site/api/";
     process.env.ANALYSIS_SERVICE_SECRET = "secret";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response('{"enqueued":1,"cached":0,"existing":0}', { status: 200 }),
-    );
 
     await expect(enqueueTrackAnalysis(42, 100)).resolves.toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe("https://fixture.convex.site/analysis/enqueue");
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      headers: expect.objectContaining({ authorization: "Bearer secret" }),
-    });
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body).toMatchObject({
-      trackIds: ["42"],
-      priority: 100,
+    expect(workflow.start).toHaveBeenCalledWith(expect.any(Function), [{
+      trackId: "42",
       analysisVersion: TRACK_ANALYSIS_VERSION,
-      traceContexts: [{
+      priority: 100,
+      force: undefined,
+      soundcloudUserId: undefined,
+      requestedBy: undefined,
+      traceContext: expect.objectContaining({
         trackId: "42",
-        sentryTrace: "trace-0",
-        sentryBaggage: "baggage-0",
         messageId: `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
-        sentAt: expect.any(Number),
-        messageBodySize: expect.any(Number),
-      }],
-    });
-    expect(sentry.spans[0].options).toMatchObject({
-      name: "track-analysis publish",
-      op: "queue.publish",
-      attributes: {
-        "messaging.destination.name": "track-analysis",
-        "messaging.message.id": `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
-        "messaging.message.body.size": expect.any(Number),
-      },
-    });
+      }),
+    }]);
     expect(sentry.spans[0].setStatus).toHaveBeenCalledWith({ code: 1, message: "ok" });
     expect(sentry.spans[0].end).toHaveBeenCalledOnce();
-    expect(sentry.startSpan).toHaveBeenCalledWith({ name: "track-analysis enqueue" }, expect.any(Function));
-    expect(workflow.start).toHaveBeenCalledOnce();
   });
 
-  it("deduplicates and batches candidate tracks", async () => {
+  it("deduplicates inputs and starts one workflow per track", async () => {
     process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
-    process.env.CONVEX_SITE_URL = "https://fixture.convex.site";
     process.env.ANALYSIS_SERVICE_SECRET = "secret";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response('{"enqueued":2,"cached":1,"existing":0}', { status: 200 }),
-    );
 
     await expect(enqueueTrackAnalyses([42, 42, 43, 44], 10)).resolves.toEqual({
-      enqueued: 2, cached: 1, existing: 0,
-    });
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
-      trackIds: ["42", "43", "44"], priority: 10,
+      enqueued: 3, cached: 0, existing: 0,
     });
     expect(workflow.start).toHaveBeenCalledTimes(3);
   });
 
-  it("uses viewer-authenticated mutation when a Convex token is available", async () => {
+  it("preflights viewer identity without storing the auth token in workflow state", async () => {
     process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
-    delete process.env.CONVEX_SITE_URL;
-    delete process.env.ANALYSIS_SERVICE_SECRET;
-    convex.fetchMutation.mockResolvedValue({ enqueued: 1, cached: 0, existing: 0 });
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+    process.env.ANALYSIS_SERVICE_SECRET = "secret";
+    convex.fetchMutation.mockResolvedValue("viewer-id");
 
-    await expect(enqueueTrackAnalyses([42], 10, "convex-token")).resolves.toEqual({
-      enqueued: 1, cached: 0, existing: 0,
-    });
-    expect(convex.fetchMutation).toHaveBeenCalledWith("enqueueForViewer", {
-      trackIds: ["42"],
-      priority: 10,
-      analysisVersion: TRACK_ANALYSIS_VERSION,
-      traceContexts: [{
-        trackId: "42",
-        sentryTrace: "trace-0",
-        sentryBaggage: "baggage-0",
-        messageId: `soundcloud:42:${TRACK_ANALYSIS_VERSION}`,
-        sentAt: expect.any(Number),
-        messageBodySize: expect.any(Number),
-      }],
-    }, { token: "convex-token" });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(workflow.start).toHaveBeenCalledOnce();
+    await enqueueTrackAnalyses([42], 10, "convex-token");
+
+    expect(convex.fetchMutation).toHaveBeenCalledWith(
+      "prepareForViewer",
+      {},
+      { token: "convex-token" },
+    );
+    expect(workflow.start).toHaveBeenCalledWith(expect.any(Function), [
+      expect.objectContaining({ requestedBy: "viewer-id" }),
+    ]);
   });
 
-  it("does not start workflows when every track is already cached", async () => {
-    process.env.DJ_ANALYSIS_QUEUE_ENABLED = "true";
-    process.env.CONVEX_SITE_URL = "https://fixture.convex.site";
-    process.env.ANALYSIS_SERVICE_SECRET = "secret";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response('{"enqueued":0,"cached":2,"existing":0}', { status: 200 }),
-    );
-
-    await expect(enqueueTrackAnalyses([42, 43])).resolves.toEqual({
-      enqueued: 0, cached: 2, existing: 0,
-    });
+  it("does nothing when analysis is disabled", async () => {
+    process.env.DJ_ANALYSIS_QUEUE_ENABLED = "false";
+    await expect(enqueueTrackAnalyses([42, 43])).resolves.toBeNull();
     expect(workflow.start).not.toHaveBeenCalled();
   });
-
 });

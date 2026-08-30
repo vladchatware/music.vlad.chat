@@ -50,13 +50,6 @@ export class AnalysisQueueClient {
     return (await response.json()) as T;
   }
 
-  async claim(): Promise<AnalysisJob | null> {
-    const response = await this.post<{ job: AnalysisJob | null }>("/analysis/claim", {
-      leaseDurationMs: DEFAULT_LEASE_DURATION_MS,
-    });
-    return response.job;
-  }
-
   async claimSpecific(cacheKey: string): Promise<AnalysisClaimResult> {
     return this.post<AnalysisClaimResult>("/analysis/claim-specific", {
       cacheKey,
