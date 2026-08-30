@@ -45,9 +45,12 @@ function readProjectIdFromRepoConfig(): string | undefined {
 
 /**
  * Provides short-lived Vercel OIDC tokens for the Vercel Queue API from any
- * long-running environment (the Docker worker). Tokens are minted through the
- * Vercel API with a scoped access token and cached until shortly before
- * expiry, mirroring @vercel/oidc's own off-platform refresh flow.
+ * long-running environment (the Docker worker, Next.js route handlers).
+ * Tokens are minted through the Vercel API with a scoped access token and
+ * cached until shortly before expiry, mirroring @vercel/oidc's own
+ * off-platform refresh flow. Publisher and consumer must share the same
+ * token scope: Queue visibility is partitioned by the token's environment
+ * claim, and tokens minted off-platform are always development-scoped.
  */
 export class VercelQueueTokenProvider {
   private cached: MintedToken | null = null;

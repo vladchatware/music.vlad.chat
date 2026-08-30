@@ -9,6 +9,7 @@ import { fetchMutation } from "convex/nextjs";
 import { api } from "../../convex/_generated/api";
 import * as Sentry from "@sentry/nextjs";
 import { QueueClient } from "@vercel/queue";
+import { VercelQueueTokenProvider } from "./vercelQueueAuth";
 
 const ANALYSIS_QUEUE_NAME = "track-analysis";
 
@@ -23,6 +24,7 @@ type AnalysisEnqueueBody = {
 };
 
 let queueClient: QueueClient | undefined;
+const tokenProvider = new VercelQueueTokenProvider();
 
 function queueTopic(): string {
   return process.env.VERCEL_QUEUE_TOPIC || ANALYSIS_QUEUE_NAME;
@@ -32,14 +34,25 @@ function queueRegion(): string {
   return process.env.VERCEL_QUEUE_REGION || "iad1";
 }
 
-function getQueueClient(): QueueClient {
-  queueClient ??= new QueueClient({
-    region: queueRegion(),
-    // The consumer is an external worker: messages must not be pinned to a
-    // single deployment, and polling is deploymentless on the worker side.
-    deploymentId: null,
-    ...(process.env.VERCEL_QUEUE_TOKEN ? { token: process.env.VERCEL_QUEUE_TOKEN } : {}),
-  });
+async function getQueueClient(): Promise<QueueClient> {
+  // Queue visibility is partitioned by the token's environment claim, and the
+  // worker only holds development-scoped tokens — so the publisher must mint
+  // tokens the same way instead of relying on its production OIDC context.
+  const staticToken = process.env.VERCEL_QUEUE_TOKEN;
+  if (staticToken) {
+    queueClient ??= new QueueClient({ region: queueRegion(), deploymentId: null, token: staticToken });
+    return queueClient;
+  }
+  if (process.env.VERCEL_API_TOKEN) {
+    return new QueueClient({
+      region: queueRegion(),
+      // Messages must not be pinned to a single deployment: the consumer is
+      // an external worker polling in deploymentless mode.
+      deploymentId: null,
+      token: await tokenProvider.getToken(),
+    });
+  }
+  queueClient ??= new QueueClient({ region: queueRegion(), deploymentId: null });
   return queueClient;
 }
 
@@ -166,7 +179,7 @@ async function enqueueJobsInConvex(body: AnalysisEnqueueBody): Promise<AnalysisE
 }
 
 async function publishMessages(payloads: TrackAnalysisQueueMessage[]): Promise<void> {
-  const client = getQueueClient();
+  const client = await getQueueClient();
   const results = await client.experimental_sendBatch(
     queueTopic(),
     payloads.map((payload) => ({

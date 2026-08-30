@@ -3,7 +3,7 @@ import { getConvexSiteUrl, getQueueConsumerGroup, getQueuePollIntervalMs, getQue
 import { SoundCloudAuthGate } from "./authBackoff";
 import { captureWorkerException, clampRetryAfterMs, createJobProcessor, type ProcessOutcome } from "./jobProcessor";
 import { createQueueMessageHandler, runQueueSlot } from "./queueConsumer";
-import { VercelQueueTokenProvider } from "./vercelQueueAuth";
+import { VercelQueueTokenProvider } from "../../lib/server/vercelQueueAuth";
 import * as Sentry from "@sentry/node";
 
 type DispatchOutcome = ProcessOutcome | { status: "accepted" };

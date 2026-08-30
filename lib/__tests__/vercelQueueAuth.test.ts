@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decodeJwtExpiryMs, VercelQueueTokenProvider } from "./vercelQueueAuth";
+import { decodeJwtExpiryMs, VercelQueueTokenProvider } from "../server/vercelQueueAuth";
 
 const originalEnv = { ...process.env };
 const fetchMock = vi.fn();
