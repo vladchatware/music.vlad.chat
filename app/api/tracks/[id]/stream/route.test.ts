@@ -74,32 +74,37 @@ describe("GET /api/tracks/[id]/stream", () => {
     expect(res.status).toBe(307);
   });
 
-  it("refreshes an expired service-user token for anonymous playback", async () => {
+  it("rotates the service-user token via the central endpoint for anonymous playback", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ANALYSIS_SERVICE_SECRET", "analysis-secret");
     vi.stubEnv("CONVEX_SITE_URL", "https://convex.example/api");
     vi.stubEnv("SOUNDCLOUD_USER_ID", "service-user");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      accessToken: "expired-service-access",
-      refreshToken: "service-refresh",
-    }), { status: 200 })));
+    const credentialFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ accessToken: "stale-service-access" }),
+        { status: 200 },
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ accessToken: "rotated-service-access" }),
+        { status: 200 },
+      ));
+    vi.stubGlobal("fetch", credentialFetch);
     vi.mocked(convexAuthNextjsToken).mockResolvedValue(null as never);
     vi.mocked(resolveTrackStreamUrl)
       .mockRejectedValueOnce(Object.assign(new Error("token error"), { status: 401 }))
-      .mockResolvedValueOnce("https://cdn.soundcloud.com/refreshed.m4a");
-    vi.mocked(refreshUserToken).mockResolvedValue({
-      accessToken: "fresh-service-access",
-      refreshToken: "fresh-service-refresh",
-    });
+      .mockResolvedValueOnce("https://cdn.soundcloud.com/rotated.m4a");
 
     const res = await GET(new Request("http://localhost"), {
       params: Promise.resolve({ id: "888" }) as never,
     });
 
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("https://cdn.soundcloud.com/refreshed.m4a");
-    expect(refreshUserToken).toHaveBeenCalledWith("service-refresh");
-    expect(resolveTrackStreamUrl).toHaveBeenLastCalledWith("888", "fresh-service-access");
+    expect(res.headers.get("location")).toBe("https://cdn.soundcloud.com/rotated.m4a");
+    expect(credentialFetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(credentialFetch.mock.calls[1][1] && (credentialFetch.mock.calls[1][1] as RequestInit).body)))
+      .toMatchObject({ rotate: true });
+    expect(resolveTrackStreamUrl).toHaveBeenLastCalledWith("888", "rotated-service-access");
+    expect(refreshUserToken).not.toHaveBeenCalled();
   });
 
   it("uses service-user credentials anonymously outside development", async () => {

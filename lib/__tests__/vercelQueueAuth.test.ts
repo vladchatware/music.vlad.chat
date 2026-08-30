@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeJwtExpiryMs, VercelQueueTokenProvider } from "../server/vercelQueueAuth";
 
@@ -89,10 +92,22 @@ describe("VercelQueueTokenProvider", () => {
       JSON.stringify({ token: makeJwt(1_700_000_000) }),
       { status: 200 },
     ));
-    const provider = new VercelQueueTokenProvider();
+    const repoDir = mkdtempSync(join(tmpdir(), "vercel-repo-config-"));
+    mkdirSync(join(repoDir, ".vercel"));
+    writeFileSync(
+      join(repoDir, ".vercel", "project.json"),
+      JSON.stringify({ projectId: "prj_repo_config" }),
+    );
+    const cwdStub = vi.spyOn(process, "cwd").mockReturnValue(repoDir);
+    try {
+      const provider = new VercelQueueTokenProvider();
 
-    await provider.getToken();
-    expect(String(fetchMock.mock.calls[0][0])).toContain("prj_nxBzeysQga9k9rBtmZQv8NmYdH2f");
+      await provider.getToken();
+      expect(String(fetchMock.mock.calls[0][0])).toContain("prj_repo_config");
+    } finally {
+      cwdStub.mockRestore();
+      rmSync(repoDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects when no API token is configured", async () => {
