@@ -180,20 +180,8 @@ async function enqueueJobsInConvex(body: AnalysisEnqueueBody): Promise<AnalysisE
 
 async function publishMessages(payloads: TrackAnalysisQueueMessage[]): Promise<void> {
   const client = await getQueueClient();
-  const results = await client.experimental_sendBatch(
-    queueTopic(),
-    payloads.map((payload) => ({
-      queueName: queueTopic(),
-      payload,
-      idempotencyKey: trackAnalysisCacheKey(payload.trackId, payload.analysisVersion),
-      retentionSeconds: ANALYSIS_QUEUE_RETENTION_SECONDS,
-    })),
-  );
-  const failed = results.filter((result) => result.status === "failed");
-  if (failed.length > 0) {
-    throw new Error(
-      `Queue publish failed for ${failed.length}/${results.length} message(s): `
-      + failed.map((result) => `${result.statusCode} ${result.error}`).join("; "),
-    );
-  }
+  await Promise.all(payloads.map((payload) => client.send(queueTopic(), payload, {
+    idempotencyKey: trackAnalysisCacheKey(payload.trackId, payload.analysisVersion),
+    retentionSeconds: ANALYSIS_QUEUE_RETENTION_SECONDS,
+  })));
 }
