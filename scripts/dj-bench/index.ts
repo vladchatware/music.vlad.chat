@@ -47,11 +47,6 @@ import {
   runPreparedSelectionHoldingLoopRegression,
   runPreparedSelectionLatencyRegression,
 } from "./playthrough";
-import {
-  FRUTIGER_AERO_OPENING_TRACKS,
-  FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
-  FRUTIGER_AERO_PREPARED_CONTEXT,
-} from "../../lib/dj/performance/frutigerAeroPreparedSet";
 import { benchInvalidReason, hasValidCandidatePreparation } from "./validity";
 
 const REMOTE_TOOL_NAMES = [
@@ -281,17 +276,10 @@ async function bootstrapOutgoingTrack(opts: {
   const { remoteTools, config, trace } = opts;
   const likesStartedAt = performance.now();
   const likesOutput = await executeRemoteTool(remoteTools, "likes", { limit: 30 });
-  const likedCandidates = extractCandidateTracks(likesOutput);
-  const preparedOpening = /frutiger\s+aero/i.test(config.prompt);
-  const candidates = preparedOpening
-    ? extractCandidateTracks(FRUTIGER_AERO_OPENING_TRACKS)
-    : likedCandidates;
+  const candidates = extractCandidateTracks(likesOutput);
   trace.record("bootstrap.likes", 0, {
     durationMs: Math.round(performance.now() - likesStartedAt),
-    trackIds: likedCandidates.map(({ id }) => id),
-    preparedOpeningTrackIds: preparedOpening
-      ? candidates.map(({ id }) => id)
-      : [],
+    trackIds: candidates.map(({ id }) => id),
   });
   if (candidates.length === 0) {
     throw new Error("Could not bootstrap outgoing track: likes returned no tracks");
@@ -314,23 +302,6 @@ async function bootstrapOutgoingTrack(opts: {
     throw new Error(
       `Likes sample contained no opener at least ${MINIMUM_OPENER_DURATION_SEC}s long`,
     );
-  }
-
-  if (preparedOpening && config.outgoingTrackId === undefined) {
-    const preparedTrackId = Number(FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS.trackId);
-    const track = tracksToInspect.find(({ id }) => id === preparedTrackId);
-    if (!track) {
-      throw new Error(`Prepared opener ${preparedTrackId} was not available in the fetched likes sample`);
-    }
-    trace.record("bootstrap.prepared_outgoing", 0, {
-      track,
-      analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
-    });
-    return {
-      track,
-      analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
-      likesOutput,
-    };
   }
 
   for (const track of tracksToInspect) {
@@ -662,13 +633,7 @@ export async function runBench(config: BenchConfig) {
       config.planningLeadSec,
     );
     runtime.registerCandidates(bootstrap.likesOutput);
-    const preparedOpening = /frutiger\s+aero/i.test(config.prompt);
-    if (preparedOpening) {
-      runtime.registerCandidates(FRUTIGER_AERO_OPENING_TRACKS);
-    }
-    const episodeInstructions = preparedOpening
-      ? `${BENCH_DJ_INSTRUCTIONS}\n\n${FRUTIGER_AERO_PREPARED_CONTEXT}`
-      : BENCH_DJ_INSTRUCTIONS;
+    const episodeInstructions = BENCH_DJ_INSTRUCTIONS;
     trace.record("episode.started", runtime.nowSec, {
       model: config.model,
       provider: config.provider,
@@ -751,13 +716,6 @@ export async function runBench(config: BenchConfig) {
           const allToolNames = new Set(
             steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
           );
-          if (turnIndex === 0 && preparedOpening) {
-            return prepared({
-              activeTools: ["perform_transition"],
-              toolChoice: { type: "tool" as const, toolName: "perform_transition" },
-              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
-            });
-          }
           if (
             turnIndex === 0 &&
             (!allToolNames.has("likes") || !allToolNames.has("tracks"))
@@ -1000,7 +958,6 @@ export async function runBench(config: BenchConfig) {
       stateReads >= acceptedTrackIds.length &&
       impossibleScheduleAttempts === 0 &&
       hasValidCandidatePreparation({
-        preparedOpening: /frutiger\s+aero/i.test(config.prompt),
         likesCalls: counters.toolCalls.likes ?? 0,
         tracksCalls: counters.toolCalls.tracks ?? 0,
       }) &&
