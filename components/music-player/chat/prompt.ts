@@ -1,9 +1,9 @@
 "use client";
 
 import { type SoundCloudTrack } from "../types";
+import { DEFAULT_DJ_PROMPT } from "@/lib/dj/agentInstructions";
 
-export const REVIBE_PROMPT =
-  "Play hidden gems from my likes or similar tracks, matching frutiger aero";
+export const REVIBE_PROMPT = DEFAULT_DJ_PROMPT;
 
 export function buildRevibePrompt(opts: {
   track: SoundCloudTrack | null;

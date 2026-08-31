@@ -6,6 +6,9 @@ import {
 
 export const DJ_SHARED_POLICY_VERSION = "lasting-set-v2";
 
+export const DEFAULT_DJ_PROMPT =
+  "Play hidden gems from my likes or similar tracks, matching frutiger aero";
+
 export const DJ_SHARED_PERFORMANCE_INSTRUCTIONS = `
 SHARED MUSICAL POLICY (${DJ_SHARED_POLICY_VERSION})
 - Own track choice, set direction, and transition intent. User messages give musical direction,

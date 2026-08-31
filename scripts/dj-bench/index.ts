@@ -6,7 +6,10 @@ import {
   type ToolSet,
 } from "ai";
 import { z } from "zod";
-import { DJ_SHARED_POLICY_VERSION } from "../../lib/dj/agentInstructions";
+import {
+  DJ_SHARED_POLICY_VERSION,
+  PRODUCTION_DJ_INSTRUCTIONS,
+} from "../../lib/dj/agentInstructions";
 import {
   MIN_BODY_TRACK_DURATION_SEC,
   MIN_TRACK_DWELL_SEC,
@@ -15,14 +18,8 @@ import {
 import { benchHelp, parseBenchConfig, type BenchConfig } from "./config";
 import { resolveBenchModel } from "./model";
 import {
-  ANALYSIS_PHASE_INSTRUCTIONS,
-  BENCH_DJ_INSTRUCTIONS,
-  COMMIT_PHASE_INSTRUCTIONS,
   CONTINUE_SET_PROMPT,
-  DISCOVERY_PHASE_INSTRUCTIONS,
   INTERVENTION_PROMPTS,
-  REPLENISH_DISCOVERY_INSTRUCTIONS,
-  SCHEDULE_PHASE_INSTRUCTIONS,
 } from "./prompt";
 import {
   MockDJRuntime,
@@ -442,7 +439,7 @@ function createWrappedRemoteTools(opts: {
               const output = {
                 status: "budget_exhausted",
                 instruction:
-                  "Two analysis reads already used this turn. Refresh dj_state and perform_transition now.",
+                  "Two analysis reads already used this turn. Refresh dj_state and call player now.",
               };
               trace.record("tool.rejected", runtime.nowSec, {
                 tool: name,
@@ -555,7 +552,7 @@ function createLocalTools(opts: {
         return state;
       },
     },
-    perform_transition: {
+    player: {
       description:
         "Submit one complete transition. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
       inputSchema: createPerformTransitionInputSchema(
@@ -563,7 +560,7 @@ function createLocalTools(opts: {
       ),
       execute: async (input): Promise<PerformTransitionResult> => {
         syncClock();
-        increment(counters.toolCalls, "perform_transition");
+        increment(counters.toolCalls, "player");
         const hasReadyAnalysis = Boolean(runtime.analysisFor(input.id));
         const result = runtime.performTransition(input);
         if (result.status === "accepted" && hasReadyAnalysis) {
@@ -571,7 +568,7 @@ function createLocalTools(opts: {
         }
         increment(
           result.status === "accepted" ? counters.toolCalls : counters.toolFailures,
-          result.status === "accepted" ? "perform_transition.accepted" : "perform_transition.rejected",
+          result.status === "accepted" ? "player.accepted" : "player.rejected",
         );
         trace.record(
           result.status === "accepted" ? "transition.accepted" : "transition.rejected",
@@ -633,7 +630,7 @@ export async function runBench(config: BenchConfig) {
       config.planningLeadSec,
     );
     runtime.registerCandidates(bootstrap.likesOutput);
-    const episodeInstructions = BENCH_DJ_INSTRUCTIONS;
+    const episodeInstructions = PRODUCTION_DJ_INSTRUCTIONS;
     trace.record("episode.started", runtime.nowSec, {
       model: config.model,
       provider: config.provider,
@@ -729,7 +726,6 @@ export async function runBench(config: BenchConfig) {
                 missingTools.length === 1
                   ? { type: "tool" as const, toolName: missingTools[0]! }
                   : "required" as const,
-              system: `${episodeInstructions}\n\n${DISCOVERY_PHASE_INSTRUCTIONS}`,
             });
           }
           if (
@@ -740,7 +736,6 @@ export async function runBench(config: BenchConfig) {
             return prepared({
               activeTools: ["tracks"],
               toolChoice: { type: "tool" as const, toolName: "tracks" },
-              system: `${episodeInstructions}\n\n${REPLENISH_DISCOVERY_INSTRUCTIONS}`,
             });
           }
           const discoveredThisTurn = allToolNames.has("likes") || allToolNames.has("tracks");
@@ -748,7 +743,6 @@ export async function runBench(config: BenchConfig) {
             return prepared({
               activeTools: ["schedule_track_analysis"],
               toolChoice: { type: "tool" as const, toolName: "schedule_track_analysis" },
-              system: `${episodeInstructions}\n\n${SCHEDULE_PHASE_INSTRUCTIONS}`,
             });
           }
           if (
@@ -758,30 +752,26 @@ export async function runBench(config: BenchConfig) {
             return prepared({
               activeTools: ["track_analysis", "compare_track_analysis"],
               toolChoice: "required" as const,
-              system: `${episodeInstructions}\n\n${ANALYSIS_PHASE_INSTRUCTIONS}`,
             });
           }
           const lastToolNames = new Set(
             steps.at(-1)?.toolCalls.map((call) => call.toolName) ?? [],
           );
-          if (lastToolNames.has("perform_transition")) {
+          if (lastToolNames.has("player")) {
             return prepared({
               activeTools: ["dj_state"],
               toolChoice: { type: "tool" as const, toolName: "dj_state" },
-              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
             });
           }
           if (lastToolNames.has("dj_state")) {
             return prepared({
-              activeTools: ["perform_transition"],
-              toolChoice: { type: "tool" as const, toolName: "perform_transition" },
-              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+              activeTools: ["player"],
+              toolChoice: { type: "tool" as const, toolName: "player" },
             });
           }
           return prepared({
-            activeTools: ["perform_transition"],
-            toolChoice: { type: "tool" as const, toolName: "perform_transition" },
-            system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            activeTools: ["player"],
+            toolChoice: { type: "tool" as const, toolName: "player" },
           });
         },
         onStepFinish: (step) => {
