@@ -64,6 +64,17 @@ OPENCODE_API_KEY="..." \
   bun run bench:dj --provider opencode --model deepseek-v4-flash
 ```
 
+Z.AI Model API uses its OpenAI-compatible Chat Completions endpoint:
+
+```sh
+ZAI_API_KEY="..." \
+  bun run bench:dj --provider zai --model glm-5.3-flash
+```
+
+`ZAI_BASE_URL` defaults to `https://api.z.ai/api/paas/v4`. GLM Coding Plan
+credentials use a separate endpoint and subscription quota restricted to
+supported coding tools; they are not Model API balance for this bench.
+
 Pin a liked opener for reproducible runs:
 
 ```sh

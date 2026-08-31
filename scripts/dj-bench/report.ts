@@ -285,7 +285,7 @@ export function writeRunConfig(config: BenchConfig) {
     reportPath: config.reportPath,
     manifestPath: config.manifestPath,
     hasCookie: Boolean(config.cookie),
-    hasOpenCodeApiKey: Boolean(config.opencodeApiKey),
+    hasProviderApiKey: Boolean(config.providerApiKey),
   };
   writeFileSync(config.configPath, `${JSON.stringify(sanitized, null, 2)}\n`);
 }

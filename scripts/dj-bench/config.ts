@@ -1,6 +1,6 @@
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-import { DEFAULT_REVIBE_PROMPT } from "./prompt";
+import { DEFAULT_DJ_PROMPT } from "../../lib/dj/agentInstructions";
 
 export const FAILURE_NAMES = [
   "reject-first",
@@ -13,7 +13,7 @@ export const FAILURE_NAMES = [
 
 export type FailureName = (typeof FAILURE_NAMES)[number];
 export type BenchScenario = "revibe" | "interventions";
-export type BenchProvider = "gateway" | "opencode";
+export type BenchProvider = "gateway" | "opencode" | "zai";
 
 export interface BenchConfig {
   provider: BenchProvider;
@@ -38,8 +38,8 @@ export interface BenchConfig {
   prompt: string;
   scenario: BenchScenario;
   quiet: boolean;
-  opencodeApiKey?: string;
-  opencodeBaseUrl: string;
+  providerApiKey?: string;
+  providerBaseUrl?: string;
 }
 
 function readValue(argv: string[], name: string): string | undefined {
@@ -130,13 +130,19 @@ export function parseBenchConfig(
   const providerValue =
     readValue(argv, "--provider") ??
     env.DJ_BENCH_PROVIDER ??
-    (env.OPENCODE_API_KEY ? "opencode" : "gateway");
-  if (providerValue !== "gateway" && providerValue !== "opencode") {
-    throw new Error("--provider must be gateway or opencode");
+    (env.ZAI_API_KEY ? "zai" : env.OPENCODE_API_KEY ? "opencode" : "gateway");
+  if (providerValue !== "gateway" && providerValue !== "opencode" && providerValue !== "zai") {
+    throw new Error("--provider must be gateway, opencode, or zai");
   }
-  const opencodeApiKey = env.OPENCODE_API_KEY;
-  if (providerValue === "opencode" && !opencodeApiKey) {
-    throw new Error("OPENCODE_API_KEY is required with --provider opencode");
+  const providerApiKey = providerValue === "zai"
+    ? env.ZAI_API_KEY
+    : providerValue === "opencode"
+      ? env.OPENCODE_API_KEY
+      : undefined;
+  if (providerValue !== "gateway" && !providerApiKey) {
+    throw new Error(
+      `${providerValue === "zai" ? "ZAI_API_KEY" : "OPENCODE_API_KEY"} is required with --provider ${providerValue}`,
+    );
   }
 
   const outgoingValue = readValue(argv, "--outgoing-id");
@@ -146,7 +152,11 @@ export function parseBenchConfig(
     model:
       readValue(argv, "--model") ??
       env.DJ_MODEL ??
-      (providerValue === "opencode" ? "deepseek-v4-flash" : "deepseek/deepseek-v4-flash"),
+      (providerValue === "zai"
+        ? "glm-5.3-flash"
+        : providerValue === "opencode"
+          ? "deepseek-v4-flash"
+          : "deepseek/deepseek-v4-flash"),
     targetDurationSec: readPositiveNumber(readValue(argv, "--duration-min"), 90, "--duration-min") * 60,
     transitions: readPositiveInt(
       readValue(argv, "--max-transitions") ?? readValue(argv, "--transitions"),
@@ -172,11 +182,15 @@ export function parseBenchConfig(
       outgoingValue === undefined
         ? undefined
         : readPositiveInt(outgoingValue, 0, "--outgoing-id"),
-    prompt: readValue(argv, "--prompt") ?? DEFAULT_REVIBE_PROMPT,
+    prompt: readValue(argv, "--prompt") ?? DEFAULT_DJ_PROMPT,
     scenario: scenarioValue,
     quiet: argv.includes("--quiet"),
-    opencodeApiKey,
-    opencodeBaseUrl: env.OPENCODE_BASE_URL ?? "https://opencode.ai/zen/v1",
+    providerApiKey,
+    providerBaseUrl: providerValue === "zai"
+      ? env.ZAI_BASE_URL ?? "https://api.z.ai/api/paas/v4"
+      : providerValue === "opencode"
+        ? env.OPENCODE_BASE_URL ?? "https://opencode.ai/zen/v1"
+        : undefined,
   };
 }
 
@@ -185,7 +199,7 @@ export function benchHelp(): string {
 Usage: bun run bench:dj [options]
 
 Options:
-  --provider <name>        gateway or opencode (auto: opencode when key exists)
+  --provider <name>        gateway, opencode, or zai (auto from available key)
   --model <id>             Gateway/provider model (default: DJ_MODEL)
   --duration-min <minutes> Audible set target (default: 90)
   --max-transitions <n>    Safety ceiling before target is reached (default: 64)
@@ -206,5 +220,8 @@ Options:
 
 OpenCode Zen:
   OPENCODE_API_KEY=... bun run bench:dj --provider opencode --model gpt-5.6-terra
+
+Z.AI:
+  ZAI_API_KEY=... bun run bench:dj --provider zai --model glm-5.3-flash
 `.trim();
 }
