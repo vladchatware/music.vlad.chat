@@ -37,6 +37,9 @@ Run 90-minute virtual set:
 bun run bench:dj
 ```
 
+Default model is `zai/glm-5.3-flash` through Vercel AI Gateway. No direct
+Z.AI provider credentials are used.
+
 Change duration or transition safety ceiling:
 
 ```sh
@@ -63,17 +66,6 @@ DeepSeek V4 Flash uses Zen's Chat Completions protocol:
 OPENCODE_API_KEY="..." \
   bun run bench:dj --provider opencode --model deepseek-v4-flash
 ```
-
-Z.AI Model API uses its OpenAI-compatible Chat Completions endpoint:
-
-```sh
-ZAI_API_KEY="..." \
-  bun run bench:dj --provider zai --model glm-5.3-flash
-```
-
-`ZAI_BASE_URL` defaults to `https://api.z.ai/api/paas/v4`. GLM Coding Plan
-credentials use a separate endpoint and subscription quota restricted to
-supported coding tools; they are not Model API balance for this bench.
 
 Pin a liked opener for reproducible runs:
 
@@ -135,9 +127,12 @@ Real MCP mode returns likes, searches, and analysis to selected model. Run only
 when that data egress is intended and authorized. Use `--cookie` only when
 authenticated user-library access is required; never store cookie in trace.
 
-`/bench`, `/bench/[runId]`, and configured MCP endpoint are intentional public
-surfaces. Run artifacts may expose model text, reasoning, tool evidence, and
-track metadata, so never place credentials in prompts, MCP URLs, or trace data.
+Local headless artifacts under `/bench/[runId]` remain developer evidence.
+Production AI-chat replays use the same route with a `chatSessionId`, but Convex
+queries restrict those snapshots to the session owner. Stored chat responses are
+adapted to the same timeline manifest and inspector used by headless runs. Both artifact types may
+expose model text, reasoning, tool evidence, and track metadata, so never place
+credentials in prompts, MCP URLs, or trace data.
 MCP URL is stored verbatim for reproducibility because endpoint itself is public.
 
 ## Success boundary

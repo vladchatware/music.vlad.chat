@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { systemMessage } from "../lib/ai";
 import { playerToolInputSchema } from "../lib/dj";
+import { resolveDJModel } from "../lib/server/djModel";
 
 type Scenario = {
   name: string;
@@ -55,7 +56,7 @@ const scenarios: Scenario[] = [
   },
 ];
 
-const model = process.env.DJ_MODEL ?? "openai/gpt-5-mini";
+const model = resolveDJModel(process.env.DJ_MODEL);
 const requestTimeoutMs = Number.parseInt(process.env.DJ_EVAL_TIMEOUT_MS ?? "60000", 10);
 const liveDeadlineMs = Number.parseInt(process.env.DJ_LIVE_DEADLINE_MS ?? "15000", 10);
 const scenarioFilter = process.env.DJ_EVAL_SCENARIO?.toLowerCase();

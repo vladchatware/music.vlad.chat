@@ -7,7 +7,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import {
-  DJ_SHARED_POLICY_VERSION,
+  DJ_INSTRUCTION_VERSION,
   PRODUCTION_DJ_INSTRUCTIONS,
 } from "../../lib/dj/agentInstructions";
 import {
@@ -23,7 +23,6 @@ import {
 } from "./prompt";
 import {
   MockDJRuntime,
-  createPerformTransitionInputSchema,
   extractCandidateTracks,
   extractTrackAnalyses,
   performTransitionInputSchema,
@@ -554,10 +553,8 @@ function createLocalTools(opts: {
     },
     player: {
       description:
-        "Submit one complete transition. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
-      inputSchema: createPerformTransitionInputSchema(
-        () => runtime.snapshot().candidateTrackIds,
-      ),
+        "Submit one complete transition. id must be an exact SoundCloud track ID from latest candidateTrackIds, never a list index or placeholder. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
+      inputSchema: performTransitionInputSchema,
       execute: async (input): Promise<PerformTransitionResult> => {
         syncClock();
         increment(counters.toolCalls, "player");
@@ -965,7 +962,7 @@ export async function runBench(config: BenchConfig) {
     provider: config.provider,
     scenario: config.scenario,
     prompt: config.prompt,
-    promptPolicyVersion: DJ_SHARED_POLICY_VERSION,
+    promptPolicyVersion: DJ_INSTRUCTION_VERSION,
     planningLeadSec: config.planningLeadSec,
     targetDurationSec: config.targetDurationSec,
     achievedDurationSec,

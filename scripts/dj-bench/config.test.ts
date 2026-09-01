@@ -7,6 +7,7 @@ describe("parseBenchConfig", () => {
     const config = parseBenchConfig([], {});
     expect(config).toMatchObject({
       provider: "gateway",
+      model: "zai/glm-5.3-flash",
       targetDurationSec: 90 * 60,
       transitions: 64,
       maxSteps: 8,
@@ -61,7 +62,7 @@ describe("parseBenchConfig", () => {
     );
     expect(config.provider).toBe("opencode");
     expect(config.model).toBe("gpt-5.6-sol");
-    expect(config.providerBaseUrl).toBe("https://opencode.ai/zen/v1");
+    expect(config.opencodeBaseUrl).toBe("https://opencode.ai/zen/v1");
   });
 
   it("uses OpenCode DeepSeek by default when its key exists", () => {
@@ -73,13 +74,6 @@ describe("parseBenchConfig", () => {
   it("requires OpenCode key", () => {
     expect(() => parseBenchConfig(["--provider", "opencode"], {}))
       .toThrow(/OPENCODE_API_KEY/);
-  });
-
-  it("configures Z.AI with its latest flash model", () => {
-    const config = parseBenchConfig([], { ZAI_API_KEY: "secret" });
-    expect(config.provider).toBe("zai");
-    expect(config.model).toBe("glm-5.3-flash");
-    expect(config.providerBaseUrl).toBe("https://api.z.ai/api/paas/v4");
   });
 
   it("places companion artifacts beside explicit trace", () => {

@@ -193,7 +193,7 @@ export function createDJAgentTools(
       inputSchema: z.object({}).strict(),
     },
     track_analysis: {
-      description: "Read one cached track analysis, including ranked entry/exit segments and local energy trajectory. No bulk lookup or analysis start.",
+      description: "Read one cached track analysis for a candidate, including ranked entry/exit segments and local energy trajectory. May return not_ready; never poll or start analysis from this tool. Use metadata plus safe anchors when evidence is unavailable.",
       inputSchema: z.object({
         id: z.number().int().positive(),
         aspect: z.enum(["summary", "timing", "structure", "energy", "full"]).default("summary"),
@@ -201,7 +201,7 @@ export function createDJAgentTools(
       execute: ({ id, aspect }) => readForegroundAnalysis(id, aspect),
     },
     compare_track_analysis: {
-      description: "Compare 2-3 cached candidate analyses in one call. Returns aligned evidence per track without a winner score. Use this for a prepared candidate pool before choosing.",
+      description: "Compare 2-3 cached candidate analyses in one call. Returns aligned ready/not_ready evidence without choosing a winner. Use once for a prepared candidate pool when comparison can change the musical choice; never poll.",
       inputSchema: z.object({
         ids: z.array(z.number().int().positive()).min(2).max(3),
         aspect: z.enum(["summary", "timing", "structure", "energy", "full"]).default("summary"),
@@ -221,7 +221,7 @@ export function createDJAgentTools(
     player: {
       description: opts.compactPlayerSelection
         ? `Choose one prepared track now. State its musical energy arc and a brief heard reason. Runtime supplies the safe transition mechanics.${candidateInstruction}`
-        : `Choose track and submit complete declarative DJ performance plan. Section anchors must exist in track_analysis. A release from a high-energy drop must exit at a proven falling segment, breakdown, or outro; do not use next_phrase unless analysis proves it reaches one. Low ambient into a rising high-energy segment is a build, not a reset. Do not use reset or cut as a fallback for an incompatible candidate. For tracks under 3 minutes, keep entry within the first 32 seconds; after an abrupt or deep-entry outcome, keep it within 24 seconds. Placeholder testing/viability reasons are rejected.${candidateInstruction}`,
+        : `Choose one discovered unplayed track and submit its complete declarative DJ performance plan. Inspect selected candidate with track_analysis first when available; if evidence is not ready, use mix_out and mix_in instead of invented cues. Section anchors must exist in returned analysis. A release from a high-energy drop must exit at a proven falling segment, breakdown, or outro; do not use next_phrase unless analysis proves it reaches one. Low ambient into a rising high-energy segment is a build, not a reset. Do not use reset or cut as a fallback for an incompatible candidate. For tracks under 3 minutes, keep entry within the first 32 seconds; after an abrupt or deep-entry outcome, keep it within 24 seconds. Placeholder testing/viability reasons are rejected.${candidateInstruction}`,
       inputSchema: opts.compactPlayerSelection
         ? compactPlayerInputSchema
         : boundedPlayerInputSchema,

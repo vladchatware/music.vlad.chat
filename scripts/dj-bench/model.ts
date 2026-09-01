@@ -6,22 +6,22 @@ import type { BenchConfig } from "./config";
 
 export function resolveBenchModel(config: BenchConfig): LanguageModel | string {
   if (config.provider === "gateway") return config.model;
-  if (!config.providerApiKey || !config.providerBaseUrl) {
-    throw new Error(`API key and base URL are required with ${config.provider} provider`);
+  if (!config.opencodeApiKey) {
+    throw new Error("OPENCODE_API_KEY is required with OpenCode provider");
   }
-  if (config.provider === "zai" || !config.model.startsWith("gpt-")) {
-    const compatible = createOpenAICompatible({
-      name: config.provider === "zai" ? "zai" : "opencode-zen",
-      apiKey: config.providerApiKey,
-      baseURL: config.providerBaseUrl,
+  if (!config.model.startsWith("gpt-")) {
+    const opencodeCompatible = createOpenAICompatible({
+      name: "opencode-zen",
+      apiKey: config.opencodeApiKey,
+      baseURL: config.opencodeBaseUrl,
       includeUsage: true,
     });
-    return compatible(config.model);
+    return opencodeCompatible(config.model);
   }
   const opencode = createOpenAI({
     name: "opencode-zen",
-    apiKey: config.providerApiKey,
-    baseURL: config.providerBaseUrl,
+    apiKey: config.opencodeApiKey,
+    baseURL: config.opencodeBaseUrl,
   });
   return opencode.responses(config.model);
 }
