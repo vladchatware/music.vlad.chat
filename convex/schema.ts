@@ -34,6 +34,29 @@ export default defineSchema({
       cachedInputTokens: v.optional(v.number()),
     })
   }),
+  aiChatSessions: defineTable({
+    sessionKey: v.string(),
+    ownerId: v.id("users"),
+    model: v.string(),
+    turnCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_session_key", ["sessionKey"])
+    .index("by_owner_updated", ["ownerId", "updatedAt"])
+    .index("by_updated", ["updatedAt"]),
+  aiChatTurns: defineTable({
+    sessionId: v.id("aiChatSessions"),
+    captureKey: v.string(),
+    turnKey: v.string(),
+    snapshotStorageId: v.id("_storage"),
+    startedAt: v.number(),
+    completedAt: v.number(),
+    finishReason: v.optional(v.string()),
+    isAborted: v.boolean(),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_session_capture", ["sessionId", "captureKey"]),
   payments: defineTable({
     stripeEventId: v.string(),
     checkoutSessionId: v.string(),

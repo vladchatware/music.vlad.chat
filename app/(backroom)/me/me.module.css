@@ -207,7 +207,7 @@
 
 .sectionNav {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   border-top: 1px solid var(--line);
   border-left: 1px solid var(--line);
 }
@@ -293,8 +293,96 @@
 }
 
 .trackList,
-.playlistList {
+.playlistList,
+.runList {
   border-top: 1px solid var(--line);
+}
+
+.runRow {
+  min-height: 104px;
+  display: grid;
+  grid-template-columns: 70px minmax(220px, 1fr) minmax(360px, 1.2fr) auto;
+  align-items: center;
+  gap: 22px;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  transition: background .15s ease;
+}
+
+.runRow:hover {
+  background: var(--section);
+}
+
+.runIndex {
+  height: 70px;
+  display: grid;
+  place-items: center;
+  background: var(--artwork);
+  color: var(--acid);
+  font: 700 10px "Courier New", monospace;
+}
+
+.runIdentity {
+  min-width: 0;
+}
+
+.runIdentity p,
+.runMeta,
+.runAction {
+  font-family: "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.runIdentity p {
+  margin: 0 0 8px;
+  color: var(--acid);
+  font-size: 8px;
+}
+
+.runIdentity h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(18px, 2vw, 29px);
+  font-weight: 400;
+}
+
+.runMeta {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 90px 80px;
+  gap: 24px;
+  color: var(--ink);
+  font-size: 9px;
+}
+
+.runMeta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runMeta small {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.runAction {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 14px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.runRow:hover .runAction {
+  color: var(--acid);
 }
 
 .trackRow {
@@ -652,6 +740,9 @@
   .trackArt { width: 64px; height: 64px; }
   .trackMeta { display: none; }
   .trackActions { padding-right: 0; }
+  .runRow { grid-template-columns: 64px minmax(180px, 1fr) minmax(220px, .8fr); }
+  .runAction { display: none; }
+  .runIndex { height: 64px; }
 }
 
 @media (max-width: 650px) {
@@ -711,4 +802,13 @@
   .soundcloudLink { display: none; }
   .chevron { margin-right: 5px; }
   .playlistTracks { padding-left: 12px; }
+  .runRow {
+    min-height: 78px;
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    gap: 13px;
+  }
+  .runIndex { height: 54px; }
+  .runIdentity h3 { font-size: 16px; }
+  .runMeta { display: block; font-size: 8px; }
+  .runMeta span:not(:last-child), .runMeta small { display: none; }
 }

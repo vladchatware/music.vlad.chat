@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getCrossfaderGains } from "@/lib/dj";
-import type { BenchSummary } from "@/scripts/dj-bench/report";
 import {
   audibleSegmentsAt,
   segmentSourceTime,
@@ -23,7 +22,10 @@ function time(seconds: number, decimals = false) {
 
 function eventLabel(event: BenchTimelineEvent) {
   if (event.type === "agent.step") return `AI · turn ${event.turn ?? "—"} / step ${event.step ?? "—"}`;
-  if (typeof event.payload.tool === "string") return `${event.type.replaceAll(".", " ")} · ${event.payload.tool}`;
+  if (event.type.startsWith("tool.")) {
+    const name = typeof event.payload.tool === "string" ? event.payload.tool : event.type.slice(5);
+    return `TOOL · ${name}`;
+  }
   return event.type.replaceAll(".", " ");
 }
 
@@ -54,12 +56,12 @@ export default function BenchInspector({
   summary,
 }: {
   manifest: BenchTimelineManifest;
-  summary: BenchSummary;
+  summary: { tokens: { total: number } };
 }) {
   const duration = Math.max(manifest.targetDurationSec, manifest.achievedDurationSec, 1);
   const [setTimeSec, setSetTimeSec] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [audioMessage, setAudioMessage] = useState("Ready to audition");
+  const [audioMessage, setAudioMessage] = useState("Ready — press play");
   const [selectedEventId, setSelectedEventId] = useState(
     manifest.events.find((event) => event.type === "agent.step")?.id ?? manifest.events[0]?.id ?? "",
   );
@@ -82,6 +84,20 @@ export default function BenchInspector({
     /failed|rejected|missed|holding|false_success/.test(event.type),
   ), [manifest.events]);
 
+  const eventLogRef = useRef<HTMLDivElement>(null);
+  const eventRowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const selectedIdRef = useRef(selectedEventId);
+  selectedIdRef.current = selectedEventId;
+
+  const activeEventAt = useCallback((atSec: number): BenchTimelineEvent | undefined => {
+    let active = evidenceEvents[0];
+    for (const event of evidenceEvents) {
+      if (event.setTimeSec > atSec) break;
+      active = event;
+    }
+    return active;
+  }, [evidenceEvents]);
+
   const gainAt = useCallback((segment: BenchAudibleSegment, atSec: number) => {
     const transition = manifest.transitions.find(
       (item) => atSec >= item.setStartSec && atSec < item.setEndSec &&
@@ -100,7 +116,7 @@ export default function BenchInspector({
     generationRef.current = generation;
     const segments = audibleSegmentsAt(manifest.audibleSegments, atSec).slice(-2);
     activeKeyRef.current = segments.map(({ id }) => id).join("|");
-    setAudioMessage(segments.length ? "Resolving fresh SoundCloud stream" : "No audible segment at timestamp");
+    setAudioMessage(segments.length ? "Loading SoundCloud streams" : "No audio at this timestamp");
     try {
       await Promise.all(audioRefs.map(async (ref, index) => {
         const audio = ref.current;
@@ -131,7 +147,7 @@ export default function BenchInspector({
         audio.volume = gainAt(segment, atSec);
         if (!shouldPlay) audio.pause();
       }));
-      if (generationRef.current === generation) setAudioMessage(segments.length > 1 ? "Transition audition" : "Single deck audition");
+      if (generationRef.current === generation) setAudioMessage(segments.length > 1 ? "Two tracks crossfading" : "One track playing");
     } catch (cause) {
       if (generationRef.current === generation) {
         setPlaying(false);
@@ -144,21 +160,25 @@ export default function BenchInspector({
     const bounded = Math.max(0, Math.min(duration, next));
     setSetTimeSec(bounded);
     clockRef.current = { setTimeSec: bounded, wallTimeMs: performance.now() };
-    if (select) setSelectedEventId(select.id);
+    setSelectedEventId(select?.id ?? activeEventAt(bounded)?.id ?? "");
     void syncAudio(bounded, playing);
     const url = new URL(window.location.href);
     url.searchParams.set("t", bounded.toFixed(1));
     if (select) url.searchParams.set("event", select.id);
     window.history.replaceState(null, "", url);
-  }, [duration, playing, syncAudio]);
+  }, [activeEventAt, duration, playing, syncAudio]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const initial = Number(params.get("t"));
     const requestedEvent = params.get("event");
-    if (Number.isFinite(initial) && initial >= 0) setSetTimeSec(Math.min(duration, initial));
+    if (Number.isFinite(initial) && initial >= 0) {
+      const bounded = Math.min(duration, initial);
+      setSetTimeSec(bounded);
+      if (!requestedEvent) setSelectedEventId(activeEventAt(bounded)?.id ?? "");
+    }
     if (requestedEvent && manifest.events.some(({ id }) => id === requestedEvent)) setSelectedEventId(requestedEvent);
-  }, [duration, manifest.events]);
+  }, [activeEventAt, duration, manifest.events]);
 
   useEffect(() => {
     if (!playing) return;
@@ -167,6 +187,8 @@ export default function BenchInspector({
         clockRef.current.setTimeSec + (now - clockRef.current.wallTimeMs) / 1_000,
       );
       setSetTimeSec(next);
+      const active = activeEventAt(next);
+      if (active && active.id !== selectedIdRef.current) setSelectedEventId(active.id);
       const segments = audibleSegmentsAt(manifest.audibleSegments, next).slice(-2);
       const key = segments.map(({ id }) => id).join("|");
       if (key !== activeKeyRef.current) void syncAudio(next, true);
@@ -183,13 +205,21 @@ export default function BenchInspector({
     };
     frameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [audioRefs, duration, gainAt, manifest.audibleSegments, playing, syncAudio]);
+  }, [activeEventAt, audioRefs, duration, gainAt, manifest.audibleSegments, playing, syncAudio]);
 
   useEffect(() => () => {
     generationRef.current += 1;
     cancelAnimationFrame(frameRef.current);
     audioRefs.forEach(({ current }) => current?.pause());
   }, [audioRefs]);
+
+  useEffect(() => {
+    const list = eventLogRef.current;
+    const row = eventRowRefs.current.get(selectedEventId);
+    if (!list || !row) return;
+    const target = row.offsetTop - list.clientHeight / 2 + row.offsetHeight / 2;
+    list.scrollTop = Math.max(0, Math.min(list.scrollHeight - list.clientHeight, target));
+  }, [selectedEventId]);
 
   const togglePlayback = async () => {
     if (playing) {
@@ -207,12 +237,6 @@ export default function BenchInspector({
 
   return <section className={styles.inspector}>
     <div className={styles.stage}>
-      {(summary.browserPlaythroughs ?? (summary.browserPlaythrough ? [summary.browserPlaythrough] : [])).map((proof) => <section className={`${styles.regressionProof} ${proof.passed ? styles.regressionPass : styles.regressionFail}`} key={proof.failureId}>
-        <div><small>REGULAR-PLAYER FAILURE</small><b>{proof.failureId}</b></div>
-        <strong>{proof.failureWitness.status} <span>→</span> {proof.current.status}</strong>
-        <div><small>BROWSER RESPONSES</small><b>{proof.failureWitness.responseCount} witness / {proof.current.responseCount} current</b></div>
-        <em>{proof.passed ? "PROVEN" : "UNRESOLVED"}</em>
-      </section>)}
       <div className={styles.transport}>
         <button type="button" onClick={togglePlayback}>{playing ? "Ⅱ Pause" : "▶ Play"}</button>
         <button type="button" onClick={() => seek(setTimeSec - 10)}>−10s</button>
@@ -285,7 +309,17 @@ export default function BenchInspector({
 
       <section className={styles.eventLog}>
         <h2>Timestamped evidence</h2>
-        <div className={styles.eventRows}>{evidenceEvents.map((event) => <button className={styles.eventRow} type="button" aria-pressed={event.id === selectedEventId} onClick={() => seek(event.setTimeSec, event)} key={event.id}>
+        <div className={styles.eventRows} ref={eventLogRef}>{evidenceEvents.map((event) => <button
+          className={styles.eventRow}
+          type="button"
+          aria-pressed={event.id === selectedEventId}
+          onClick={() => seek(event.setTimeSec, event)}
+          ref={(node) => {
+            if (node) eventRowRefs.current.set(event.id, node);
+            else eventRowRefs.current.delete(event.id);
+          }}
+          key={event.id}
+        >
           <time>{time(event.setTimeSec, true)}</time><span>{eventLabel(event)}</span><small>{event.turn ? `T${event.turn}.${event.step ?? 0}` : `#${event.sequence}`}</small>
         </button>)}</div>
       </section>

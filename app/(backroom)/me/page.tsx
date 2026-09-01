@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { api } from "@/convex/_generated/api";
 
-import MeLibrary from "./MeLibrary";
+import MeLibrary, { type DJRun } from "./MeLibrary";
 
 export const metadata: Metadata = {
   title: "My records — music.vlad.chat",
@@ -14,9 +14,17 @@ export const metadata: Metadata = {
 
 export default async function MePage() {
   let user = null;
+  let runs: DJRun[] = [];
   try {
     const token = await convexAuthNextjsToken();
-    user = token ? await fetchQuery(api.users.viewer, {}, { token }) : null;
+    if (token) {
+      user = await fetchQuery(api.users.viewer, {}, { token });
+      try {
+        runs = await fetchQuery(api.aiChatSessions.listMine, { limit: 50 }, { token });
+      } catch (error) {
+        console.error("Failed to load DJ runs", error);
+      }
+    }
   } catch {
     user = null;
   }
@@ -27,5 +35,5 @@ export default async function MePage() {
     redirect("/dashboard?returnTo=/me");
   }
 
-  return <MeLibrary />;
+  return <MeLibrary runs={runs} />;
 }
