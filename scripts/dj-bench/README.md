@@ -37,6 +37,9 @@ Run 90-minute virtual set:
 bun run bench:dj
 ```
 
+Default model is `zai/glm-5.3-flash` through Vercel AI Gateway. No direct
+Z.AI provider credentials are used.
+
 Change duration or transition safety ceiling:
 
 ```sh
@@ -124,9 +127,12 @@ Real MCP mode returns likes, searches, and analysis to selected model. Run only
 when that data egress is intended and authorized. Use `--cookie` only when
 authenticated user-library access is required; never store cookie in trace.
 
-`/bench`, `/bench/[runId]`, and configured MCP endpoint are intentional public
-surfaces. Run artifacts may expose model text, reasoning, tool evidence, and
-track metadata, so never place credentials in prompts, MCP URLs, or trace data.
+Local headless artifacts under `/bench/[runId]` remain developer evidence.
+Production AI-chat replays use the same route with a `chatSessionId`, but Convex
+queries restrict those snapshots to the session owner. Stored chat responses are
+adapted to the same timeline manifest and inspector used by headless runs. Both artifact types may
+expose model text, reasoning, tool evidence, and track metadata, so never place
+credentials in prompts, MCP URLs, or trace data.
 MCP URL is stored verbatim for reproducibility because endpoint itself is public.
 
 ## Success boundary

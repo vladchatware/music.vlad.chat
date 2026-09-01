@@ -1,5 +1,7 @@
-import { PRODUCTION_DJ_INSTRUCTIONS } from "./dj/agentInstructions";
-import { FRUTIGER_AERO_PREPARED_CONTEXT } from "./dj/performance/frutigerAeroPreparedSet";
+import {
+  DEFAULT_DJ_PROMPT,
+  PRODUCTION_DJ_INSTRUCTIONS,
+} from "./dj/agentInstructions";
 
 const url = process.env.SITE_URL;
 
@@ -38,10 +40,6 @@ export const transcribe = async (blob: Blob) => {
 };
 
 // Kept as public alias for existing chat route and evaluation scripts.
-export const systemMessage = [
-  PRODUCTION_DJ_INSTRUCTIONS,
-  FRUTIGER_AERO_PREPARED_CONTEXT,
-].join("\n\n");
+export const systemMessage = PRODUCTION_DJ_INSTRUCTIONS;
 
-export const DEFAULT_REVIBE_PROMPT =
-  "Play hidden gems from my likes or similar tracks, matching frutiger aero.";
+export const DEFAULT_REVIBE_PROMPT = DEFAULT_DJ_PROMPT;

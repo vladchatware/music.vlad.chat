@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_DJ_MODEL, resolveDJModel } from "./djModel";
 
 describe("resolveDJModel", () => {
-  it("uses DeepSeek V4 Flash through AI Gateway by default", () => {
-    expect(DEFAULT_DJ_MODEL).toBe("deepseek/deepseek-v4-flash");
+  it("uses GLM 5.3 Flash through AI Gateway by default", () => {
+    expect(DEFAULT_DJ_MODEL).toBe("zai/glm-5.3-flash");
     expect(resolveDJModel(undefined)).toBe(DEFAULT_DJ_MODEL);
     expect(resolveDJModel("   ")).toBe(DEFAULT_DJ_MODEL);
   });

@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const sent: Array<Record<string, unknown>> = [];
+  const workerMessages: Array<Record<string, unknown>> = [];
   let onMessage: ((message: unknown) => void) | null = null;
+  const superpowered: {
+    loadTrackInWorker?: (url: string, trackLoaderId: number) => Promise<void>;
+    transferLoadedTrack: ReturnType<typeof vi.fn>;
+  } = { transferLoadedTrack: vi.fn() };
 
   class FakeNode {
     connect() {}
@@ -32,6 +37,15 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  class FakeWorker {
+    onmessage: ((message: MessageEvent) => void) | null = null;
+    onerror: ((event: ErrorEvent) => void) | null = null;
+    postMessage(message: Record<string, unknown>) {
+      workerMessages.push(message);
+    }
+    terminate() {}
+  }
+
   const gain = () => ({
     gain: { value: 0 },
     connect() {},
@@ -57,12 +71,20 @@ const mocks = vi.hoisted(() => {
     }),
   };
 
-  return { sent, context, FakeNode, setOnMessage: (next: typeof onMessage) => { onMessage = next; } };
+  return {
+    sent,
+    workerMessages,
+    superpowered,
+    context,
+    FakeNode,
+    FakeWorker,
+    setOnMessage: (next: typeof onMessage) => { onMessage = next; },
+  };
 });
 
 vi.mock("@superpoweredsdk/web", () => ({
   SuperpoweredGlue: {
-    Instantiate: vi.fn(async () => ({})),
+    Instantiate: vi.fn(async () => mocks.superpowered),
   },
   SuperpoweredWebAudio: class {
     audioContext = mocks.context;
@@ -82,10 +104,12 @@ import { SuperpoweredAudioEngine } from "./superpoweredEngine";
 describe("SuperpoweredAudioEngine", () => {
   beforeEach(() => {
     mocks.sent.length = 0;
+    mocks.workerMessages.length = 0;
     mocks.context.state = "suspended";
     vi.stubGlobal("window", {
       location: { origin: "http://localhost:3000", hostname: "localhost" },
     });
+    vi.stubGlobal("Worker", mocks.FakeWorker);
     process.env.NEXT_PUBLIC_SUPERPOWERED_LICENSE_KEY = "test-license";
   });
 
@@ -107,6 +131,34 @@ describe("SuperpoweredAudioEngine", () => {
       deck: "A",
       trackId: "42",
       bpm: 128,
+    });
+    await engine.dispose();
+  });
+
+  it("coalesces concurrent loads of the same track on one deck", async () => {
+    const engine = new SuperpoweredAudioEngine();
+    const track = { id: 42, url: "/api/tracks/42/stream", bpm: 128 };
+
+    const [first, second] = await Promise.all([
+      engine.loadDeck("A", track),
+      engine.loadDeck("A", track),
+    ]);
+
+    expect(first).toEqual(second);
+    expect(mocks.sent.filter((message) => message.type === "load")).toHaveLength(1);
+    await engine.dispose();
+  });
+
+  it("passes the configured license key to track-loader workers", async () => {
+    const engine = new SuperpoweredAudioEngine();
+    await engine.initialize();
+
+    await mocks.superpowered.loadTrackInWorker?.("/api/tracks/42/stream", 7);
+
+    expect(mocks.workerMessages[0]).toMatchObject({
+      load: "http://localhost:3000/api/tracks/42/stream",
+      licenseKey: "test-license",
+      wasmUrl: "http://localhost:3000/audio/superpowered/superpowered.wasm",
     });
     await engine.dispose();
   });

@@ -7,6 +7,7 @@ describe("parseBenchConfig", () => {
     const config = parseBenchConfig([], {});
     expect(config).toMatchObject({
       provider: "gateway",
+      model: "zai/glm-5.3-flash",
       targetDurationSec: 90 * 60,
       transitions: 64,
       maxSteps: 8,

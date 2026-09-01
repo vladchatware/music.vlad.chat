@@ -230,7 +230,7 @@ const handler = createMcpHandler(
 
     server.tool(
       'track_analysis',
-      'Read one cached rich track analysis with tempo, key, local energy, structure, semantic evidence, and ranked entry/exit segments. This tool reports evidence and never chooses a track.',
+      'Read one cached candidate analysis with tempo, key, local energy, structure, semantic evidence, and ranked entry/exit segments. May return not_ready; never poll. Use metadata plus safe anchors when unavailable. Reports evidence and never chooses a track.',
       {
         id: z.number().int().positive(),
         aspect: analysisAspectSchema.optional().default('summary'),
@@ -243,7 +243,7 @@ const handler = createMcpHandler(
 
     server.tool(
       'compare_track_analysis',
-      'Compare 2-3 cached analyses as aligned evidence without a winner score. The calling DJ remains responsible for the musical choice.',
+      'Compare 2-3 cached candidate analyses as aligned ready/not_ready evidence without a winner score. Use when comparison can change the musical choice; never poll. Calling DJ chooses.',
       {
         ids: z.array(z.number().int().positive()).min(2).max(3),
         aspect: analysisAspectSchema.optional().default('summary'),

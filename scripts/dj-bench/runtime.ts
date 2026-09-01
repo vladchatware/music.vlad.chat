@@ -11,6 +11,7 @@ import {
   MIN_FUTURE_TRACK_RUNWAY_SEC,
   minimumDwellExitSec,
 } from "../../lib/dj/lastingSet";
+import { normalizeTransitionMechanics } from "../../lib/dj/performance/mechanics";
 import type {
   BenchAudibleSegment,
   BenchTimelineTrack,
@@ -381,19 +382,60 @@ function entryTimeSec(plan: DJPerformancePlan): number {
   return plan.entry.section === "intro" ? 8 : 32;
 }
 
-function normalizedTempoAdjustmentPercent(outgoingBpm: number, incomingBpm: number): number {
-  const variants = [incomingBpm / 2, incomingBpm, incomingBpm * 2];
-  const equivalent = variants.sort(
-    (left, right) => Math.abs(left - outgoingBpm) - Math.abs(right - outgoingBpm),
-  )[0]!;
-  return Math.abs(outgoingBpm / equivalent - 1) * 100;
-}
-
 function normalizedTempoPlaybackRate(outgoingBpm: number, incomingBpm: number): number {
   const equivalent = [incomingBpm / 2, incomingBpm, incomingBpm * 2].sort(
     (left, right) => Math.abs(left - outgoingBpm) - Math.abs(right - outgoingBpm),
   )[0]!;
   return outgoingBpm / equivalent;
+}
+
+function isEmergencyCut(plan: DJPerformancePlan): boolean {
+  return plan.blend.crossfaderCurve === "cut" &&
+    "seconds" in plan.blend.duration &&
+    typeof plan.blend.duration.seconds === "number" &&
+    plan.blend.duration.seconds <= 1;
+}
+
+function normalizeBenchTransition(
+  performance: DJPerformancePlan,
+  active: MockDeck,
+  activeTrack: CandidateTrack,
+  candidate: CandidateTrack,
+  simulatedTimeSec: number,
+) {
+  const emergencyCut = isEmergencyCut(performance);
+  const minimumRunwaySec = emergencyCut ? 0.25 : 4;
+  const requestedExitSec = performance.exit.anchor === "time"
+    ? performance.exit.timeSec
+    : performance.exit.notBeforeSec ?? 0;
+  const minimumExitSec = emergencyCut
+    ? active.positionSec + minimumRunwaySec
+    : Math.max(
+        active.positionSec + 8,
+        minimumDwellExitSec({
+          currentSourceSec: active.positionSec,
+          audibleSec: Math.max(0, simulatedTimeSec - active.setStartSec),
+          playbackRate: active.playbackRate,
+        }),
+      );
+  const targetPlaybackRate = performance.tempo.mode === "match" && candidate.bpm
+    ? normalizedTempoPlaybackRate(activeTrack.bpm ?? 120, candidate.bpm)
+    : 1;
+  return {
+    emergencyCut,
+    minimumRunwaySec,
+    mechanics: normalizeTransitionMechanics({
+      requestedExitSec,
+      requestedEntrySec: entryTimeSec(performance),
+      requestedBlendDurationSec: blendDurationSec(performance, activeTrack.bpm ?? 120),
+      targetPlaybackRate,
+      maxAdjustmentPercent: performance.tempo.maxAdjustmentPercent,
+      minimumExitSec,
+      outgoingDurationSec: activeTrack.durationSec,
+      incomingDurationSec: candidate.durationSec,
+      minimumIncomingRunwaySec: MIN_FUTURE_TRACK_RUNWAY_SEC,
+    }),
+  };
 }
 
 export class MockDJRuntime {
@@ -614,14 +656,9 @@ export class MockDJRuntime {
     };
   }
 
-  performTransition(rawInput: unknown): PerformTransitionResult {
-    const parsed = performTransitionInputSchema.safeParse(rawInput);
-    this.actionAttemptsInTurn += 1;
-    if (!parsed.success) {
-      return this.reject("invalid_schema", parsed.error.issues.map((issue) => issue.message).join("; "));
-    }
-    const input = parsed.data;
-
+  private candidateForTransition(
+    input: PerformTransitionInput,
+  ): CandidateTrack | PerformTransitionResult {
     if (this.acceptedInTurn) {
       return this.reject("action_already_accepted", "Wait for next planning turn.");
     }
@@ -648,6 +685,18 @@ export class MockDJRuntime {
     ) {
       return this.reject("track_unavailable", "Refresh state and choose a different discovered track.");
     }
+    return candidate;
+  }
+
+  performTransition(rawInput: unknown): PerformTransitionResult {
+    const parsed = performTransitionInputSchema.safeParse(rawInput);
+    this.actionAttemptsInTurn += 1;
+    if (!parsed.success) {
+      return this.reject("invalid_schema", parsed.error.issues.map((issue) => issue.message).join("; "));
+    }
+    const input = parsed.data;
+    const candidate = this.candidateForTransition(input);
+    if ("status" in candidate) return candidate;
 
     const active = this.decks[this.activeDeckId];
     const activeTrack = active.track;
@@ -656,52 +705,25 @@ export class MockDJRuntime {
     if (this.consumeFailure("late-decision")) {
       active.positionSec = Math.max(active.positionSec, activeTrack.durationSec - 2);
     }
-    const emergencyCut =
-      input.performance.blend.crossfaderCurve === "cut" &&
-      "seconds" in input.performance.blend.duration &&
-      typeof input.performance.blend.duration.seconds === "number" &&
-      input.performance.blend.duration.seconds <= 1;
-    const minimumRunwaySec = emergencyCut ? 0.25 : 4;
+    const normalized = normalizeBenchTransition(
+      input.performance,
+      active,
+      activeTrack,
+      candidate,
+      this.simulatedTimeSec,
+    );
+    const { minimumRunwaySec } = normalized;
     if (active.positionSec + minimumRunwaySec >= activeTrack.durationSec) {
       this.stats.impossibleScheduleAttempts += 1;
       return this.reject("late_decision", "No safe runway remains. Call dj_state and choose an emergency clean cut.");
     }
 
-    let requestedExitSec: number;
-    if (input.performance.exit.anchor === "time") {
-      requestedExitSec = input.performance.exit.timeSec;
-      if (requestedExitSec < active.positionSec + minimumRunwaySec) {
-        this.stats.impossibleScheduleAttempts += 1;
-        return this.reject("exit_in_past", "Choose a future exit at least four seconds from current position.");
-      }
-    } else {
-      requestedExitSec = Math.max(
-        input.performance.exit.notBeforeSec ?? 0,
-        active.positionSec + Math.max(8, minimumRunwaySec),
-      );
-    }
-
-    const incomingStartSec = entryTimeSec(input.performance);
-    if (incomingStartSec >= candidate.durationSec - 4) {
-      this.stats.impossibleScheduleAttempts += 1;
-      return this.reject("entry_out_of_range", "Choose an earlier incoming entry.");
-    }
-
-    if (input.performance.tempo.mode === "match" && candidate.bpm) {
-      const adjustment = normalizedTempoAdjustmentPercent(activeTrack.bpm ?? 120, candidate.bpm);
-      const maximum = input.performance.tempo.maxAdjustmentPercent ?? 8;
-      if (adjustment > maximum) {
-        return this.reject(
-          "unsafe_tempo_adjustment",
-          `Required adjustment ${adjustment.toFixed(2)}% exceeds ${maximum}%. Preserve tempo or choose another track.`,
-        );
-      }
-    }
-
-    const blendSec = blendDurationSec(input.performance, activeTrack.bpm ?? 120);
-    const incomingPlaybackRate = input.performance.tempo.mode === "match" && candidate.bpm
-      ? normalizedTempoPlaybackRate(activeTrack.bpm ?? 120, candidate.bpm)
-      : 1;
+    const {
+      blendDurationSec: blendSec,
+      entrySec: incomingStartSec,
+      exitSec: scheduledAtSec,
+      playbackRate: incomingPlaybackRate,
+    } = normalized.mechanics;
     const incomingRunwaySec = (candidate.durationSec - incomingStartSec) / incomingPlaybackRate;
     if (incomingRunwaySec < MIN_FUTURE_TRACK_RUNWAY_SEC) {
       this.stats.recoverableRunwayRejections += 1;
@@ -710,17 +732,6 @@ export class MockDJRuntime {
         "Choose a longer track or an earlier entry that leaves at least 95 audible seconds.",
       );
     }
-    const scheduledAtSec = emergencyCut
-      ? active.positionSec + minimumRunwaySec
-      : Math.max(
-          active.positionSec + 8,
-          requestedExitSec,
-          minimumDwellExitSec({
-            currentSourceSec: active.positionSec,
-            audibleSec: Math.max(0, this.simulatedTimeSec - active.setStartSec),
-            playbackRate: active.playbackRate,
-          }),
-        );
     if (scheduledAtSec + blendSec > activeTrack.durationSec + 1) {
       this.stats.impossibleScheduleAttempts += 1;
       return this.reject("blend_exceeds_track", "Choose earlier exit or shorter blend.");

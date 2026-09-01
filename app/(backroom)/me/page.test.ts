@@ -15,7 +15,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/convex/_generated/api", () => ({
-  api: { users: { viewer: "viewer" } },
+  api: {
+    users: { viewer: "viewer" },
+    aiChatSessions: { listMine: "listMine" },
+  },
 }));
 
 vi.mock("./MeLibrary", () => ({

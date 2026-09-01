@@ -5,7 +5,7 @@ import { useChat, type UIMessage } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { playbackDebug, setPlaybackDebugCorrelation } from "@/lib/playbackDebug";
 import { compactDJMessages } from "./chatTransport";
-import { getScheduledCandidateIds } from "./chatPerformanceMemory";
+import { getPlayableCandidateIds } from "./chatPerformanceMemory";
 import {
   playerToolInputSchema,
   resolvePreparedPlayerSelection,
@@ -236,7 +236,7 @@ export function useRevibeChat(opts: {
     outcome: "completed" | "error" | "aborted" | "agent_holding_loop",
   ) => void;
   onTransportStatus?: (status: AgentTransportStatus) => void;
-  onScheduledCandidates?: (trackIds: number[]) => void;
+  onPlayableCandidates?: (trackIds: number[]) => void;
 }) {
   const getAgentSessionRef = useRef(opts.getAgentSession);
   const onTransportStatusRef = useRef(opts.onTransportStatus);
@@ -331,14 +331,14 @@ export function useRevibeChat(opts: {
       opts.onAgentSessionFinished?.("error");
     },
     onFinish: ({ messages: currentMessages, isAbort, isDisconnect, isError }) => {
-      const scheduledCandidateIds = isAbort || isDisconnect || isError
+      const playableCandidateIds = isAbort || isDisconnect || isError
         ? []
-        : getScheduledCandidateIds(currentMessages);
-      if (scheduledCandidateIds.length > 0) {
-        opts.onScheduledCandidates?.(scheduledCandidateIds);
+        : getPlayableCandidateIds(currentMessages);
+      if (playableCandidateIds.length > 0) {
+        opts.onPlayableCandidates?.(playableCandidateIds);
         playbackDebug("chat.performance_memory.candidate_capture", {
-          count: scheduledCandidateIds.length,
-          ids: scheduledCandidateIds,
+          count: playableCandidateIds.length,
+          ids: playableCandidateIds,
         });
       }
       const classification = classifyAgentEpisodeFinish(

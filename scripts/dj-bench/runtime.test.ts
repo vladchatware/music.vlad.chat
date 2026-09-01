@@ -122,7 +122,7 @@ describe("MockDJRuntime", () => {
     expect(JSON.stringify(state.activeTrackAnalysis)).not.toContain("hugeEmbedding");
   });
 
-  it("uses fetched candidate analysis for tempo validation", () => {
+  it("uses fetched candidate analysis to clamp tempo matching", () => {
     const runtime = new MockDJRuntime([], 1, {
       track: { id: 301, title: "Real Opener", bpm: 110, durationSec: 180 },
       analysis: { trackId: "301", durationSec: 180, tempo: { bpm: 110 } },
@@ -140,7 +140,26 @@ describe("MockDJRuntime", () => {
     runtime.beginTurn();
     const revision = runtime.readState().stateRevision;
     expect(runtime.performTransition(transition(302, revision)))
-      .toMatchObject({ status: "rejected", reason: "unsafe_tempo_adjustment" });
+      .toMatchObject({
+        status: "accepted",
+        transition: { incomingPlaybackRate: 1.08 },
+      });
+  });
+
+  it("clamps tempo matching to the requested cap like the production compiler", () => {
+    const runtime = new MockDJRuntime([], 1, {
+      track: { id: 301, title: "Current", bpm: 120, durationSec: 240 },
+      analysis: { trackId: "301", durationSec: 240, tempo: { bpm: 120 } },
+    });
+    runtime.registerCandidates([{ id: 302, title: "Incoming", bpm: 112, duration: 204_000 }]);
+    runtime.beginTurn();
+    const input = transition(302, runtime.readState().stateRevision);
+    input.performance.tempo.maxAdjustmentPercent = 2;
+
+    expect(runtime.performTransition(input)).toMatchObject({
+      status: "accepted",
+      transition: { incomingPlaybackRate: 1.02 },
+    });
   });
 
   it("accepts one discovered unplayed transition per turn", () => {
@@ -173,7 +192,7 @@ describe("MockDJRuntime", () => {
     expect(runtime.snapshot().candidateTrackIds).toEqual([302]);
   });
 
-  it("tracks short incoming runway as recoverable, not physically impossible", () => {
+  it("moves deep incoming entries earlier to preserve future runway", () => {
     const runtime = new MockDJRuntime();
     runtime.registerCandidates([{ id: 303, title: "Tight runway", duration: 120_000 }]);
     runtime.beginTurn();
@@ -181,11 +200,11 @@ describe("MockDJRuntime", () => {
     input.performance.entry = { anchor: "time", timeSec: 40 };
 
     expect(runtime.performTransition(input)).toMatchObject({
-      status: "rejected",
-      reason: "insufficient_track_runway",
+      status: "accepted",
+      transition: { incomingStartSec: 25 },
     });
     expect(runtime.stats.impossibleScheduleAttempts).toBe(0);
-    expect(runtime.stats.recoverableRunwayRejections).toBe(1);
+    expect(runtime.stats.recoverableRunwayRejections).toBe(0);
   });
 
   it("does not let preview analysis rewrite authoritative track duration", () => {
@@ -299,7 +318,7 @@ describe("MockDJRuntime", () => {
     expect(runtime.performTransition(transition(202, refreshed.stateRevision)).status).toBe("accepted");
   });
 
-  it("rejects exits in past and unsafe tempo matches", () => {
+  it("moves explicit past exits to a safe future point", () => {
     const runtime = new MockDJRuntime();
     runtime.registerCandidates([
       { id: 201, title: "Fast", bpm: 150, duration: 204_000 },
@@ -309,11 +328,10 @@ describe("MockDJRuntime", () => {
     const past = transition(201, revision);
     past.performance.exit = { anchor: "time", timeSec: 0 };
     expect(runtime.performTransition(past))
-      .toMatchObject({ status: "rejected", reason: "exit_in_past" });
-
-    const unsafe = transition(201, revision);
-    expect(runtime.performTransition(unsafe))
-      .toMatchObject({ status: "rejected", reason: "unsafe_tempo_adjustment" });
+      .toMatchObject({
+        status: "accepted",
+        transition: { scheduledAtSec: 75 },
+      });
   });
 
   it("recovers from injected late decision with emergency cut", () => {

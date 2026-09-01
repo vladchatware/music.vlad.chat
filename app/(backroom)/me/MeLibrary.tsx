@@ -25,7 +25,7 @@ import type { Playlist, SoundCloudMeLibrary, Track } from "@/soundcloud";
 import ThemeToggle from "../ThemeToggle";
 import styles from "./me.module.css";
 
-type Section = "history" | "playlists" | "likes";
+type Section = "history" | "playlists" | "likes" | "runs";
 
 const sections: Array<{
   id: Section;
@@ -36,6 +36,7 @@ const sections: Array<{
   { id: "history", label: "Recently played", shortLabel: "History", icon: Headphones },
   { id: "playlists", label: "Playlists", shortLabel: "Playlists", icon: ListMusic },
   { id: "likes", label: "Liked tracks", shortLabel: "Likes", icon: Heart },
+  { id: "runs", label: "DJ runs", shortLabel: "Runs", icon: Radio },
 ];
 
 function artwork(url?: string | null) {
@@ -51,6 +52,51 @@ function duration(value?: number) {
   const seconds = Math.round(value / 1000);
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function sessionDuration(startedAt: number, updatedAt: number) {
+  const seconds = Math.max(0, Math.round((updatedAt - startedAt) / 1_000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+export type DJRun = {
+  sessionKey: string;
+  model: string;
+  createdAt: number;
+  updatedAt: number;
+  turnCount: number;
+};
+
+function RunList({ runs }: { runs: DJRun[] }) {
+  if (runs.length === 0) {
+    return (
+      <div className={styles.emptyState}>
+        <Radio />
+        <p>No completed DJ runs yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.runList}>
+      {runs.map((run, index) => (
+        <Link className={styles.runRow} href={`/bench/${run.sessionKey}`} key={run.sessionKey}>
+          <span className={styles.runIndex}>{String(index + 1).padStart(2, "0")}</span>
+          <div className={styles.runIdentity}>
+            <p>{new Date(run.updatedAt).toLocaleString()}</p>
+            <h3>{run.sessionKey}</h3>
+          </div>
+          <div className={styles.runMeta}>
+            <span><small>MODEL</small>{run.model}</span>
+            <span><small>DURATION</small>{sessionDuration(run.createdAt, run.updatedAt)}</span>
+            <span><small>RESPONSES</small>{run.turnCount}</span>
+          </div>
+          <span className={styles.runAction}>Open replay <ArrowUpRight size={13} /></span>
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 function CopyIdButton({ id }: { id: number }) {
@@ -215,7 +261,7 @@ function LibraryError({ retry }: { retry: () => void }) {
   );
 }
 
-export default function MeLibrary() {
+export default function MeLibrary({ runs }: { runs: DJRun[] }) {
   const { signIn } = useAuthActions();
   const [section, setSection] = useState<Section>("history");
   const [library, setLibrary] = useState<SoundCloudMeLibrary | null>(null);
@@ -272,6 +318,7 @@ export default function MeLibrary() {
     history: library?.historyAvailable === false ? 0 : library?.recentlyPlayed.length ?? 0,
     playlists: library?.playlists.length ?? profile?.playlist_count ?? 0,
     likes: library?.likes.length ?? profile?.likes_count ?? 0,
+    runs: runs.length,
   };
 
   return (
@@ -320,7 +367,7 @@ export default function MeLibrary() {
 
           <nav
             className={styles.sectionNav}
-            aria-label="Your SoundCloud library"
+            aria-label="Your SoundCloud library and DJ runs"
             role="tablist"
           >
             {sections.map(({ id, label, shortLabel, icon: Icon }) => (
@@ -336,7 +383,9 @@ export default function MeLibrary() {
                 <Icon size={17} />
                 <span>{label}</span>
                 <i>{shortLabel}</i>
-                <b>{loading ? "—" : String(counts[id]).padStart(2, "0")}</b>
+                <b>{(id === "runs" ? false : loading)
+                  ? "—"
+                  : String(counts[id]).padStart(2, "0")}</b>
               </button>
             ))}
           </nav>
@@ -355,21 +404,23 @@ export default function MeLibrary() {
                   {section === "history" && library?.historyAvailable === false && "SoundCloud history requires a connected OAuth session"}
                   {section === "playlists" && "Your SoundCloud sets and their track IDs"}
                   {section === "likes" && "Most recent likes, ready to play or analyze"}
+                  {section === "runs" && "Completed DJ sessions, stored privately and ready to replay"}
                 </p>
                 <h2>{sections.find(({ id }) => id === section)?.label}</h2>
               </div>
-              <p className={styles.idHint}>
-                <Copy size={12} />
-                Tap any number to copy track ID
-              </p>
+              {section === "runs"
+                ? <p className={styles.idHint}><Radio size={12} />Owner-only session archive</p>
+                : <p className={styles.idHint}><Copy size={12} />Tap any number to copy track ID</p>}
             </header>
 
-            {loading && !library ? (
+            {section !== "runs" && loading && !library ? (
               <div className={styles.loadingState}>
                 <LoaderCircle className={styles.spinner} />
                 <span>Reading SoundCloud library</span>
               </div>
             ) : null}
+
+            {section === "runs" ? <RunList runs={runs} /> : null}
 
             {!loading && library && section === "history" ? (
               <TrackList

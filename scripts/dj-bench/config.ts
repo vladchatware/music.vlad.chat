@@ -1,6 +1,6 @@
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-import { DEFAULT_REVIBE_PROMPT } from "./prompt";
+import { DEFAULT_DJ_PROMPT } from "../../lib/dj/agentInstructions";
 
 export const FAILURE_NAMES = [
   "reject-first",
@@ -146,7 +146,7 @@ export function parseBenchConfig(
     model:
       readValue(argv, "--model") ??
       env.DJ_MODEL ??
-      (providerValue === "opencode" ? "deepseek-v4-flash" : "deepseek/deepseek-v4-flash"),
+      (providerValue === "opencode" ? "deepseek-v4-flash" : "zai/glm-5.3-flash"),
     targetDurationSec: readPositiveNumber(readValue(argv, "--duration-min"), 90, "--duration-min") * 60,
     transitions: readPositiveInt(
       readValue(argv, "--max-transitions") ?? readValue(argv, "--transitions"),
@@ -172,7 +172,7 @@ export function parseBenchConfig(
       outgoingValue === undefined
         ? undefined
         : readPositiveInt(outgoingValue, 0, "--outgoing-id"),
-    prompt: readValue(argv, "--prompt") ?? DEFAULT_REVIBE_PROMPT,
+    prompt: readValue(argv, "--prompt") ?? DEFAULT_DJ_PROMPT,
     scenario: scenarioValue,
     quiet: argv.includes("--quiet"),
     opencodeApiKey,

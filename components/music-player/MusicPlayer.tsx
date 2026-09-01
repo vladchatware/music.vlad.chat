@@ -33,7 +33,6 @@ import {
   createPerformanceMemory,
   type PerformanceMemoryTrack,
 } from "./chat/performanceMemory";
-import { FRUTIGER_AERO_OPENING_TRACK_IDS } from "@/lib/dj/performance/frutigerAeroPreparedSet";
 import { type SoundCloudTrack } from "./types";
 import { getPlayerEntryAction } from "./interactionPolicy";
 import { useDJEngine } from "./engine/useDJEngine";
@@ -105,10 +104,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   );
   const playedTrackIdsRef = useRef<number[]>([]);
   const activeTrackHeardRef = useRef<AudibleDwellState | null>(null);
-  const performanceMemoryRef = useRef(createPerformanceMemory(
-    REVIBE_PROMPT,
-    FRUTIGER_AERO_OPENING_TRACK_IDS,
-  ));
+  const performanceMemoryRef = useRef(createPerformanceMemory(REVIBE_PROMPT));
   const autoCueConfig = useMemo(() => {
     if (playbackProfile !== "trackFocus") return undefined;
     // Track route: hold the current track's strongest section longer before queueing next.
@@ -457,7 +453,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     );
   }, [agentSessionController, clearAgentSessionDeadline]);
 
-  const rememberScheduledCandidates = useCallback((trackIds: number[]) => {
+  const rememberPlayableCandidates = useCallback((trackIds: number[]) => {
     performanceMemoryRef.current = appendScheduledCandidates(
       performanceMemoryRef.current,
       trackIds,
@@ -486,7 +482,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     getAgentSession: agentSessionController.getActive,
     onAgentContinuationRequested: authorizeAgentContinuation,
     onAgentSessionFinished: finishAgentSession,
-    onScheduledCandidates: rememberScheduledCandidates,
+    onPlayableCandidates: rememberPlayableCandidates,
     onTransportStatus: observeAgentTransport,
     isTransitionBlocked: () =>
       djState.type === "cueing" ||

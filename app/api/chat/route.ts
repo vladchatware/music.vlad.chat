@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server'
 import * as Sentry from '@sentry/nextjs';
-import { ToolLoopAgent, convertToModelMessages, hasToolCall, stepCountIs, type ToolSet } from 'ai';
+import { ToolLoopAgent, convertToModelMessages, hasToolCall, stepCountIs, type ToolSet, type UIMessage } from 'ai';
 import { createMCPClient } from '@ai-sdk/mcp';
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { systemMessage } from '../../../lib/ai';
@@ -35,6 +35,7 @@ import {
 } from '@/lib/server/agentSessionLimit';
 import { repairMissingStreamPartStarts } from '@/lib/server/repairModelStream';
 import { getProductionDJModeInstruction } from '@/lib/dj/agentInstructions';
+import { appendFinishedDJChatTurn } from '@/lib/server/djChatSessionStore';
 
 function cleanCorrelation(value: unknown) {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 128) : undefined;
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
     : undefined;
 
   const token = await convexAuthNextjsToken()
+  if (!token) return new NextResponse('Unauthorized', { status: 401 })
   const user = await fetchQuery(api.users.viewer, {}, { token })
   if (!user) return new NextResponse('Unauthorized', { status: 401 })
 
@@ -237,6 +239,10 @@ export async function POST(req: NextRequest) {
   const model = resolveDJModel(process.env.DJ_MODEL);
   const timeoutMs = getDJRequestTimeoutMs(agentSessionRemainingMs);
   const startedAt = performance.now();
+  const turnStartedAt = new Date();
+  const captureId = crypto.randomUUID();
+  const replaySessionId = cleanConversationId(chatSessionId);
+  const replayTurnId = cleanConversationId(turnId) ?? captureId;
   const traceContext = {
     chatSessionId,
     turnId,
@@ -414,7 +420,40 @@ export async function POST(req: NextRequest) {
       experimental_transform: repairMissingStreamPartStarts(),
     });
     return result.toUIMessageStreamResponse({
+      originalMessages: Array.isArray(messages) ? messages as UIMessage[] : [],
       sendSources: true,
+      onFinish: async ({ messages: finishedMessages, finishReason, isAborted }) => {
+        if (!replaySessionId) return;
+        try {
+          await appendFinishedDJChatTurn({
+            token,
+            snapshot: {
+              schemaVersion: 1,
+              chatSessionId: replaySessionId,
+              captureId,
+              turnId: replayTurnId,
+              model,
+              startedAt: turnStartedAt.toISOString(),
+              completedAt: new Date().toISOString(),
+              messages: finishedMessages,
+              djState,
+              telemetry: telemetry && typeof telemetry === 'object'
+                ? telemetry as Record<string, unknown>
+                : undefined,
+              outcome: {
+                finishReason,
+                isAborted,
+              },
+            },
+          });
+        } catch (error) {
+          playbackDebugServer('ai.dj.session.persistence_failed', {
+            ...traceContext,
+            captureId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
       onError: (error) => {
         recordTurnFailure(error);
         return 'AI DJ turn failed.';

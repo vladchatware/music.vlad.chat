@@ -6,7 +6,10 @@ import {
   type ToolSet,
 } from "ai";
 import { z } from "zod";
-import { DJ_SHARED_POLICY_VERSION } from "../../lib/dj/agentInstructions";
+import {
+  DJ_INSTRUCTION_VERSION,
+  PRODUCTION_DJ_INSTRUCTIONS,
+} from "../../lib/dj/agentInstructions";
 import {
   MIN_BODY_TRACK_DURATION_SEC,
   MIN_TRACK_DWELL_SEC,
@@ -15,18 +18,11 @@ import {
 import { benchHelp, parseBenchConfig, type BenchConfig } from "./config";
 import { resolveBenchModel } from "./model";
 import {
-  ANALYSIS_PHASE_INSTRUCTIONS,
-  BENCH_DJ_INSTRUCTIONS,
-  COMMIT_PHASE_INSTRUCTIONS,
   CONTINUE_SET_PROMPT,
-  DISCOVERY_PHASE_INSTRUCTIONS,
   INTERVENTION_PROMPTS,
-  REPLENISH_DISCOVERY_INSTRUCTIONS,
-  SCHEDULE_PHASE_INSTRUCTIONS,
 } from "./prompt";
 import {
   MockDJRuntime,
-  createPerformTransitionInputSchema,
   extractCandidateTracks,
   extractTrackAnalyses,
   performTransitionInputSchema,
@@ -47,11 +43,6 @@ import {
   runPreparedSelectionHoldingLoopRegression,
   runPreparedSelectionLatencyRegression,
 } from "./playthrough";
-import {
-  FRUTIGER_AERO_OPENING_TRACKS,
-  FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
-  FRUTIGER_AERO_PREPARED_CONTEXT,
-} from "../../lib/dj/performance/frutigerAeroPreparedSet";
 import { benchInvalidReason, hasValidCandidatePreparation } from "./validity";
 
 const REMOTE_TOOL_NAMES = [
@@ -281,17 +272,10 @@ async function bootstrapOutgoingTrack(opts: {
   const { remoteTools, config, trace } = opts;
   const likesStartedAt = performance.now();
   const likesOutput = await executeRemoteTool(remoteTools, "likes", { limit: 30 });
-  const likedCandidates = extractCandidateTracks(likesOutput);
-  const preparedOpening = /frutiger\s+aero/i.test(config.prompt);
-  const candidates = preparedOpening
-    ? extractCandidateTracks(FRUTIGER_AERO_OPENING_TRACKS)
-    : likedCandidates;
+  const candidates = extractCandidateTracks(likesOutput);
   trace.record("bootstrap.likes", 0, {
     durationMs: Math.round(performance.now() - likesStartedAt),
-    trackIds: likedCandidates.map(({ id }) => id),
-    preparedOpeningTrackIds: preparedOpening
-      ? candidates.map(({ id }) => id)
-      : [],
+    trackIds: candidates.map(({ id }) => id),
   });
   if (candidates.length === 0) {
     throw new Error("Could not bootstrap outgoing track: likes returned no tracks");
@@ -314,23 +298,6 @@ async function bootstrapOutgoingTrack(opts: {
     throw new Error(
       `Likes sample contained no opener at least ${MINIMUM_OPENER_DURATION_SEC}s long`,
     );
-  }
-
-  if (preparedOpening && config.outgoingTrackId === undefined) {
-    const preparedTrackId = Number(FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS.trackId);
-    const track = tracksToInspect.find(({ id }) => id === preparedTrackId);
-    if (!track) {
-      throw new Error(`Prepared opener ${preparedTrackId} was not available in the fetched likes sample`);
-    }
-    trace.record("bootstrap.prepared_outgoing", 0, {
-      track,
-      analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
-    });
-    return {
-      track,
-      analysis: FRUTIGER_AERO_PREPARED_OPENER_ANALYSIS,
-      likesOutput,
-    };
   }
 
   for (const track of tracksToInspect) {
@@ -471,7 +438,7 @@ function createWrappedRemoteTools(opts: {
               const output = {
                 status: "budget_exhausted",
                 instruction:
-                  "Two analysis reads already used this turn. Refresh dj_state and perform_transition now.",
+                  "Two analysis reads already used this turn. Refresh dj_state and call player now.",
               };
               trace.record("tool.rejected", runtime.nowSec, {
                 tool: name,
@@ -584,15 +551,13 @@ function createLocalTools(opts: {
         return state;
       },
     },
-    perform_transition: {
+    player: {
       description:
-        "Submit one complete transition. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
-      inputSchema: createPerformTransitionInputSchema(
-        () => runtime.snapshot().candidateTrackIds,
-      ),
+        "Submit one complete transition. id must be an exact SoundCloud track ID from latest candidateTrackIds, never a list index or placeholder. expectedStateRevision must equal latest dj_state revision. Runtime validates availability, duplicates, timing, entry range, blend length, and tempo safety. Rejections are facts: refresh state and recover.",
+      inputSchema: performTransitionInputSchema,
       execute: async (input): Promise<PerformTransitionResult> => {
         syncClock();
-        increment(counters.toolCalls, "perform_transition");
+        increment(counters.toolCalls, "player");
         const hasReadyAnalysis = Boolean(runtime.analysisFor(input.id));
         const result = runtime.performTransition(input);
         if (result.status === "accepted" && hasReadyAnalysis) {
@@ -600,7 +565,7 @@ function createLocalTools(opts: {
         }
         increment(
           result.status === "accepted" ? counters.toolCalls : counters.toolFailures,
-          result.status === "accepted" ? "perform_transition.accepted" : "perform_transition.rejected",
+          result.status === "accepted" ? "player.accepted" : "player.rejected",
         );
         trace.record(
           result.status === "accepted" ? "transition.accepted" : "transition.rejected",
@@ -662,13 +627,7 @@ export async function runBench(config: BenchConfig) {
       config.planningLeadSec,
     );
     runtime.registerCandidates(bootstrap.likesOutput);
-    const preparedOpening = /frutiger\s+aero/i.test(config.prompt);
-    if (preparedOpening) {
-      runtime.registerCandidates(FRUTIGER_AERO_OPENING_TRACKS);
-    }
-    const episodeInstructions = preparedOpening
-      ? `${BENCH_DJ_INSTRUCTIONS}\n\n${FRUTIGER_AERO_PREPARED_CONTEXT}`
-      : BENCH_DJ_INSTRUCTIONS;
+    const episodeInstructions = PRODUCTION_DJ_INSTRUCTIONS;
     trace.record("episode.started", runtime.nowSec, {
       model: config.model,
       provider: config.provider,
@@ -751,13 +710,6 @@ export async function runBench(config: BenchConfig) {
           const allToolNames = new Set(
             steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
           );
-          if (turnIndex === 0 && preparedOpening) {
-            return prepared({
-              activeTools: ["perform_transition"],
-              toolChoice: { type: "tool" as const, toolName: "perform_transition" },
-              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
-            });
-          }
           if (
             turnIndex === 0 &&
             (!allToolNames.has("likes") || !allToolNames.has("tracks"))
@@ -771,7 +723,6 @@ export async function runBench(config: BenchConfig) {
                 missingTools.length === 1
                   ? { type: "tool" as const, toolName: missingTools[0]! }
                   : "required" as const,
-              system: `${episodeInstructions}\n\n${DISCOVERY_PHASE_INSTRUCTIONS}`,
             });
           }
           if (
@@ -782,7 +733,6 @@ export async function runBench(config: BenchConfig) {
             return prepared({
               activeTools: ["tracks"],
               toolChoice: { type: "tool" as const, toolName: "tracks" },
-              system: `${episodeInstructions}\n\n${REPLENISH_DISCOVERY_INSTRUCTIONS}`,
             });
           }
           const discoveredThisTurn = allToolNames.has("likes") || allToolNames.has("tracks");
@@ -790,7 +740,6 @@ export async function runBench(config: BenchConfig) {
             return prepared({
               activeTools: ["schedule_track_analysis"],
               toolChoice: { type: "tool" as const, toolName: "schedule_track_analysis" },
-              system: `${episodeInstructions}\n\n${SCHEDULE_PHASE_INSTRUCTIONS}`,
             });
           }
           if (
@@ -800,30 +749,26 @@ export async function runBench(config: BenchConfig) {
             return prepared({
               activeTools: ["track_analysis", "compare_track_analysis"],
               toolChoice: "required" as const,
-              system: `${episodeInstructions}\n\n${ANALYSIS_PHASE_INSTRUCTIONS}`,
             });
           }
           const lastToolNames = new Set(
             steps.at(-1)?.toolCalls.map((call) => call.toolName) ?? [],
           );
-          if (lastToolNames.has("perform_transition")) {
+          if (lastToolNames.has("player")) {
             return prepared({
               activeTools: ["dj_state"],
               toolChoice: { type: "tool" as const, toolName: "dj_state" },
-              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
             });
           }
           if (lastToolNames.has("dj_state")) {
             return prepared({
-              activeTools: ["perform_transition"],
-              toolChoice: { type: "tool" as const, toolName: "perform_transition" },
-              system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+              activeTools: ["player"],
+              toolChoice: { type: "tool" as const, toolName: "player" },
             });
           }
           return prepared({
-            activeTools: ["perform_transition"],
-            toolChoice: { type: "tool" as const, toolName: "perform_transition" },
-            system: `${episodeInstructions}\n\n${COMMIT_PHASE_INSTRUCTIONS}`,
+            activeTools: ["player"],
+            toolChoice: { type: "tool" as const, toolName: "player" },
           });
         },
         onStepFinish: (step) => {
@@ -1000,7 +945,6 @@ export async function runBench(config: BenchConfig) {
       stateReads >= acceptedTrackIds.length &&
       impossibleScheduleAttempts === 0 &&
       hasValidCandidatePreparation({
-        preparedOpening: /frutiger\s+aero/i.test(config.prompt),
         likesCalls: counters.toolCalls.likes ?? 0,
         tracksCalls: counters.toolCalls.tracks ?? 0,
       }) &&
@@ -1018,7 +962,7 @@ export async function runBench(config: BenchConfig) {
     provider: config.provider,
     scenario: config.scenario,
     prompt: config.prompt,
-    promptPolicyVersion: DJ_SHARED_POLICY_VERSION,
+    promptPolicyVersion: DJ_INSTRUCTION_VERSION,
     planningLeadSec: config.planningLeadSec,
     targetDurationSec: config.targetDurationSec,
     achievedDurationSec,

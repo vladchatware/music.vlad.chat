@@ -225,6 +225,12 @@ instrumentation. AI SDK telemetry is enabled under
 function ID `ai-dj-chat`; prompt/output recording remains off unless
 `AI_TELEMETRY_RECORD_CONTENT=true` because chat content may contain private data.
 
+Completed AI DJ responses are also persisted as owner-bound Convex sessions. Each
+response appends one immutable JSON snapshot in Convex file storage, indexed by the
+`chatSessionId` sent to `/api/chat`. The replay loader normalizes those completed
+responses into the canonical bench timeline manifest, so local runs and stored chat
+sessions use the same `BenchInspector` at `/bench/<id>`. Partial streams are never stored.
+
 ## Key Features Explained
 
 ### AI Chat Interface
