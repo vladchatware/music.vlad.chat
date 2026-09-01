@@ -1,7 +1,35 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
-import { getScheduledCandidateIds } from "./chatPerformanceMemory";
+import {
+  getPlayableCandidateIds,
+  getScheduledCandidateIds,
+} from "./chatPerformanceMemory";
+
+describe("getPlayableCandidateIds", () => {
+  it("captures completed likes candidates for compact player validation", () => {
+    const messages = [{
+      id: "assistant-likes",
+      role: "assistant",
+      parts: [{
+        type: "dynamic-tool",
+        toolName: "likes",
+        toolCallId: "call-likes",
+        state: "output-available",
+        input: {},
+        output: { collection: [{ id: 101 }, { id: 102 }, { id: 101 }] },
+      }, {
+        type: "tool-dj_state",
+        toolCallId: "call-state",
+        state: "output-available",
+        input: {},
+        output: { activeTrack: { id: 999 } },
+      }],
+    }] as UIMessage[];
+
+    expect(getPlayableCandidateIds(messages)).toEqual([101, 102]);
+  });
+});
 
 describe("getScheduledCandidateIds", () => {
   it("extracts scheduled IDs from completed tool calls", () => {

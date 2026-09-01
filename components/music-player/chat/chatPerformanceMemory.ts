@@ -1,4 +1,12 @@
 import type { UIMessage } from "ai";
+import { getDiscoveredTrackIds } from "@/lib/dj/discoveryCandidates";
+
+export function getPlayableCandidateIds(messages: UIMessage[]): number[] {
+  return [...new Set([
+    ...getDiscoveredTrackIds(messages),
+    ...getScheduledCandidateIds(messages),
+  ])];
+}
 
 export function getScheduledCandidateIds(messages: UIMessage[]): number[] {
   const ids: number[] = [];

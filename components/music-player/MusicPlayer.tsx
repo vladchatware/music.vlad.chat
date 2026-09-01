@@ -453,7 +453,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     );
   }, [agentSessionController, clearAgentSessionDeadline]);
 
-  const rememberScheduledCandidates = useCallback((trackIds: number[]) => {
+  const rememberPlayableCandidates = useCallback((trackIds: number[]) => {
     performanceMemoryRef.current = appendScheduledCandidates(
       performanceMemoryRef.current,
       trackIds,
@@ -482,7 +482,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     getAgentSession: agentSessionController.getActive,
     onAgentContinuationRequested: authorizeAgentContinuation,
     onAgentSessionFinished: finishAgentSession,
-    onScheduledCandidates: rememberScheduledCandidates,
+    onPlayableCandidates: rememberPlayableCandidates,
     onTransportStatus: observeAgentTransport,
     isTransitionBlocked: () =>
       djState.type === "cueing" ||

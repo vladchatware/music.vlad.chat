@@ -3,7 +3,10 @@ import { loadAudioBytes } from "./hls-loader.js";
 
 self.onmessage = async (event) => {
   try {
-    const Superpowered = await SuperpoweredGlue.Instantiate("", event.data.wasmUrl);
+    const Superpowered = await SuperpoweredGlue.Instantiate(
+      event.data.licenseKey,
+      event.data.wasmUrl,
+    );
 
     const audiofileArrayBuffer = await loadAudioBytes(event.data.load);
     const audiofileInWASMHeap = Superpowered.arrayBufferToWASM(audiofileArrayBuffer);

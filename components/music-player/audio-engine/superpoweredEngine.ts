@@ -78,6 +78,10 @@ export class SuperpoweredAudioEngine implements AudioEngine {
   private disposed = false;
   private requestId = 0;
   private pending = new Map<number, PendingRequest>();
+  private deckLoads = new Map<
+    AudioDeckId,
+    { trackId: string; promise: Promise<DeckPlaybackState> }
+  >();
   private listeners = new Set<AudioEngineListener>();
   private deckStates: Record<AudioDeckId, DeckPlaybackState> = {
     A: initialDeckState("A"),
@@ -111,9 +115,10 @@ export class SuperpoweredAudioEngine implements AudioEngine {
   }
 
   private async initializeInternal(): Promise<void> {
-    const superpowered = await SuperpoweredGlue.Instantiate(getLicenseKey(), WASM_URL);
+    const licenseKey = getLicenseKey();
+    const superpowered = await SuperpoweredGlue.Instantiate(licenseKey, WASM_URL);
     if (this.disposed) return;
-    this.installTrackLoader(superpowered);
+    this.installTrackLoader(superpowered, licenseKey);
 
     const manager = new SuperpoweredWebAudio(48_000, superpowered);
     const node = await manager.createAudioNodeAsync(
@@ -149,7 +154,10 @@ export class SuperpoweredAudioEngine implements AudioEngine {
     this.mediaStreamDestination = broadcastDestination;
   }
 
-  private installTrackLoader(superpowered: Awaited<ReturnType<typeof SuperpoweredGlue.Instantiate>>) {
+  private installTrackLoader(
+    superpowered: Awaited<ReturnType<typeof SuperpoweredGlue.Instantiate>>,
+    licenseKey: string,
+  ) {
     const wasmUrl = new URL(WASM_URL, window.location.origin).toString();
     superpowered.loadTrackInWorker = async (url: string, trackLoaderId: number) => {
       const worker = new Worker(TRACK_LOADER_URL, { type: "module" });
@@ -188,7 +196,7 @@ export class SuperpoweredAudioEngine implements AudioEngine {
         taggedWorker.terminate();
       };
       const resolvedUrl = new URL(url, window.location.origin).toString();
-      taggedWorker.postMessage({ load: resolvedUrl, wasmUrl });
+      taggedWorker.postMessage({ load: resolvedUrl, wasmUrl, licenseKey });
     };
   }
 
@@ -258,17 +266,27 @@ export class SuperpoweredAudioEngine implements AudioEngine {
     });
   }
 
-  async loadDeck(deck: AudioDeckId, track: AudioEngineTrack): Promise<DeckPlaybackState> {
-    const message = await this.sendRequest({
+  loadDeck(deck: AudioDeckId, track: AudioEngineTrack): Promise<DeckPlaybackState> {
+    const trackId = String(track.id);
+    const existing = this.deckLoads.get(deck);
+    if (existing?.trackId === trackId) return existing.promise;
+
+    const promise = this.sendRequest({
       type: "load",
       deck,
       url: track.url,
-      trackId: String(track.id),
+      trackId,
       bpm: track.bpm ?? 0,
       durationSec: track.durationSec ?? 0,
+    }).then((message) => {
+      if (message.type !== "deck-loaded") throw new Error(`Deck ${deck} did not load`);
+      return { id: deck, ...message.state };
     });
-    if (message.type !== "deck-loaded") throw new Error(`Deck ${deck} did not load`);
-    return { id: deck, ...message.state };
+    const tracked = promise.finally(() => {
+      if (this.deckLoads.get(deck)?.promise === tracked) this.deckLoads.delete(deck);
+    });
+    this.deckLoads.set(deck, { trackId, promise: tracked });
+    return tracked;
   }
 
   async play(deck: AudioDeckId): Promise<void> {
