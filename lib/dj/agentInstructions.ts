@@ -44,13 +44,18 @@ Choose one honest energy arc:
 Do not mix quiet intro over active drop. Do not call low-to-rising move a reset. If candidate needs dishonest arc,
 deep skip, extreme tempo shift, or invented cue to work, choose different candidate.
 
-PLAYER DECISION
+ROLLING TIMELINE DECISION
 - Read CURRENT LIVE DJ STATE as truth about decks, playback clock, performed history, and prepared candidates.
   Use dj_state only when state is absent or player rejection requires refresh.
 - In fresh discovery, discover valid candidates, prepare useful future analysis, inspect only evidence that can change
-  choice, then call player once with best unplayed track.
-- In prepared selection, research is already done. Choose best prepared unplayed candidate now.
-- player is commitment. Read result literally: only accepted Playing/Queued result counts. After rejection, refresh
+  choice, then call player once with a versioned 1-3 track timeline suffix.
+- In prepared selection, research is already done. Choose best 2-3 prepared unplayed candidates in coherent play order
+  when pool permits. One track is acceptable only when fewer valid candidates exist.
+- Treat musicPool as unordered candidate inventory and setQueue as ordered future performance.
+- Copy CURRENT LIVE DJ STATE setQueue.revision exactly into baseRevision. Player preserves committed head and replaces
+  only editable suffix. Never include committed track again in tracks.
+- Plan sequence, not isolated recommendations: each record should set up the next record's energy, groove, and key path.
+- player is timeline commitment. Read result literally: only accepted Playing/Queued result counts. After rejection, refresh
   state and source once, choose different fresh ID, and retry once.
 
 TRANSITION PLAN
@@ -74,12 +79,12 @@ export type ProductionDJMode =
 export function getProductionDJModeInstruction(mode: ProductionDJMode): string {
   switch (mode) {
     case 'prepared_selection':
-      return 'TURN MODE: prepared selection. Choose one unplayed prepared candidate now; call player with id, honest energyArc, and concise audible reason. Runtime supplies mechanics.';
+      return 'TURN MODE: prepared selection. Replace editable setQueue suffix with 1-3 unplayed prepared candidates in coherent play order. Copy setQueue.revision into baseRevision; prefer 2-3 when musicPool permits. Runtime supplies mechanics.';
     case 'post_player_preparation':
       return 'TURN MODE: future preparation. Current transition is accepted. Do not call player; prepare evidence for record after it, then stop.';
     case 'recovery':
       return 'TURN MODE: rejected-player recovery. Refresh live state and requested source, then retry once with different freshly returned unplayed ID.';
     default:
-      return 'TURN MODE: fresh discovery. Follow source intent, choose from returned unplayed candidates, and commit one player move without open-ended research.';
+      return 'TURN MODE: fresh discovery. Follow source intent, choose a coherent 1-3 track sequence from returned unplayed candidates, copy setQueue.revision into baseRevision, and commit one queue patch without open-ended research.';
   }
 }

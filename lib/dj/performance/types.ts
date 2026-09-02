@@ -3,7 +3,12 @@ import type { DeckSnapshot } from "../engine/types";
 import type { TransitionPlan } from "../types";
 import type { DJPerformancePlan } from "./schema";
 
-export type { DJPerformancePlan, PerformanceSection, PlayerToolInput } from "./schema";
+export type {
+  DJPerformancePlan,
+  DJTimelinePatch,
+  PerformanceSection,
+  PlayerToolInput,
+} from "./schema";
 
 export type PerformanceLoop = {
   deck: "outgoing" | "incoming";

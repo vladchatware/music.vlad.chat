@@ -2,7 +2,7 @@ import { ToolLoopAgent, hasToolCall, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 
 import { systemMessage } from "../lib/ai";
-import { playerToolInputSchema, type PlayerToolInput } from "../lib/dj";
+import { djTimelinePatchSchema, type DJTimelinePatch } from "../lib/dj";
 import {
   computeAgentSessionDeadlineAtMs,
   createContinuityIntentController,
@@ -77,7 +77,7 @@ if (opened.outcome !== "opened") throw new Error("could not open mock agent sess
 const events: Array<Record<string, unknown>> = [];
 const scheduledIds: number[] = [];
 const analysisIds: number[] = [];
-const playerCalls: PlayerToolInput[] = [];
+const playerCalls: DJTimelinePatch[] = [];
 const rejectedPlayerIds: number[] = [];
 let playerAcceptedAtMs: number | null = null;
 let playerAcceptedAtWallMs: number | null = null;
@@ -121,6 +121,12 @@ const getMockDJState = () => ({
   section: "intro",
   overallEnergy: 0.52,
   playedTrackIds: [activeTrack.id, ...rejectedPlayerIds],
+  setQueue: {
+    revision: 0,
+    playbackRevision: 0,
+    committed: null,
+    planned: [],
+  },
   performanceMemory: {
     intent: REVIBE_PROMPT,
     playedTracks: [activeTrack],
@@ -179,34 +185,32 @@ const firstAgent = new ToolLoopAgent({
       },
     },
     player: {
-      description: "Choose one track and submit the complete declarative DJ performance plan.",
-      inputSchema: playerToolInputSchema,
+      description: "Replace the editable set queue with one to three planned tracks.",
+      inputSchema: djTimelinePatchSchema,
       execute: async (input) => {
-        const started = controller.beginPlayerAction({
+        const started = controller.beginTimelineAction({
           sessionId: opened.session.id,
-          activeTrackId: activeTrack.id,
         });
         if (started.outcome !== "started") throw new Error(`player rejected: ${started.reason}`);
+        const headId = input.tracks[0]!.id;
         if (rejectFirstPlayer && rejectedPlayerIds.length === 0) {
-          rejectedPlayerIds.push(input.id);
-          controller.resolvePlayerAction({
+          rejectedPlayerIds.push(headId);
+          controller.resolveTimelineAction({
             sessionId: opened.session.id,
-            activeTrackId: activeTrack.id,
             succeeded: false,
           });
-          record("player_rejected", { id: input.id });
-          return `Player rejected track ${input.id}. Read dj_state, choose a different ID not present in playedTrackIds, and call player again now.`;
+          record("player_rejected", { id: headId });
+          return `Player rejected timeline. Read dj_state, choose a different ID not present in playedTrackIds, and call player again now.`;
         }
         playerCalls.push(input);
         playerAcceptedAtMs = clock.now();
         playerAcceptedAtWallMs = wallElapsedMs();
-        controller.resolvePlayerAction({
+        controller.resolveTimelineAction({
           sessionId: opened.session.id,
-          activeTrackId: activeTrack.id,
           succeeded: true,
         });
-        record("player", { id: input.id });
-        return `Queued ${input.id}`;
+        record("player", { ids: input.tracks.map((track) => track.id) });
+        return `Queued ${headId}`;
       },
     },
   },
@@ -287,10 +291,10 @@ if (
   playerAcceptedAtWallMs === null
 ) {
   throw new Error(
-    `agent_holding_loop: DJ failed to choose; accepted player call count was ${playerCalls.length}`,
+    `agent_holding_loop: DJ failed to choose; accepted player call count was ${playerCalls.length}; events=${JSON.stringify(events)}`,
   );
 }
-const selectedTrackId = playerCalls[0]?.id;
+const selectedTrackId = playerCalls[0]?.tracks[0]?.id;
 if (controller.recordContinuation().outcome !== "continued") {
   throw new Error("same agent session could not enter post-player preparation");
 }
@@ -374,7 +378,7 @@ const result = {
     candidates.some(({ id }) => id === selectedTrackId) &&
     !rejectedPlayerIds.includes(selectedTrackId ?? -1) &&
     postPlayerAnalysis.id !== selectedTrackId &&
-    analysisDelayMs <= 1_000,
+    analysisDelayMs <= DJ_PLAYER_DECISION_DEADLINE_MS,
   model,
   prompt: REVIBE_PROMPT,
   sessionId: opened.session.id,

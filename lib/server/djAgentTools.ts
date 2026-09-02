@@ -2,7 +2,11 @@ import { fetchQuery } from "convex/nextjs";
 import { z } from "zod";
 
 import { api } from "@/convex/_generated/api";
-import { playerToolInputSchema, preparedPlayerSelectionSchema } from "@/lib/dj";
+import {
+  normalizePlayerToolInput,
+  playerToolInputSchema,
+  preparedPlayerSelectionSchema,
+} from "@/lib/dj";
 import { parseKey } from "@/lib/dj/harmonic/camelot";
 import {
   formatTrackAnalysisForAgent,
@@ -167,25 +171,52 @@ export function createDJAgentTools(
             ...z.ZodLiteral<number>[],
           ],
         );
-  const boundedPlayerInputSchema = playerToolInputSchema
-    .extend({
-      id: playerIdSchema,
-    })
-    .superRefine((value, context) => {
-      if (/\btest(?:ing)?\b|\bviability\b/i.test(value.performance.reason)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["performance", "reason"],
-          message: "Describe the intended heard musical move; testing placeholders are not a performance plan.",
-        });
-      }
-    });
+  const boundedPlayerInputSchema = z.preprocess(
+    normalizePlayerToolInput,
+    playerToolInputSchema
+      .extend({
+        id: playerIdSchema,
+      })
+      .superRefine((value, context) => {
+        if (/\btest(?:ing)?\b|\bviability\b/i.test(value.performance.reason)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["performance", "reason"],
+            message: "Describe the intended heard musical move; testing placeholders are not a performance plan.",
+          });
+        }
+      }),
+  );
   const candidateInstruction = playerCandidateIds.length > 0
     ? ` Valid discovered candidate IDs: ${playerCandidateIds.join(", ")}. The id must be one of these exact values.`
     : "";
   const compactPlayerInputSchema = preparedPlayerSelectionSchema.extend({
     id: playerIdSchema,
-  }).strict();
+  }).strip();
+  const uniqueTimelineTracks = (
+    value: { tracks: Array<{ id: number }> },
+    context: z.RefinementCtx,
+  ) => {
+    const seen = new Set<number>();
+    value.tracks.forEach((track, index) => {
+      if (seen.has(track.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["tracks", index, "id"],
+          message: "Timeline cannot contain the same track twice.",
+        });
+      }
+      seen.add(track.id);
+    });
+  };
+  const boundedTimelineInputSchema = z.object({
+    baseRevision: z.number().int().nonnegative(),
+    tracks: z.array(boundedPlayerInputSchema).min(1).max(3),
+  }).strict().superRefine(uniqueTimelineTracks);
+  const compactTimelineInputSchema = z.object({
+    baseRevision: z.number().int().nonnegative(),
+    tracks: z.array(compactPlayerInputSchema).min(1).max(3),
+  }).strict().superRefine(uniqueTimelineTracks);
 
   return {
     dj_state: {
@@ -220,11 +251,11 @@ export function createDJAgentTools(
     },
     player: {
       description: opts.compactPlayerSelection
-        ? `Choose one prepared track now. State its musical energy arc and a brief heard reason. Runtime supplies the safe transition mechanics.${candidateInstruction}`
-        : `Choose one discovered unplayed track and submit its complete declarative DJ performance plan. Inspect selected candidate with track_analysis first when available; if evidence is not ready, use mix_out and mix_in instead of invented cues. Section anchors must exist in returned analysis. A release from a high-energy drop must exit at a proven falling segment, breakdown, or outro; do not use next_phrase unless analysis proves it reaches one. Low ambient into a rising high-energy segment is a build, not a reset. Do not use reset or cut as a fallback for an incompatible candidate. For tracks under 3 minutes, keep entry within the first 32 seconds; after an abrupt or deep-entry outcome, keep it within 24 seconds. Placeholder testing/viability reasons are rejected.${candidateInstruction}`,
+        ? `Replace the editable DJ setQueue suffix with 1-3 prepared tracks in play order. Copy setQueue.revision into baseRevision. Prefer 2-3 tracks when musicPool permits. State each musical energy arc and brief heard reason; runtime supplies safe mechanics.${candidateInstruction}`
+        : `Replace the editable DJ setQueue suffix with 1-3 discovered unplayed tracks in play order. Copy setQueue.revision into baseRevision. Prefer 2-3 tracks so player can consume the head while you later rebuild the suffix. Submit a complete declarative performance plan for every track. Inspect useful candidates with track_analysis first when available; if evidence is not ready, use mix_out and mix_in instead of invented cues. Section anchors must exist in returned analysis. A release from a high-energy drop must exit at a proven falling segment, breakdown, or outro; do not use next_phrase unless analysis proves it reaches one. Low ambient into a rising high-energy segment is a build, not a reset. Do not use reset or cut as a fallback for an incompatible candidate. For tracks under 3 minutes, keep entry within the first 32 seconds; after an abrupt or deep-entry outcome, keep it within 24 seconds. Placeholder testing/viability reasons are rejected.${candidateInstruction}`,
       inputSchema: opts.compactPlayerSelection
-        ? compactPlayerInputSchema
-        : boundedPlayerInputSchema,
+        ? compactTimelineInputSchema
+        : boundedTimelineInputSchema,
     },
   };
 }

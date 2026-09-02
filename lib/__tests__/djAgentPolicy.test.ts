@@ -4,6 +4,8 @@ import {
   createDJAgentStepPolicy,
   getLatestUserText,
   getLatestPlayedTrackIds,
+  getLatestCommittedSetQueueTrackId,
+  getLatestSetQueueTrackIds,
   requiresExploration,
 } from "../server/djAgentPolicy";
 
@@ -23,6 +25,17 @@ describe("DJ agent step policy", () => {
       { type: "tool-dj_state", output: { playedTrackIds: [1, 2] } },
       { type: "tool-dj_state", output: { playedTrackIds: [2, 3, 3, -1, "4"] } },
     ])).toEqual([2, 3]);
+  });
+
+  it("extracts ordered queue reservations separately from played history", () => {
+    const state = {
+      setQueue: {
+        committed: { request: { id: 20 } },
+        plannedTrackIds: [20, 30, 40],
+      },
+    };
+    expect(getLatestCommittedSetQueueTrackId(state)).toBe(20);
+    expect(getLatestSetQueueTrackIds(state)).toEqual([20, 30, 40]);
   });
 
   it("requires state, likes, search, and background scheduling in order", () => {

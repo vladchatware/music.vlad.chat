@@ -18,7 +18,9 @@ import {
   hasDJToolCall,
   hasDJToolCallAfterLatestRejectedPlayer,
   getLatestCandidateTrackIds,
+  getLatestCommittedSetQueueTrackId,
   getLatestPlayedTrackIds,
+  getLatestSetQueueTrackIds,
   getLatestSuccessfulPlayerTrackId,
 } from '@/lib/server/djAgentPolicy';
 import { getMcpClientRequest } from '@/lib/server/mcpClientRequest';
@@ -88,8 +90,14 @@ export async function POST(req: NextRequest) {
   const soundcloudTools = await soundcloud.tools()
   const episodeContext = [messages, djState]
   const playedTrackIds = getLatestPlayedTrackIds(episodeContext)
+  const queuedTrackIds = getLatestSetQueueTrackIds(djState)
+  const committedTrackId = getLatestCommittedSetQueueTrackId(djState)
+  const discoveryExcludedTrackIds = [...new Set([
+    ...playedTrackIds,
+    ...queuedTrackIds,
+  ])]
   const bindPlayedExclusions = (remoteTool: (typeof soundcloudTools)[string]) => {
-    if (!remoteTool?.execute || playedTrackIds.length === 0) return remoteTool
+    if (!remoteTool?.execute || discoveryExcludedTrackIds.length === 0) return remoteTool
     const execute = remoteTool.execute
     return {
       ...remoteTool,
@@ -97,7 +105,7 @@ export async function POST(req: NextRequest) {
         const record = input && typeof input === 'object'
           ? input as Record<string, unknown>
           : {}
-        return execute({ ...record, exclude_ids: playedTrackIds }, options)
+        return execute({ ...record, exclude_ids: discoveryExcludedTrackIds }, options)
       },
     }
   }
@@ -137,7 +145,9 @@ export async function POST(req: NextRequest) {
   const candidatePlayerTrackIds = [...new Set([
     ...getLatestCandidateTrackIds(djState),
     ...discoveredPlayerTrackIds,
-  ])].filter((id) => !playedTrackIds.includes(id))
+  ])].filter((id) =>
+    !playedTrackIds.includes(id) && id !== committedTrackId
+  )
   const recoveryStateRefreshed = agentMode === 'recovery' &&
     hasDJToolCallAfterLatestRejectedPlayer(messages, 'dj_state')
   const hasSelectionEvidencePool = preparedCandidatePool || candidatePlayerTrackIds.length >= 2

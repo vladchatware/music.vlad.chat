@@ -2,7 +2,7 @@ import { generateText, hasToolCall, stepCountIs } from "ai";
 import { z } from "zod";
 
 import { systemMessage } from "../lib/ai";
-import { playerToolInputSchema } from "../lib/dj";
+import { djTimelinePatchSchema } from "../lib/dj";
 import { resolveDJModel } from "../lib/server/djModel";
 
 type Scenario = {
@@ -24,6 +24,7 @@ const scenarios: Scenario[] = [
       section: "drop",
       overallEnergy: 0.78,
       playedTrackIds: [1],
+      setQueue: { revision: 0, playbackRevision: 0, committed: null, planned: [] },
     },
     candidates: [
       { id: 2, title: "Compatible", bpm: 125, genre: "deep house", duration: 204_000 },
@@ -44,6 +45,7 @@ const scenarios: Scenario[] = [
       section: "buildup",
       overallEnergy: 0.72,
       playedTrackIds: [10],
+      setQueue: { revision: 0, playbackRevision: 0, committed: null, planned: [] },
     },
     candidates: [
       { id: 11, title: "Half Time", bpm: 87, genre: "halftime", duration: 220_000 },
@@ -61,7 +63,7 @@ const requestTimeoutMs = Number.parseInt(process.env.DJ_EVAL_TIMEOUT_MS ?? "6000
 const liveDeadlineMs = Number.parseInt(process.env.DJ_LIVE_DEADLINE_MS ?? "15000", 10);
 const scenarioFilter = process.env.DJ_EVAL_SCENARIO?.toLowerCase();
 const results: Array<Record<string, unknown>> = [];
-const playerSchema = playerToolInputSchema;
+const playerSchema = djTimelinePatchSchema;
 
 for (const scenario of scenarios.filter(({ name }) =>
   !scenarioFilter || name.toLowerCase().includes(scenarioFilter)
@@ -111,7 +113,7 @@ for (const scenario of scenarios.filter(({ name }) =>
           },
         },
         player: {
-          description: "Submit chosen track and declarative DJ performance plan",
+          description: "Replace editable set queue with one to three chosen tracks and declarative DJ performance plans",
           inputSchema: playerSchema,
           execute: async (input) => {
             playerCalls.push(input);
@@ -122,9 +124,10 @@ for (const scenario of scenarios.filter(({ name }) =>
     });
 
     const selected = playerCalls[0];
+    const selectedHead = selected?.tracks[0];
     const uniqueAnalysisLookups = new Set(analysisLookups);
     const selectedAnalysisInspected = selected
-      ? uniqueAnalysisLookups.has(selected.id)
+      ? selected.tracks.some((track) => uniqueAnalysisLookups.has(track.id))
       : false;
     const directiveValid = selected ? playerSchema.safeParse(selected).success : false;
     const researchQualityScore =
@@ -136,10 +139,13 @@ for (const scenario of scenarios.filter(({ name }) =>
       scenario: scenario.name,
       ok:
         playerCalls.length === 1 &&
-        scenario.candidates.some((candidate) => candidate.id === selected?.id) &&
+        selected?.tracks.every((track) =>
+          scenario.candidates.some((candidate) => candidate.id === track.id)
+        ) &&
         directiveValid &&
         stateLookupCount > 0,
-      selectedTrackId: selected?.id ?? null,
+      selectedTrackId: selectedHead?.id ?? null,
+      selectedTrackIds: selected?.tracks.map((track) => track.id) ?? [],
       playerCallCount: playerCalls.length,
       analysisLookups,
       stateLookupCount,

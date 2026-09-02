@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   hydratePreparedPlayerSelection,
+  hydratePreparedTimelinePatch,
   resolvePreparedPlayerSelection,
+  resolvePreparedTimelinePatch,
 } from "./preparedSelection";
 
 describe("prepared player selection", () => {
@@ -51,6 +53,28 @@ describe("prepared player selection", () => {
     expect(resolvePreparedPlayerSelection({ ...base, energyArc: "lift" }, pool)).toBeNull();
     expect(resolvePreparedPlayerSelection({ ...base, reason: "" }, pool)).toBeNull();
     expect(resolvePreparedPlayerSelection({ ...base, reason: "x".repeat(241) }, pool)).toBeNull();
-    expect(resolvePreparedPlayerSelection({ ...base, extra: true }, pool)).toBeNull();
+    expect(resolvePreparedPlayerSelection({ ...base, extra: true }, pool)).toMatchObject({
+      id: 719940358,
+      performance: { energyArc: "preserve" },
+    });
+  });
+
+  it("hydrates a versioned multi-track prepared suffix", () => {
+    const compact = {
+      baseRevision: 7,
+      tracks: [
+        { id: 10, energyArc: "preserve" as const, reason: "Keep current glide." },
+        { id: 20, energyArc: "build" as const, reason: "Let next groove lift." },
+      ],
+    };
+    expect(hydratePreparedTimelinePatch(compact)).toMatchObject({
+      baseRevision: 7,
+      tracks: [
+        { id: 10, performance: { energyArc: "preserve" } },
+        { id: 20, performance: { energyArc: "build" } },
+      ],
+    });
+    expect(resolvePreparedTimelinePatch(compact, [10, 20, 30])).not.toBeNull();
+    expect(resolvePreparedTimelinePatch(compact, [10])).toBeNull();
   });
 });

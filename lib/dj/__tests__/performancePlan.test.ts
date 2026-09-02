@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   compilePerformancePlan,
   djPerformancePlanSchema,
+  djTimelinePatchSchema,
   playerToolInputSchema,
   getCrossfaderGains,
   evaluatePerformanceLoop,
@@ -134,6 +135,24 @@ describe("playerToolInputSchema", () => {
     expect(playerToolInputSchema.safeParse({ id: 42, performance: performance() }).success).toBe(true);
     expect(playerToolInputSchema.safeParse({ id: 0, performance: performance() }).success).toBe(false);
     expect(playerToolInputSchema.safeParse({ id: 42, performance: performance(), gain: 2 }).success).toBe(false);
+  });
+});
+
+describe("djTimelinePatchSchema", () => {
+  it("requires a versioned unique rolling suffix", () => {
+    const track = { id: 42, performance: performance() };
+    expect(djTimelinePatchSchema.safeParse({
+      baseRevision: 3,
+      tracks: [track, { ...track, id: 43 }],
+    }).success).toBe(true);
+    expect(djTimelinePatchSchema.safeParse({
+      baseRevision: 3,
+      tracks: [track, track],
+    }).success).toBe(false);
+    expect(djTimelinePatchSchema.safeParse({
+      baseRevision: -1,
+      tracks: [track],
+    }).success).toBe(false);
   });
 });
 

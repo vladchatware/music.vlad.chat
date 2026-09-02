@@ -89,19 +89,19 @@ describe("createDJAgentTools player provenance", () => {
     };
 
     expect(tools.player.inputSchema.safeParse({
-      id: 101,
-      performance,
+      baseRevision: 0,
+      tracks: [{ id: 101, performance }],
     }).success).toBe(true);
     expect(tools.player.inputSchema.safeParse({
-      id: 1,
-      performance,
+      baseRevision: 0,
+      tracks: [{ id: 1, performance }],
     }).success).toBe(false);
     expect(tools.player.inputSchema.safeParse({
-      id: 101,
-      performance: {
+      baseRevision: 0,
+      tracks: [{ id: 101, performance: {
         ...performance,
         reason: "Testing candidate 101 viability",
-      },
+      } }],
     }).success).toBe(false);
   });
 
@@ -112,20 +112,31 @@ describe("createDJAgentTools player provenance", () => {
     });
 
     expect(tools.player.inputSchema.safeParse({
-      id: 101,
-      energyArc: "preserve",
-      reason: "Carry the bright water texture forward.",
+      baseRevision: 4,
+      tracks: [{
+        id: 101,
+        energyArc: "preserve",
+        reason: "Carry the bright water texture forward.",
+      }, {
+        id: 102,
+        energyArc: "build",
+        reason: "Turn shimmer into forward motion.",
+      }],
     }).success).toBe(true);
     expect(tools.player.inputSchema.safeParse({
-      id: 101,
-      performance: {
-        energyArc: "preserve",
-      },
+      baseRevision: 4,
+      tracks: [{
+        id: 101,
+        performance: { energyArc: "preserve" },
+      }],
     }).success).toBe(false);
     expect(tools.player.inputSchema.safeParse({
-      id: 999,
-      energyArc: "preserve",
-      reason: "Unknown candidate.",
+      baseRevision: 4,
+      tracks: [{
+        id: 999,
+        energyArc: "preserve",
+        reason: "Unknown candidate.",
+      }],
     }).success).toBe(false);
   });
 });

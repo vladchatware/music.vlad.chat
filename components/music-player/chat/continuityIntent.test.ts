@@ -85,6 +85,22 @@ describe("createContinuityIntentController", () => {
     ).toEqual({ outcome: "failed", reason: "stale_session" });
   });
 
+  it("accepts a versioned timeline action after playback advances tracks", () => {
+    const controller = createContinuityIntentController({
+      generateId: () => "intent-1",
+      now: () => 1_000,
+    });
+    controller.open(openInput);
+
+    expect(controller.beginTimelineAction({ sessionId: "intent-1" })).toEqual({
+      outcome: "started",
+    });
+    expect(controller.resolveTimelineAction({
+      sessionId: "intent-1",
+      succeeded: true,
+    })).toEqual({ outcome: "accepted" });
+  });
+
   it("permits a new session only after terminal close", () => {
     let id = 0;
     const controller = createContinuityIntentController({

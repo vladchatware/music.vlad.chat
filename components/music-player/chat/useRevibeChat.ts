@@ -7,8 +7,11 @@ import { playbackDebug, setPlaybackDebugCorrelation } from "@/lib/playbackDebug"
 import { compactDJMessages } from "./chatTransport";
 import { getPlayableCandidateIds } from "./chatPerformanceMemory";
 import {
+  djTimelinePatchSchema,
   playerToolInputSchema,
   resolvePreparedPlayerSelection,
+  resolvePreparedTimelinePatch,
+  type DJTimelinePatch,
   type PlayerToolInput,
 } from "@/lib/dj";
 import type {
@@ -38,6 +41,12 @@ function getPreparedCandidateIds(value: unknown): number[] {
   return Array.isArray(ids)
     ? ids.filter((id): id is number => Number.isSafeInteger(id) && Number(id) > 0)
     : [];
+}
+
+export function mergePlayableCandidateIds(
+  ...groups: ReadonlyArray<readonly number[]>
+): number[] {
+  return [...new Set(groups.flat())];
 }
 
 export function classifyAgentEpisodeFinish(
@@ -228,6 +237,10 @@ export function createPlayerToolOrchestrator(opts: {
 
 export function useRevibeChat(opts: {
   onPlayerToolRequested: (input: PlayerToolInput) => Promise<void>;
+  onTimelineToolRequested?: (input: DJTimelinePatch) => Promise<{
+    revision: number;
+    trackIds: number[];
+  }>;
   isTransitionBlocked?: () => boolean;
   getDJState?: () => unknown;
   getAgentSession?: () => AgentSession | null;
@@ -282,6 +295,10 @@ export function useRevibeChat(opts: {
   const onPlayerToolRequestedRef = useRef(opts.onPlayerToolRequested);
   const isTransitionBlockedRef = useRef(opts.isTransitionBlocked);
   const orchestratorRef = useRef<ReturnType<typeof createPlayerToolOrchestrator> | null>(null);
+  // Candidate discovery can finish immediately before useChat starts its next
+  // automatic continuation. Keep the authoritative tool-result IDs locally so
+  // compact player calls do not wait for the parent performance-memory render.
+  const playableCandidateIdsRef = useRef<number[]>([]);
   onPlayerToolRequestedRef.current = opts.onPlayerToolRequested;
   isTransitionBlockedRef.current = opts.isTransitionBlocked;
 
@@ -310,6 +327,13 @@ export function useRevibeChat(opts: {
   const { messages, sendMessage, status, stop, addToolResult, setMessages } = useChat({
     transport,
     sendAutomaticallyWhen: ({ messages: currentMessages }) => {
+      const discoveredIds = getPlayableCandidateIds(currentMessages);
+      if (discoveredIds.length > 0) {
+        playableCandidateIdsRef.current = mergePlayableCandidateIds(
+          playableCandidateIdsRef.current,
+          discoveredIds,
+        );
+      }
       const agentSession = getAgentSessionRef.current?.() ?? null;
       if (!agentSession) return false;
       const classification = classifyAgentEpisodeFinish(
@@ -335,6 +359,10 @@ export function useRevibeChat(opts: {
         ? []
         : getPlayableCandidateIds(currentMessages);
       if (playableCandidateIds.length > 0) {
+        playableCandidateIdsRef.current = mergePlayableCandidateIds(
+          playableCandidateIdsRef.current,
+          playableCandidateIds,
+        );
         opts.onPlayableCandidates?.(playableCandidateIds);
         playbackDebug("chat.performance_memory.candidate_capture", {
           count: playableCandidateIds.length,
@@ -395,18 +423,60 @@ export function useRevibeChat(opts: {
         return;
       }
 
+      const parsedTimeline = djTimelinePatchSchema.safeParse(ctx.toolCall.input);
+      const playableCandidateIds = mergePlayableCandidateIds(
+        getPreparedCandidateIds(getDJStateRef.current?.()),
+        playableCandidateIdsRef.current,
+      );
+      const preparedTimeline = parsedTimeline.success
+        ? null
+        : resolvePreparedTimelinePatch(
+            ctx.toolCall.input,
+            playableCandidateIds,
+          );
+      const timelineRequest = parsedTimeline.success
+        ? parsedTimeline.data
+        : preparedTimeline;
+      if (timelineRequest && opts.onTimelineToolRequested) {
+        try {
+          const accepted = await opts.onTimelineToolRequested(timelineRequest);
+          const headId = accepted.trackIds[0];
+          addToolResult({
+            tool: ctx.toolCall.toolName,
+            toolCallId: ctx.toolCall.toolCallId,
+            output: `Queued ${headId}; timeline revision ${accepted.revision} accepted [${accepted.trackIds.join(", ")}]`,
+          });
+          playbackDebug("chat.tool_call.timeline_accepted", {
+            toolCallId: ctx.toolCall.toolCallId,
+            revision: accepted.revision,
+            trackIds: accepted.trackIds,
+          });
+        } catch (error) {
+          addToolResult({
+            tool: ctx.toolCall.toolName,
+            toolCallId: ctx.toolCall.toolCallId,
+            output: `Player rejected timeline. Read dj_state and retry with its current setQueue.revision. ${error instanceof Error ? error.message : String(error)}`,
+          });
+          playbackDebug("chat.tool_call.timeline_rejected", {
+            toolCallId: ctx.toolCall.toolCallId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
+
       const parsedInput = playerToolInputSchema.safeParse(ctx.toolCall.input);
       const preparedInput = parsedInput.success
         ? null
         : resolvePreparedPlayerSelection(
             ctx.toolCall.input,
-            getPreparedCandidateIds(getDJStateRef.current?.()),
+            playableCandidateIds,
           );
       if (!parsedInput.success && !preparedInput) {
         addToolResult({
           tool: ctx.toolCall.toolName,
           toolCallId: ctx.toolCall.toolCallId,
-          output: "Rejected invalid DJ performance plan.",
+          output: "Player rejected timeline: invalid DJ performance plan. Read dj_state and retry once with its current setQueue.revision.",
         });
         playbackDebug("chat.tool_call.player_rejected", {
           toolCallId: ctx.toolCall.toolCallId,

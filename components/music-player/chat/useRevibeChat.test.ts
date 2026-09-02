@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPlayerToolOrchestrator,
   classifyAgentEpisodeFinish,
+  mergePlayableCandidateIds,
   shouldContinueAgentEpisode,
 } from "./useRevibeChat";
 import { createContinuityIntentController } from "./continuityIntent";
@@ -22,6 +23,16 @@ const request = (id: number): PlayerToolInput => ({
     tempo: { mode: "match", maxAdjustmentPercent: 8 },
     reason: "fixture",
   },
+});
+
+describe("mergePlayableCandidateIds", () => {
+  it("keeps tool-result candidates available across an automatic continuation", () => {
+    expect(mergePlayableCandidateIds([101, 102], [102, 103])).toEqual([
+      101,
+      102,
+      103,
+    ]);
+  });
 });
 
 describe("createPlayerToolOrchestrator", () => {

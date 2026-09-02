@@ -89,6 +89,19 @@ describe("hasRejectedPlayerAction", () => {
     }])).toBe(true);
   });
 
+  it("recognizes an invalid compact timeline as recovery", () => {
+    const messages = [{
+      role: "assistant",
+      parts: [{
+        type: "tool-player",
+        output: "Player rejected timeline: invalid DJ performance plan.",
+      }],
+    }];
+
+    expect(hasRejectedPlayerAction(messages)).toBe(true);
+    expect(getDJAgentMode(messages)).toBe("recovery");
+  });
+
   it("detects recovery state only when it follows the latest rejected player", () => {
     const before = {
       role: "assistant",

@@ -84,6 +84,10 @@ type ActionInput = {
   activeTrackId: number;
 };
 
+type TimelineActionInput = {
+  sessionId: string;
+};
+
 export function createContinuityIntentController(opts: {
   generateId?: () => string;
   now?: () => number;
@@ -101,6 +105,8 @@ export function createContinuityIntentController(opts: {
 
   const matches = ({ sessionId, activeTrackId }: ActionInput) =>
     active?.id === sessionId && active.activeTrackId === activeTrackId;
+  const matchesSession = ({ sessionId }: TimelineActionInput) =>
+    active?.id === sessionId;
 
   const open = (input: OpenInput) => {
     if (active) {
@@ -167,10 +173,44 @@ export function createContinuityIntentController(opts: {
     return { outcome: "started" as const };
   };
 
+  const beginTimelineAction = (input: TimelineActionInput) => {
+    if (!matchesSession(input)) {
+      return { outcome: "failed" as const, reason: "stale_session" as const };
+    }
+    if (active?.state === "executing" || active?.state === "action_accepted") {
+      return { outcome: "failed" as const, reason: "agent_holding_loop" as const };
+    }
+    if (active && now() > active.deadlineAtMs) {
+      active = null;
+      continuationCount = 0;
+      playerAttemptCount = 0;
+      return { outcome: "failed" as const, reason: "agent_holding_loop" as const };
+    }
+    if (playerAttemptCount >= maxPlayerAttempts) {
+      active = null;
+      continuationCount = 0;
+      playerAttemptCount = 0;
+      return { outcome: "failed" as const, reason: "agent_holding_loop" as const };
+    }
+    playerAttemptCount += 1;
+    active!.state = "executing";
+    return { outcome: "started" as const };
+  };
+
   const resolvePlayerAction = (
     input: ActionInput & { succeeded: boolean },
   ) => {
     if (!matches(input) || active?.state !== "executing") {
+      return { outcome: "failed" as const, reason: "stale_session" as const };
+    }
+    active.state = input.succeeded ? "action_accepted" : "researching";
+    return { outcome: input.succeeded ? "accepted" as const : "retryable" as const };
+  };
+
+  const resolveTimelineAction = (
+    input: TimelineActionInput & { succeeded: boolean },
+  ) => {
+    if (!matchesSession(input) || active?.state !== "executing") {
       return { outcome: "failed" as const, reason: "stale_session" as const };
     }
     active.state = input.succeeded ? "action_accepted" : "researching";
@@ -258,7 +298,9 @@ export function createContinuityIntentController(opts: {
     open,
     observeTransport,
     beginPlayerAction,
+    beginTimelineAction,
     resolvePlayerAction,
+    resolveTimelineAction,
     close,
     recordContinuation,
     enforceDeadline,

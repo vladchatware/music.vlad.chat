@@ -31,3 +31,6 @@ export * from './performance';
 // Analyzed segment pairing
 export * from './segments/scoring';
 export * from './segments/suggestions';
+
+// Rolling agent-authored / player-consumed score
+export * from './timeline';

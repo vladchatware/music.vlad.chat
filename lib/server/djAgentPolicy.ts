@@ -75,7 +75,7 @@ function collectToolEvents(value: unknown, events: ToolEvent[], seen: Set<object
       name,
       failedPlayer:
         name === "player" &&
-        /Player rejected track|Duplicate player request ignored/i.test(output),
+        /Player rejected (?:track|timeline)|Duplicate player request ignored/i.test(output),
     });
   }
 
@@ -158,6 +158,55 @@ export function getLatestCandidateTrackIds(value: unknown): number[] {
   return [...new Set(latest)];
 }
 
+export function getLatestSetQueueTrackIds(value: unknown): number[] {
+  let latest: number[] = [];
+  const visit = (node: unknown, seen: Set<object>) => {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    const record = node as Record<string, unknown>;
+    if (Array.isArray(record.plannedTrackIds)) {
+      latest = record.plannedTrackIds.filter(
+        (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
+      );
+    }
+    for (const child of Object.values(record)) {
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item, seen);
+      } else {
+        visit(child, seen);
+      }
+    }
+  };
+  visit(value, new Set());
+  return [...new Set(latest)];
+}
+
+export function getLatestCommittedSetQueueTrackId(value: unknown): number | null {
+  let latest: number | null = null;
+  const visit = (node: unknown, seen: Set<object>) => {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    const record = node as Record<string, unknown>;
+    const committed = record.committed;
+    if (committed && typeof committed === "object") {
+      const request = (committed as Record<string, unknown>).request;
+      const id = request && typeof request === "object"
+        ? (request as Record<string, unknown>).id
+        : undefined;
+      if (typeof id === "number" && Number.isInteger(id) && id > 0) latest = id;
+    }
+    for (const child of Object.values(record)) {
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item, seen);
+      } else {
+        visit(child, seen);
+      }
+    }
+  };
+  visit(value, new Set());
+  return latest;
+}
+
 export function shouldUsePreparedCandidatePool(value: unknown): boolean {
   return getLatestCandidateTrackIds(value).length > 0;
 }
@@ -202,6 +251,15 @@ export function hasRejectedPlayerAction(value: unknown): boolean {
     if (
       name === "player" &&
       /Player rejected track|Duplicate player request ignored/i.test(
+        getToolOutputText(record.output),
+      )
+    ) {
+      rejected = true;
+      return;
+    }
+    if (
+      name === "player" &&
+      /Player rejected timeline/i.test(
         getToolOutputText(record.output),
       )
     ) {
