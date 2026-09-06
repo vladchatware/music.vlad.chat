@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import FFTAnalyzer from "@/lib/analyzers/ftt";
 import { BPMDetector } from "@/lib/analyzers/bpm-detector";
@@ -58,6 +58,7 @@ export function useDeckAudioGraph(
   );
   const broadcastAudioStreamRef = useRef<MediaStream | null>(null);
   const lifecycleGenerationRef = useRef(0);
+  const [audioReady, setAudioReady] = useState(false);
   const deckStatusRef = useRef<Record<DeckId, DeckStatus>>({
     A: { canPlay: false, metadataLoaded: false, isPlaying: false, lastError: null },
     B: { canPlay: false, metadataLoaded: false, isPlaying: false, lastError: null },
@@ -117,6 +118,7 @@ export function useDeckAudioGraph(
 
       audioContextRef.current = context;
       broadcastAudioStreamRef.current = engine.broadcastStream;
+      setAudioReady(true);
       analyzerARef.current = new FFTAnalyzer(deckAOutput, context, 0);
       analyzerBRef.current = new FFTAnalyzer(deckBOutput, context, 0);
       analyzerRef.current = new FFTAnalyzer(output, context, 0);
@@ -168,6 +170,7 @@ export function useDeckAudioGraph(
 
   return {
     engineRef,
+    audioReady,
     audioContextRef,
     analyzerARef,
     analyzerBRef,
