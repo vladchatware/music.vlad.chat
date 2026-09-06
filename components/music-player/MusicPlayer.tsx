@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ThreeEvent } from "@react-three/fiber";
+import { useProgress } from "@react-three/drei";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
@@ -24,6 +25,7 @@ import {
 
 import { MusicPlayerScene } from "./Scene";
 import { MusicPlayerOverlay } from "./Overlay";
+import { LoadingScreen } from "./LoadingScreen";
 import { useRevibeChat, type PlayerToolInput } from "./chat/useRevibeChat";
 import {
   createContinuityIntentController,
@@ -54,6 +56,10 @@ type MusicPlayerProps = {
   onBroadcastSourcesReady?: (sources: BroadcastSources) => void;
   broadcastPortrait?: boolean;
 };
+
+// Failsafe: never hold the loading screen longer than this, even if an asset
+// or the audio engine stalls — the player remains usable without them.
+const BOOT_TIMEOUT_MS = 20_000;
 
 function compactPerformanceTrack(track: SoundCloudTrack): PerformanceMemoryTrack {
   return {
@@ -157,6 +163,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   const {
     djState,
     phase,
+    audioReady,
     isPlaying,
     isTransitioning,
     activeDeck,
@@ -194,6 +201,49 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   useAudioVisualization(analyzerRef, coordinateMapper);
 
   const needsUserInteraction = phase === "needsGesture";
+
+  // Boot readiness: the WebGL scene (HDRI + models via the default loading
+  // manager), the Superpowered audio engine, and the first cued track must
+  // all settle before the loading screen fades out.
+  const { progress: assetProgress, errors: assetErrors } = useProgress();
+  const assetsReady = assetProgress >= 100 || assetErrors.length > 0;
+  const trackReady = djState.type !== "idle" && djState.type !== "loading";
+  const [initialTrackFailed, setInitialTrackFailed] = useState(false);
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+  const bootReady =
+    (assetsReady && audioReady && (trackReady || initialTrackFailed)) || bootTimedOut;
+  const bootProgress = bootReady
+    ? 100
+    : Math.round(
+        100 *
+          (0.6 * (Math.min(assetProgress, 100) / 100) +
+            0.2 * (audioReady ? 1 : 0) +
+            0.2 * (trackReady || initialTrackFailed ? 1 : 0)),
+      );
+  const bootLabel = !assetsReady
+    ? "Setting up the visuals"
+    : !audioReady
+      ? "Powering the sound system"
+      : trackReady || initialTrackFailed
+        ? "Ready"
+        : "Cueing the first track";
+
+  useEffect(() => {
+    if (bootReady) return;
+    const timeout = setTimeout(() => setBootTimedOut(true), BOOT_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [bootReady]);
+
+  useEffect(() => {
+    if (!bootReady) return;
+    playbackDebug("player.boot.ready", {
+      assetsReady,
+      audioReady,
+      trackReady,
+      initialTrackFailed,
+      timedOut: bootTimedOut,
+    });
+  }, [assetsReady, audioReady, bootReady, bootTimedOut, initialTrackFailed, trackReady]);
 
   const clearAgentSessionDeadline = useCallback(() => {
     if (!agentSessionDeadlineTimerRef.current) return;
@@ -681,6 +731,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     initialLoadTrackKeyRef.current = trackKey;
     runDetached(onFetchInitialTrack(), (error) => {
       initialLoadTrackKeyRef.current = null;
+      setInitialTrackFailed(true);
       playbackDebug("player.initial_track_failed", {
         trackId: initialTrackId,
         message: error instanceof Error ? error.message : String(error),
@@ -967,6 +1018,11 @@ export default function MusicPlayer(props: MusicPlayerProps) {
 
   return (
     <>
+      <LoadingScreen
+        visible={!bootReady}
+        progress={bootProgress}
+        label={bootLabel}
+      />
       <MusicPlayerScene
         initialTrackId={initialTrackId}
         coordinateMapper={coordinateMapper}
