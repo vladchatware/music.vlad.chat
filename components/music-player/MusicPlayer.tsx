@@ -107,6 +107,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     () => createContinuityIntentController(),
     [],
   );
+  const chatIdleWaitersRef = useRef<Set<() => void>>(new Set());
   const playedTrackIdsRef = useRef<number[]>([]);
   const activeTrackHeardRef = useRef<AudibleDwellState | null>(null);
   const performanceMemoryRef = useRef(createPerformanceMemory(REVIBE_PROMPT));
@@ -603,7 +604,22 @@ export default function MusicPlayer(props: MusicPlayerProps) {
 
   const observeAgentTransport = useCallback((transportStatus: "submitted" | "streaming" | "ready" | "error") => {
     agentSessionController.observeTransport(transportStatus);
+    if (transportStatus !== "ready" && transportStatus !== "error") return;
+    const waiters = chatIdleWaitersRef.current;
+    chatIdleWaitersRef.current = new Set();
+    waiters.forEach((resolve) => resolve());
   }, [agentSessionController]);
+
+  // Resolves once an in-flight chat turn has fully unwound: the transport is
+  // idle and its agent session finalization ran, so a new session can safely
+  // be opened for the next request.
+  const waitForChatIdle = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        chatIdleWaitersRef.current.add(resolve);
+      }),
+    [],
+  );
 
   const { messages, sendMessage, status, stop } = useRevibeChat({
     onPlayerToolRequested,
@@ -696,11 +712,13 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         e.type === "nexttrack" ||
         e.type === "auto-revibe" ||
         e.type === "timeline-refill";
+      const trimmedUserText = userText?.trim();
       playbackDebug("player.revibe.requested", {
         eventType: e.type,
         isAutoRequest,
         status,
         djState: djState.type,
+        hasUserText: Boolean(trimmedUserText),
       });
 
       const entryAction = getPlayerEntryAction({
@@ -722,31 +740,50 @@ export default function MusicPlayer(props: MusicPlayerProps) {
             await play();
           })();
           await Promise.all([playbackRequest, signIn("anonymous")]);
-          return;
+          if (!trimmedUserText) return;
+          break;
         }
         case "loadAndPlay": {
           const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
           await loadInitialTrack(initialTrack);
           await play();
-          return;
+          if (!trimmedUserText) return;
+          break;
         }
         case "togglePlaybackAndSignIn":
           await Promise.all([togglePlay(), signIn("anonymous")]);
-          return;
+          if (!trimmedUserText) return;
+          break;
         case "togglePlayback":
-          return togglePlay();
+          await togglePlay();
+          if (!trimmedUserText) return;
+          break;
         case "continue":
           break;
       }
 
       if (status === "submitted" || status === "streaming") {
-        playbackDebug("dj.agent_session.failed", {
-          reason: "agent_holding_loop",
-          stage: "session_open",
+        if (!trimmedUserText) {
+          playbackDebug("dj.agent_session.failed", {
+            reason: "agent_holding_loop",
+            stage: "session_open",
+            eventType: e.type,
+            transportStatus: status,
+          });
+          return;
+        }
+        // A typed listener request interrupts the in-flight agent turn. Stop
+        // it and wait until the transport is idle so the aborted turn's
+        // session finalization has run before opening a new session.
+        playbackDebug("player.revibe.interrupting_turn", {
           eventType: e.type,
           transportStatus: status,
         });
-        return;
+        stop();
+        await Promise.race([
+          waitForChatIdle(),
+          new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+        ]);
       }
 
       const currentTrack = activeTrack as SoundCloudTrack | null;
@@ -756,15 +793,30 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         0,
         playback.durationSec - playback.currentTimeSec,
       );
-      const sessionOpen = agentSessionController.open({
-        source: isAutoRequest ? "planning_window" : "user",
-        activeTrackId: currentTrack.id,
-        deadlineAtMs: computePlaybackAgentSessionDeadlineAtMs({
-          nowMs,
-          remainingSec,
-          durationSec: playback.durationSec,
-        }),
-      });
+      const openAgentSession = (source: "planning_window" | "user") =>
+        agentSessionController.open({
+          source,
+          activeTrackId: currentTrack.id,
+          deadlineAtMs: computePlaybackAgentSessionDeadlineAtMs({
+            nowMs,
+            remainingSec,
+            durationSec: playback.durationSec,
+          }),
+        });
+      let sessionOpen = openAgentSession(isAutoRequest ? "planning_window" : "user");
+      if (sessionOpen.outcome === "failed" && trimmedUserText) {
+        // A typed listener request supersedes a lingering planning session.
+        const supersededSession = sessionOpen.session;
+        clearAgentSessionDeadline();
+        agentSessionController.close(supersededSession.id, "aborted");
+        sessionOpen = openAgentSession("user");
+        playbackDebug("dj.agent_session.superseded", {
+          supersededSessionId: supersededSession.id,
+          supersededRevision: supersededSession.revision,
+          eventType: e.type,
+          reopened: sessionOpen.outcome === "opened",
+        });
+      }
       if (sessionOpen.outcome === "failed") {
         playbackDebug("dj.agent_session.failed", {
           reason: sessionOpen.reason,
@@ -802,7 +854,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         detectedBpm = bpmDetectorRef.current.getBPM();
       }
 
-      const trimmedUserText = userText?.trim();
       const prompt = trimmedUserText
         ? trimmedUserText
         : buildRevibePrompt({
@@ -840,6 +891,8 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       sendMessage,
       signIn,
       status,
+      stop,
+      waitForChatIdle,
       djState.type,
       togglePlay,
       trackA?.id,
@@ -848,7 +901,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       play,
       playback.currentTimeSec,
       playback.durationSec,
-      stop,
     ],
   );
 
