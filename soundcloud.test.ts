@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { allLikes, meLibrary, resolveTrackStreamUrl, track } from "./soundcloud";
+import { allLikes, meLibrary, parseSoundCloudUrl, resolveTrackStreamUrl, resolveTrackUrl, track } from "./soundcloud";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -33,6 +33,56 @@ describe("resolveTrackStreamUrl", () => {
       headers: expect.objectContaining({ Range: "bytes=0-0" }),
       redirect: "follow",
     });
+  });
+});
+
+describe("parseSoundCloudUrl", () => {
+  it("accepts track permalinks with or without a scheme", () => {
+    expect(parseSoundCloudUrl("https://soundcloud.com/artist/track-slug")?.hostname).toBe("soundcloud.com");
+    expect(parseSoundCloudUrl("soundcloud.com/artist/track-slug")?.hostname).toBe("soundcloud.com");
+    expect(parseSoundCloudUrl("  https://www.soundcloud.com/artist/track-slug?in=playlist  ")).toBeDefined();
+    expect(parseSoundCloudUrl("https://on.soundcloud.com/abc123")).toBeDefined();
+    expect(parseSoundCloudUrl("https://snd.sc/abc123")).toBeDefined();
+  });
+
+  it("rejects non-SoundCloud input", () => {
+    expect(parseSoundCloudUrl("https://example.com/artist/track-slug")).toBeUndefined();
+    expect(parseSoundCloudUrl("2248709558")).toBeUndefined();
+    expect(parseSoundCloudUrl("not a url")).toBeUndefined();
+    expect(parseSoundCloudUrl("   ")).toBeUndefined();
+  });
+});
+
+describe("resolveTrackUrl", () => {
+  it("resolves a permalink into the track resource", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      kind: "track",
+      id: 2248709558,
+      artwork_url: "https://i1.sndcdn.com/artworks-example-large.jpg",
+    }), { status: 200 }));
+
+    await expect(resolveTrackUrl("https://soundcloud.com/artist/track-slug", "token")).resolves.toMatchObject({
+      id: 2248709558,
+      artwork_url: "https://i1.sndcdn.com/artworks-example-t500x500.jpg",
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.soundcloud.com/resolve?url=https%3A%2F%2Fsoundcloud.com%2Fartist%2Ftrack-slug");
+  });
+
+  it("rejects links that resolve to another resource kind", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      kind: "playlist",
+      id: 1,
+    }), { status: 200 }));
+
+    await expect(resolveTrackUrl("https://soundcloud.com/artist/sets/mixtape", "token"))
+      .rejects.toMatchObject({ status: 400, resolvedKind: "playlist" });
+  });
+
+  it("propagates SoundCloud API failures with their status", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("not found", { status: 404 }));
+
+    await expect(resolveTrackUrl("https://soundcloud.com/artist/deleted-track", "token"))
+      .rejects.toMatchObject({ status: 404 });
   });
 });
 
