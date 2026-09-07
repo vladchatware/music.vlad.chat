@@ -75,6 +75,7 @@ export function Floating({
   isPlaying = false,
   onLikeClick,
   isLiked = false,
+  onCommentClick,
   ...props
 }: {
   audioEnergyRef?: React.MutableRefObject<number>;
@@ -85,6 +86,7 @@ export function Floating({
   isPlaying?: boolean;
   onLikeClick?: () => void;
   isLiked?: boolean;
+  onCommentClick?: () => void;
 } & any) {
   const { nodes: hashtagNodes } = useGLTF('/hashtag.glb')
   const { nodes: starNodes } = useGLTF('/star.glb')
@@ -102,8 +104,9 @@ export function Floating({
   const [hashtagHovered, setHashtagHovered] = useState(false)
   const [playHovered, setPlayHovered] = useState(false)
   const [likeHovered, setLikeHovered] = useState(false)
+  const [commentHovered, setCommentHovered] = useState(false)
 
-  useCursor(hashtagHovered || playHovered || likeHovered, 'pointer', 'auto')
+  useCursor(hashtagHovered || playHovered || likeHovered || commentHovered, 'pointer', 'auto')
 
   useFrame(({ gl, scene, camera }) => {
     const group = glassGroup.current
@@ -202,8 +205,20 @@ export function Floating({
           geometry={comment.geometry}
           position={[-3.275, -1, -3.389]}
           scale={1.585}
+          onClick={onCommentClick ? (event) => {
+            event.stopPropagation()
+            onCommentClick()
+          } : undefined}
+          onPointerOver={onCommentClick ? (event) => {
+            event.stopPropagation()
+            setCommentHovered(true)
+          } : undefined}
+          onPointerOut={onCommentClick ? () => setCommentHovered(false) : undefined}
         >
-          <LiquidGlassMaterial buffer={transmissionBuffer.texture} />
+          <LiquidGlassMaterial
+            buffer={transmissionBuffer.texture}
+            highlighted={commentHovered}
+          />
         </mesh>
       </Float>
     </group>

@@ -689,7 +689,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   }, [initialTrackId, isAuthenticated, onFetchInitialTrack]);
 
   const onRevibe = useCallback(
-    async (e: Event | ThreeEvent<MouseEvent>) => {
+    async (e: Event | ThreeEvent<MouseEvent>, userText?: string) => {
       e.stopPropagation();
       const isAutoRequest =
         e.type === "revibe" ||
@@ -802,11 +802,14 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         detectedBpm = bpmDetectorRef.current.getBPM();
       }
 
-      const prompt = buildRevibePrompt({
-        track: currentTrack,
-        detectedBpm,
-        continuityMode: isAutoRequest,
-      });
+      const trimmedUserText = userText?.trim();
+      const prompt = trimmedUserText
+        ? trimmedUserText
+        : buildRevibePrompt({
+          track: currentTrack,
+          detectedBpm,
+          continuityMode: isAutoRequest,
+        });
 
       try {
         performanceMemoryRef.current = {
@@ -818,6 +821,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           eventType: e.type,
           activeTrackId: currentTrack.id,
           agentSessionId: sessionOpen.session.id,
+          customPrompt: Boolean(trimmedUserText),
         });
       } catch (error) {
         finishAgentSession("error");
@@ -933,6 +937,16 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     });
   }, [togglePlay]);
 
+  const requestUserPromptFromShape = useCallback(() => {
+    const userText = window.prompt("Ask the DJ — mood, genre, vibe, anything:");
+    if (!userText?.trim()) return;
+    runDetached(onRevibe(new Event("user-request"), userText), (error) => {
+      playbackDebug("player.shape_comment_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, [onRevibe]);
+
   const toggleActiveTrackLike = useCallback(async () => {
     if (!activeTrack || likePendingTrackId === activeTrack.id) return;
     if (!user?.soundcloudAccessToken) {
@@ -983,6 +997,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
             : undefined
         }
         isLiked={activeTrackLiked}
+        onCommentClick={requestUserPromptFromShape}
         liveSessionKey={liveSessionKey}
         onCanvasReady={setBroadcastCanvas}
         broadcastPortrait={broadcastPortrait}
