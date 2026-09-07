@@ -107,6 +107,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     () => createContinuityIntentController(),
     [],
   );
+  const chatIdleWaitersRef = useRef<Set<() => void>>(new Set());
   const playedTrackIdsRef = useRef<number[]>([]);
   const activeTrackHeardRef = useRef<AudibleDwellState | null>(null);
   const performanceMemoryRef = useRef(createPerformanceMemory(REVIBE_PROMPT));
@@ -603,7 +604,22 @@ export default function MusicPlayer(props: MusicPlayerProps) {
 
   const observeAgentTransport = useCallback((transportStatus: "submitted" | "streaming" | "ready" | "error") => {
     agentSessionController.observeTransport(transportStatus);
+    if (transportStatus !== "ready" && transportStatus !== "error") return;
+    const waiters = chatIdleWaitersRef.current;
+    chatIdleWaitersRef.current = new Set();
+    waiters.forEach((resolve) => resolve());
   }, [agentSessionController]);
+
+  // Resolves once an in-flight chat turn has fully unwound: the transport is
+  // idle and its agent session finalization ran, so a new session can safely
+  // be opened for the next request.
+  const waitForChatIdle = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        chatIdleWaitersRef.current.add(resolve);
+      }),
+    [],
+  );
 
   const { messages, sendMessage, status, stop } = useRevibeChat({
     onPlayerToolRequested,
@@ -689,18 +705,20 @@ export default function MusicPlayer(props: MusicPlayerProps) {
   }, [initialTrackId, isAuthenticated, onFetchInitialTrack]);
 
   const onRevibe = useCallback(
-    async (e: Event | ThreeEvent<MouseEvent>) => {
+    async (e: Event | ThreeEvent<MouseEvent>, userText?: string) => {
       e.stopPropagation();
       const isAutoRequest =
         e.type === "revibe" ||
         e.type === "nexttrack" ||
         e.type === "auto-revibe" ||
         e.type === "timeline-refill";
+      const trimmedUserText = userText?.trim();
       playbackDebug("player.revibe.requested", {
         eventType: e.type,
         isAutoRequest,
         status,
         djState: djState.type,
+        hasUserText: Boolean(trimmedUserText),
       });
 
       const entryAction = getPlayerEntryAction({
@@ -722,31 +740,50 @@ export default function MusicPlayer(props: MusicPlayerProps) {
             await play();
           })();
           await Promise.all([playbackRequest, signIn("anonymous")]);
-          return;
+          if (!trimmedUserText) return;
+          break;
         }
         case "loadAndPlay": {
           const initialTrack = (await fetchTrack(initialTrackId)) as SoundCloudTrack;
           await loadInitialTrack(initialTrack);
           await play();
-          return;
+          if (!trimmedUserText) return;
+          break;
         }
         case "togglePlaybackAndSignIn":
           await Promise.all([togglePlay(), signIn("anonymous")]);
-          return;
+          if (!trimmedUserText) return;
+          break;
         case "togglePlayback":
-          return togglePlay();
+          await togglePlay();
+          if (!trimmedUserText) return;
+          break;
         case "continue":
           break;
       }
 
       if (status === "submitted" || status === "streaming") {
-        playbackDebug("dj.agent_session.failed", {
-          reason: "agent_holding_loop",
-          stage: "session_open",
+        if (!trimmedUserText) {
+          playbackDebug("dj.agent_session.failed", {
+            reason: "agent_holding_loop",
+            stage: "session_open",
+            eventType: e.type,
+            transportStatus: status,
+          });
+          return;
+        }
+        // A typed listener request interrupts the in-flight agent turn. Stop
+        // it and wait until the transport is idle so the aborted turn's
+        // session finalization has run before opening a new session.
+        playbackDebug("player.revibe.interrupting_turn", {
           eventType: e.type,
           transportStatus: status,
         });
-        return;
+        stop();
+        await Promise.race([
+          waitForChatIdle(),
+          new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+        ]);
       }
 
       const currentTrack = activeTrack as SoundCloudTrack | null;
@@ -756,15 +793,30 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         0,
         playback.durationSec - playback.currentTimeSec,
       );
-      const sessionOpen = agentSessionController.open({
-        source: isAutoRequest ? "planning_window" : "user",
-        activeTrackId: currentTrack.id,
-        deadlineAtMs: computePlaybackAgentSessionDeadlineAtMs({
-          nowMs,
-          remainingSec,
-          durationSec: playback.durationSec,
-        }),
-      });
+      const openAgentSession = (source: "planning_window" | "user") =>
+        agentSessionController.open({
+          source,
+          activeTrackId: currentTrack.id,
+          deadlineAtMs: computePlaybackAgentSessionDeadlineAtMs({
+            nowMs,
+            remainingSec,
+            durationSec: playback.durationSec,
+          }),
+        });
+      let sessionOpen = openAgentSession(isAutoRequest ? "planning_window" : "user");
+      if (sessionOpen.outcome === "failed" && trimmedUserText) {
+        // A typed listener request supersedes a lingering planning session.
+        const supersededSession = sessionOpen.session;
+        clearAgentSessionDeadline();
+        agentSessionController.close(supersededSession.id, "aborted");
+        sessionOpen = openAgentSession("user");
+        playbackDebug("dj.agent_session.superseded", {
+          supersededSessionId: supersededSession.id,
+          supersededRevision: supersededSession.revision,
+          eventType: e.type,
+          reopened: sessionOpen.outcome === "opened",
+        });
+      }
       if (sessionOpen.outcome === "failed") {
         playbackDebug("dj.agent_session.failed", {
           reason: sessionOpen.reason,
@@ -802,11 +854,13 @@ export default function MusicPlayer(props: MusicPlayerProps) {
         detectedBpm = bpmDetectorRef.current.getBPM();
       }
 
-      const prompt = buildRevibePrompt({
-        track: currentTrack,
-        detectedBpm,
-        continuityMode: isAutoRequest,
-      });
+      const prompt = trimmedUserText
+        ? trimmedUserText
+        : buildRevibePrompt({
+          track: currentTrack,
+          detectedBpm,
+          continuityMode: isAutoRequest,
+        });
 
       try {
         performanceMemoryRef.current = {
@@ -818,6 +872,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
           eventType: e.type,
           activeTrackId: currentTrack.id,
           agentSessionId: sessionOpen.session.id,
+          customPrompt: Boolean(trimmedUserText),
         });
       } catch (error) {
         finishAgentSession("error");
@@ -836,6 +891,8 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       sendMessage,
       signIn,
       status,
+      stop,
+      waitForChatIdle,
       djState.type,
       togglePlay,
       trackA?.id,
@@ -844,7 +901,6 @@ export default function MusicPlayer(props: MusicPlayerProps) {
       play,
       playback.currentTimeSec,
       playback.durationSec,
-      stop,
     ],
   );
 
@@ -933,6 +989,16 @@ export default function MusicPlayer(props: MusicPlayerProps) {
     });
   }, [togglePlay]);
 
+  const requestUserPromptFromShape = useCallback(() => {
+    const userText = window.prompt("Ask the DJ — mood, genre, vibe, anything:");
+    if (!userText?.trim()) return;
+    runDetached(onRevibe(new Event("user-request"), userText), (error) => {
+      playbackDebug("player.shape_comment_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, [onRevibe]);
+
   const toggleActiveTrackLike = useCallback(async () => {
     if (!activeTrack || likePendingTrackId === activeTrack.id) return;
     if (!user?.soundcloudAccessToken) {
@@ -983,6 +1049,7 @@ export default function MusicPlayer(props: MusicPlayerProps) {
             : undefined
         }
         isLiked={activeTrackLiked}
+        onCommentClick={requestUserPromptFromShape}
         liveSessionKey={liveSessionKey}
         onCanvasReady={setBroadcastCanvas}
         broadcastPortrait={broadcastPortrait}
