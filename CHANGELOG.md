@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-09-15
+
+### Added
+- Rolling set queue and lasting-set playback for continuous DJ sessions
+- Listener-driven DJ requests from the comment shape, including typed-request handling
+- DJ evaluation bench with live-chat replay, run inspection, and continuity scoring
+- SoundCloud personal library at `/me`
+- Public track-analysis and transition APIs
+- Backroom analysis tooling with energy timelines, mix decks, candidates, and redo/enqueue controls
+- Instagram Live studio and LiveKit/RTMPS broadcast support
+
+### Changed
+- Rebuilt browser playback around the Superpowered dual-deck audio engine
+- Moved track analysis onto durable workflow and queue/worker processing
+- Added callback-driven analysis completion, retries, scoped queue authentication, and service-token rotation
+- Expanded CI, Cypress journeys, Sentry instrumentation, and playback diagnostics
+
+### Fixed
+- SoundCloud HLS decoding and bearer-token forwarding in Superpowered playback
+- Track stream resolution, artwork handling, and Open Graph image caching
+- Busy-state handling so typed listener requests are not dropped
+
 ## [0.0.3] - 2024-07-15
 
 ### Added

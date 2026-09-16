@@ -19,15 +19,15 @@ const MOTION_ICON = iconToDataUrl(Smartphone);
 
 export function MotionControl() {
   const [showButton, setShowButton] = useState(false);
-  const orientationEvent = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
-    requestPermission?: () => Promise<"granted" | "denied">;
-  };
 
   useEffect(() => {
-    if (
-      typeof DeviceOrientationEvent !== "undefined" &&
-      typeof orientationEvent.requestPermission === "function"
-    ) {
+    if (typeof DeviceOrientationEvent === "undefined") return;
+
+    const orientationEvent = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<"granted" | "denied">;
+    };
+
+    if (typeof orientationEvent.requestPermission === "function") {
       setShowButton(true);
 
       const handler = (e: DeviceOrientationEvent) => {
@@ -43,7 +43,11 @@ export function MotionControl() {
 
   const requestPermission = async () => {
     try {
-    const response = await orientationEvent.requestPermission?.();
+      if (typeof DeviceOrientationEvent === "undefined") return;
+      const orientationEvent = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+        requestPermission?: () => Promise<"granted" | "denied">;
+      };
+      const response = await orientationEvent.requestPermission?.();
       if (response === "granted") setShowButton(false);
     } catch (e) {
       console.error(e);

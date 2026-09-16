@@ -51,6 +51,7 @@ export function MusicPlayerScene({
   isPlaying = false,
   onLikeClick,
   isLiked = false,
+  onCommentClick,
   liveSessionKey,
   onCanvasReady,
   broadcastPortrait = false,
@@ -68,6 +69,7 @@ export function MusicPlayerScene({
   isPlaying?: boolean;
   onLikeClick?: () => void;
   isLiked?: boolean;
+  onCommentClick?: () => void;
   liveSessionKey?: string;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
   broadcastPortrait?: boolean;
@@ -171,6 +173,7 @@ export function MusicPlayerScene({
             isPlaying={isPlaying}
             onLikeClick={onLikeClick}
             isLiked={isLiked}
+            onCommentClick={onCommentClick}
           />
         </group>
 
