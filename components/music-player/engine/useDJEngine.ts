@@ -306,6 +306,7 @@ export function useDJEngine(opts: UseDJEngineOptions) {
   return {
     djState: engineState.djState,
     phase,
+    audioReady: audioGraph.audioReady,
     isPlaying,
     isTransitioning,
     activeDeck,
