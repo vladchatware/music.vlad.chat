@@ -4,6 +4,7 @@ import { easing } from 'maath';
 import * as THREE from 'three';
 import {
   deviceOrientationQuaternion,
+  orbitPositionFromOrientation,
   relativeDeviceOrientation,
 } from '@/lib/deviceOrientation';
 
@@ -12,6 +13,7 @@ type RigProps = {
 };
 
 const MAX_CAMERA_ORIENTATION = THREE.MathUtils.degToRad(15);
+const ORBIT_CENTER_Z = -2;
 
 const smoothTowards = (current: number, target: number, delta: number) => {
   const alpha = 1 - Math.exp(-delta * 6);
@@ -26,7 +28,6 @@ export const Rig = ({ audioLevelRef }: RigProps = {}) => {
   const relativeOrientationRef = useRef(new THREE.Quaternion());
   const targetQuaternionRef = useRef(new THREE.Quaternion());
   const focusRef = useRef(new THREE.Vector3());
-  const cameraOffsetRef = useRef(new THREE.Vector3());
   const targetPositionRef = useRef(new THREE.Vector3());
 
   useEffect(() => {
@@ -103,19 +104,17 @@ export const Rig = ({ audioLevelRef }: RigProps = {}) => {
       const targetQuaternion = targetQuaternionRef.current
         .identity()
         .slerp(relativeOrientation, boundedInfluence);
-      const focus = focusRef.current.set(0, 0, lookAtZ);
-      const cameraOffset = cameraOffsetRef.current
-        .set(0, 0, pointerZ - lookAtZ)
-        .applyQuaternion(targetQuaternion);
-      const targetPosition = targetPositionRef.current
-        .copy(focus)
-        .add(cameraOffset);
+      const focus = focusRef.current.set(0, 0, ORBIT_CENTER_Z);
+      const targetPosition = orbitPositionFromOrientation(
+        focus,
+        pointerZ - ORBIT_CENTER_Z,
+        targetQuaternion,
+        targetPositionRef.current,
+      );
 
       easing.damp3(state.camera.position, targetPosition, 0.35, delta);
-      state.camera.quaternion.slerp(
-        targetQuaternion,
-        1 - Math.exp(-delta * 6),
-      );
+      state.camera.up.set(0, 1, 0);
+      state.camera.lookAt(focus);
       return;
     }
 

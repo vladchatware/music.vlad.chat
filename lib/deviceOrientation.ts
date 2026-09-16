@@ -48,3 +48,16 @@ export function relativeDeviceOrientation(
 ) {
   return target.copy(initial).invert().premultiply(current).normalize();
 }
+
+/** Place camera on an orientation-driven sphere around a fixed scene focus. */
+export function orbitPositionFromOrientation(
+  focus: THREE.Vector3,
+  distance: number,
+  orientation: THREE.Quaternion,
+  target = new THREE.Vector3(),
+) {
+  return target
+    .set(0, 0, distance)
+    .applyQuaternion(orientation)
+    .add(focus);
+}

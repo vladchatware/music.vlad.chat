@@ -3,6 +3,7 @@ import * as THREE from "three";
 
 import {
   deviceOrientationQuaternion,
+  orbitPositionFromOrientation,
   relativeDeviceOrientation,
 } from "./deviceOrientation";
 
@@ -43,5 +44,28 @@ describe("device orientation", () => {
       90,
       6,
     );
+  });
+
+  it("keeps camera on a fixed-radius orbit around scene center", () => {
+    const focus = new THREE.Vector3(0, 0, -2);
+    const orientation = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0.15, -0.2, 0),
+    );
+    const position = orbitPositionFromOrientation(focus, 20, orientation);
+
+    expect(position.distanceTo(focus)).toBeCloseTo(20, 7);
+  });
+
+  it("does not move orbit position when phone only rolls", () => {
+    const focus = new THREE.Vector3(0, 0, -2);
+    const roll = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 0, 1),
+      Math.PI / 3,
+    );
+    const position = orbitPositionFromOrientation(focus, 20, roll);
+
+    expect(position.x).toBeCloseTo(0, 7);
+    expect(position.y).toBeCloseTo(0, 7);
+    expect(position.z).toBeCloseTo(18, 7);
   });
 });
