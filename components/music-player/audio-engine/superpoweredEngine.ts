@@ -24,6 +24,41 @@ const TRACK_LOADER_URL = "/audio/superpowered/track-loader-worker.js";
 const EVALUATION_KEY = "ExampleLicenseKey-WillExpire-OnNextUpdate";
 const COMMAND_TIMEOUT_MS = 30_000;
 
+// iOS Safari suspends Web Audio rendering (including AudioWorklets) as soon as
+// the page is backgrounded or the screen locks. Only pages with an actively
+// playing media element keep their audio session, so we hold one open with a
+// looping digital-silence WAV (inaudible at any volume, never muted). It is
+// started from the same gesture that starts playback and released when no deck
+// is playing anymore.
+const KEEP_ALIVE_SAMPLE_RATE = 8_000;
+const KEEP_ALIVE_SECONDS = 1;
+
+function createSilentWavUrl(): string {
+  const dataBytes = KEEP_ALIVE_SAMPLE_RATE * KEEP_ALIVE_SECONDS * 2; // mono, 16-bit PCM
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const writeAscii = (offset: number, text: string) => {
+    for (let index = 0; index < text.length; index += 1) {
+      view.setUint8(offset + index, text.charCodeAt(index));
+    }
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, KEEP_ALIVE_SAMPLE_RATE, true);
+  view.setUint32(28, KEEP_ALIVE_SAMPLE_RATE * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  view.setUint32(40, dataBytes, true);
+  // PCM samples stay zero-filled: digital silence.
+  return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+}
+
 type WorkletDeckState = Omit<DeckPlaybackState, "id">;
 
 type WorkletMessage =
@@ -90,6 +125,10 @@ export class SuperpoweredAudioEngine implements AudioEngine {
   private masterOutput: GainNode | null = null;
   private deckOutputs: Record<AudioDeckId, GainNode | null> = { A: null, B: null };
   private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
+  private keepAlive: HTMLAudioElement | null = null;
+  private keepAliveUrl: string | null = null;
+  private handleVisibilityChange: (() => void) | null = null;
+  private handleContextStateChange: (() => void) | null = null;
 
   get context(): AudioContext | null {
     return this.manager?.audioContext ?? null;
@@ -152,6 +191,62 @@ export class SuperpoweredAudioEngine implements AudioEngine {
     this.masterOutput = masterOutput;
     this.deckOutputs = { A: silentA, B: silentB };
     this.mediaStreamDestination = broadcastDestination;
+    this.installBackgroundPlaybackSupport(manager.audioContext);
+  }
+
+  // Foreground recovery: iOS pauses Web Audio on interruptions (phone calls,
+  // Siri, other media) and does not always restore it. When the page becomes
+  // visible again and a deck is still supposed to be playing, resume the
+  // context and re-assert the keep-alive element.
+  private installBackgroundPlaybackSupport(context: AudioContext): void {
+    this.handleContextStateChange = () => {
+      if (this.disposed || context.state !== "running") return;
+      // The context just started rendering again (e.g. an interruption ended);
+      // make sure the keep-alive element matches engine playback.
+      this.syncKeepAlive();
+    };
+    context.addEventListener("statechange", this.handleContextStateChange);
+
+    if (typeof document === "undefined") return;
+    this.handleVisibilityChange = () => {
+      if (this.disposed || document.visibilityState !== "visible") return;
+      const anyPlaying = Object.values(this.deckStates).some((state) => state.playing);
+      if (!anyPlaying) return;
+      if (context.state !== "running") void context.resume().catch(() => {});
+      this.startKeepAlive();
+    };
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private ensureKeepAliveElement(): HTMLAudioElement | null {
+    if (this.keepAlive) return this.keepAlive;
+    if (typeof Audio === "undefined") return null;
+    if (!this.keepAliveUrl) this.keepAliveUrl = createSilentWavUrl();
+    const element = new Audio(this.keepAliveUrl);
+    element.loop = true;
+    element.preload = "auto";
+    element.setAttribute("playsinline", "");
+    this.keepAlive = element;
+    return element;
+  }
+
+  // Must run inside the user gesture that starts playback: iOS only honors
+  // media element play() calls made from a gesture.
+  private startKeepAlive(): void {
+    const element = this.ensureKeepAliveElement();
+    if (!element) return;
+    void Promise.resolve(element.play()).catch(() => {});
+  }
+
+  private syncKeepAlive(): void {
+    const element = this.keepAlive;
+    if (!element) return;
+    const anyPlaying = Object.values(this.deckStates).some((state) => state.playing);
+    if (anyPlaying) {
+      this.startKeepAlive();
+    } else if (!element.paused) {
+      element.pause();
+    }
   }
 
   private installTrackLoader(
@@ -232,6 +327,10 @@ export class SuperpoweredAudioEngine implements AudioEngine {
     } else if (message.type === "transition-complete") {
       this.emit(message);
     }
+
+    if (message.type === "state" || message.type === "deck-ended") {
+      this.syncKeepAlive();
+    }
   }
 
   private emit(event: AudioEngineEvent): void {
@@ -290,6 +389,8 @@ export class SuperpoweredAudioEngine implements AudioEngine {
   }
 
   async play(deck: AudioDeckId): Promise<void> {
+    // Kick this off before any awaits so it stays inside the user gesture.
+    this.startKeepAlive();
     await this.initialize();
     if (this.context?.state === "suspended") await this.context.resume();
     await this.sendRequest({ type: "play", deck }, 5_000);
@@ -389,12 +490,26 @@ export class SuperpoweredAudioEngine implements AudioEngine {
     }
     this.pending.clear();
     this.listeners.clear();
+    if (this.handleVisibilityChange && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
+    this.handleVisibilityChange = null;
+    const context = this.context;
+    if (context && this.handleContextStateChange) {
+      context.removeEventListener("statechange", this.handleContextStateChange);
+    }
+    this.handleContextStateChange = null;
+    this.keepAlive?.pause();
+    this.keepAlive = null;
+    if (this.keepAliveUrl) {
+      URL.revokeObjectURL(this.keepAliveUrl);
+      this.keepAliveUrl = null;
+    }
     this.node?.destruct();
     this.masterOutput?.disconnect();
     this.deckOutputs.A?.disconnect();
     this.deckOutputs.B?.disconnect();
     this.mediaStreamDestination?.disconnect();
-    const context = this.context;
     this.node = null;
     this.manager = null;
     if (context && context.state !== "closed") await context.close();
