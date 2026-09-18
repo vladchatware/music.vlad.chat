@@ -385,6 +385,53 @@ export const track = async (id: string | number, userToken?: string) => {
   return track
 }
 
+const SOUND_CLOUD_URL_HOSTS = new Set([
+  'soundcloud.com',
+  'www.soundcloud.com',
+  'm.soundcloud.com',
+  'on.soundcloud.com',
+  'snd.sc',
+])
+
+export const parseSoundCloudUrl = (value: string): URL | undefined => {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    return undefined
+  }
+  if (!SOUND_CLOUD_URL_HOSTS.has(url.hostname.toLowerCase())) return undefined
+  return url
+}
+
+export const resolveTrackUrl = async (url: string | URL, userToken?: string): Promise<Track> => {
+  const access_token = userToken ?? await readAccessToken()
+  if (!access_token) throw new Error('No access token available')
+  const target = url instanceof URL ? url.toString() : url
+  const res = await rateLimitedFetch(`https://api.soundcloud.com/resolve?url=${encodeURIComponent(target)}`, {
+    headers: { Authorization: `Bearer ${access_token}` },
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    const e = new Error(`SoundCloud API error ${res.status}: ${body}`)
+    ;(e as any).status = res.status
+    throw e
+  }
+  const resource = await res.json() as Track
+  if (resource.kind !== 'track') {
+    const e = new Error(`SoundCloud URL resolved to a ${resource.kind}, not a track`)
+    ;(e as any).status = 400
+    ;(e as any).resolvedKind = resource.kind
+    throw e
+  }
+  resource.artwork_url = resource.artwork_url?.replace('-large.', '-t500x500.')
+  return resource
+}
+
 export const setTrackLiked = async (
   id: string | number,
   liked: boolean,
