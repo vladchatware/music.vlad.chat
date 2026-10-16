@@ -46,6 +46,40 @@ const mocks = vi.hoisted(() => {
     terminate() {}
   }
 
+  class FakeAudio {
+    static instances: FakeAudio[] = [];
+    loop = false;
+    volume = 1;
+    preload = "none";
+    src = "";
+    paused = true;
+    play = vi.fn(async () => {
+      this.paused = false;
+    });
+    pause = vi.fn(() => {
+      this.paused = true;
+    });
+    setAttribute = vi.fn();
+    constructor(src?: string) {
+      this.src = src ?? "";
+      FakeAudio.instances.push(this);
+    }
+  }
+
+  const visibilityListeners = new Set<() => void>();
+  const documentStub = {
+    visibilityState: "visible",
+    addEventListener: vi.fn((type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.add(listener);
+    }),
+    removeEventListener: vi.fn((type: string, listener: () => void) => {
+      visibilityListeners.delete(listener);
+    }),
+  };
+  const fireVisibilityChange = () => {
+    visibilityListeners.forEach((listener) => listener());
+  };
+
   const gain = () => ({
     gain: { value: 0 },
     connect() {},
@@ -63,6 +97,8 @@ const mocks = vi.hoisted(() => {
       connect() {},
       disconnect() {},
     }),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     resume: vi.fn(async () => {
       context.state = "running";
     }),
@@ -78,6 +114,12 @@ const mocks = vi.hoisted(() => {
     context,
     FakeNode,
     FakeWorker,
+    FakeAudio,
+    document: documentStub,
+    fireVisibilityChange,
+    emitWorkletMessage: (message: Record<string, unknown>) => {
+      onMessage?.(message);
+    },
     setOnMessage: (next: typeof onMessage) => { onMessage = next; },
   };
 });
@@ -106,10 +148,15 @@ describe("SuperpoweredAudioEngine", () => {
     mocks.sent.length = 0;
     mocks.workerMessages.length = 0;
     mocks.context.state = "suspended";
+    mocks.FakeAudio.instances.length = 0;
+    mocks.document.visibilityState = "visible";
+    mocks.context.resume.mockClear();
     vi.stubGlobal("window", {
       location: { origin: "http://localhost:3000", hostname: "localhost" },
     });
     vi.stubGlobal("Worker", mocks.FakeWorker);
+    vi.stubGlobal("Audio", mocks.FakeAudio);
+    vi.stubGlobal("document", mocks.document);
     process.env.NEXT_PUBLIC_SUPERPOWERED_LICENSE_KEY = "test-license";
   });
 
@@ -204,6 +251,78 @@ describe("SuperpoweredAudioEngine", () => {
       },
     });
     expect(engine.getLatency()).toBeCloseTo(0.03);
+    await engine.dispose();
+  });
+
+  it("starts a silent keep-alive loop on play and releases it when decks go idle", async () => {
+    const engine = new SuperpoweredAudioEngine();
+    await engine.play("A");
+
+    expect(mocks.FakeAudio.instances).toHaveLength(1);
+    const keepAlive = mocks.FakeAudio.instances[0];
+    expect(keepAlive.loop).toBe(true);
+    expect(keepAlive.src).toContain("blob:");
+    expect(keepAlive.play).toHaveBeenCalledTimes(1);
+
+    // Worklet telemetry with every deck idle must release the audio session.
+    mocks.emitWorkletMessage({
+      type: "state",
+      decks: {
+        A: { loaded: true, playing: false, ended: false, positionSec: 10, durationSec: 180, playbackRate: 1, pitchSemitones: 0, gain: 1 },
+        B: { loaded: false, playing: false, ended: false, positionSec: 0, durationSec: 0, playbackRate: 1, pitchSemitones: 0, gain: 0 },
+      },
+    });
+    expect(keepAlive.pause).toHaveBeenCalled();
+    expect(keepAlive.paused).toBe(true);
+
+    await engine.dispose();
+    expect(mocks.document.removeEventListener).toHaveBeenCalledWith(
+      "visibilitychange",
+      expect.any(Function),
+    );
+    expect(mocks.context.removeEventListener).toHaveBeenCalledWith(
+      "statechange",
+      expect.any(Function),
+    );
+  });
+
+  it("resumes the context and keep-alive when returning to the foreground mid-playback", async () => {
+    const engine = new SuperpoweredAudioEngine();
+    await engine.play("A");
+    const keepAlive = mocks.FakeAudio.instances[0];
+
+    // Simulate iOS suspending the session mid-playback. While suspended the
+    // worklet stops rendering, so no "state" telemetry arrives — the engine
+    // must still know a deck is playing (via deck state) and recover.
+    mocks.context.state = "suspended";
+    mocks.emitWorkletMessage({
+      type: "deck-loaded",
+      deck: "A",
+      state: { loaded: true, playing: true, ended: false, positionSec: 30, durationSec: 180, playbackRate: 1, pitchSemitones: 0, gain: 1 },
+    });
+    mocks.fireVisibilityChange();
+
+    expect(mocks.context.resume).toHaveBeenCalledTimes(2); // play() + foreground recovery
+    expect(keepAlive.play).toHaveBeenCalledTimes(2);
+    expect(keepAlive.paused).toBe(false);
+    await engine.dispose();
+  });
+
+  it("does not resume the context when returning to the foreground while paused", async () => {
+    const engine = new SuperpoweredAudioEngine();
+    await engine.play("A");
+    mocks.context.state = "suspended";
+    mocks.emitWorkletMessage({
+      type: "state",
+      decks: {
+        A: { loaded: true, playing: false, ended: false, positionSec: 30, durationSec: 180, playbackRate: 1, pitchSemitones: 0, gain: 1 },
+        B: { loaded: false, playing: false, ended: false, positionSec: 0, durationSec: 0, playbackRate: 1, pitchSemitones: 0, gain: 0 },
+      },
+    });
+
+    mocks.fireVisibilityChange();
+
+    expect(mocks.context.resume).toHaveBeenCalledTimes(1); // only from play()
     await engine.dispose();
   });
 });

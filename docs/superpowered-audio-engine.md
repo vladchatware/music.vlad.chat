@@ -91,6 +91,12 @@ plan into one worklet command; audio execution no longer depends on animation fr
 - SoundCloud stream redirects must remain fetchable with CORS because Superpowered decodes through
   a worker instead of a media element.
 - iOS/Safari still requires a user gesture before `AudioContext.resume()`. `play()` performs resume.
+- iOS/Safari suspends Web Audio in the background. The engine holds the audio session open with a
+  looping digital-silence `<audio>` element (`createSilentWavUrl` in `superpoweredEngine.ts`), started
+  from the same gesture as playback and paused whenever no deck reports `playing`. On returning to the
+  foreground mid-playback it also resumes a suspended/interrupted `AudioContext` and re-asserts the
+  element (`visibilitychange` + `statechange` handlers). Lock-screen controls come from the MediaSession
+  setup in `MusicPlayer.tsx`.
 - Tracks are decoded into memory. Very long tracks increase per-deck memory use; progressive decode
   is a later optimization, not part of this migration.
 
